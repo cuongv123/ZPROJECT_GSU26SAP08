@@ -1,0 +1,6 @@
+define service ZUI_GEN_8B95F36A4F271FD19EBDD5 {
+  expose ZCE_GEN_JOB_CLOSE;
+  expose ZCE_GEN_JOB_OPEN;
+  expose ZCE_GEN_JOB_SUBMIT;
+  expose ZCE_GEN_RS_VARIANT_CATALOG;
+}

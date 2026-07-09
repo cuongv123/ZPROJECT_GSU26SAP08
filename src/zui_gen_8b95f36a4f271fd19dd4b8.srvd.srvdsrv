@@ -1,0 +1,6 @@
+define service ZUI_GEN_8B95F36A4F271FD19DD4B8 {
+  expose ZC_GEN_VBAK;
+  expose ZC_GEN_VBRK;
+  expose ZCE_GEN_BAPI_USER_GET_DETAIL;
+  expose ZCE_GEN_REUSE_ALV_GRID_DISPLAY;
+}

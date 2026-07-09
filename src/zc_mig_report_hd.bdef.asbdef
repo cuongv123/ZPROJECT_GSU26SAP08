@@ -1,0 +1,51 @@
+projection;
+strict ( 2 );
+
+// ----------------------------------------------------
+// 1. BEHAVIOR CỦA ROOT (HEADER)
+// ----------------------------------------------------
+define behavior for ZC_MIG_REPORT_HD alias ReportHeader
+{
+  use create;
+  use update;
+  use delete;
+
+  use action analyzeAndSave;
+  use action exportToExcel;
+  use action generateCode;
+
+  // Khai báo mở khóa các liên kết (associations) đến tất cả các con
+  use association _DbTable { create; }
+  use association _UiFilter { create; }
+  use association _BusinessLogic { create; }
+}
+
+// ----------------------------------------------------
+// 2. BEHAVIOR CỦA CHILD 1: UI FILTER (Đã đổi lên đây cho khớp với Base)
+// ----------------------------------------------------
+define behavior for ZC_MIG_REPORT_FILTER alias UiFilter
+{
+  use update;
+  use delete;
+  use association _ReportHeader;
+}
+
+// ----------------------------------------------------
+// 3. BEHAVIOR CỦA CHILD 2: DB TABLE (Chỗ hết báo lỗi)
+// ----------------------------------------------------
+define behavior for ZC_MIG_REPORT_DB alias DbTable
+{
+  use update;
+  use delete;
+  use association _ReportHeader;
+}
+
+// ----------------------------------------------------
+// 4. BEHAVIOR CỦA CHILD 3: BUSINESS LOGIC
+// ----------------------------------------------------
+define behavior for ZC_MIG_REPORT_LOGIC alias BusinessLogic
+{
+  use update;
+  use delete;
+  use association _ReportHeader;
+}

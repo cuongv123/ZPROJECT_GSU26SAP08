@@ -1,0 +1,75 @@
+managed implementation in class zcl_bp_mig_report_hd unique;
+strict ( 2 );
+
+define behavior for ZI_MIG_REPORT_HD alias ReportHeader
+persistent table ztmig_overview
+lock master
+authorization master ( global )
+{
+  create; update; delete;
+
+  // Chỉ giữ lại 3 association của các bảng con thực sự lưu dữ liệu phân tích
+  association _UiFilter { create; }
+  association _DbTable { create; }
+  association _BusinessLogic { create; }
+
+  field (readonly, numbering : managed ) ReportID;
+  static action analyzeAndSave parameter ZD_ANALYZE_PARAM result [1] $self;
+  action exportToExcel result [1] $self;
+
+  action generateCode result [1] $self;
+
+  mapping for ztmig_overview {
+    ReportID = report_id; ProgramName = program_name; ProgramDescription = description;
+    AnalyzedBy = analyzed_by; AnalyzedAt = analyzed_at; TotalTables = total_tables;
+    TotalFilters = total_filters; TotalBusinessObjects = total_objects;
+    MigrationScore = migration_score; ComplexityScore = complexity_score;
+    CloudReadinessScore = cloud_readiness; AnalysisStatus = status;
+  }
+}
+
+define behavior for ZI_MIG_REPORT_FILTER alias UiFilter
+persistent table ztmig_filter
+lock dependent by _ReportHeader
+authorization dependent by _ReportHeader
+{
+  update; delete;
+  association _ReportHeader;
+  field ( readonly ) ReportID; field ( readonly : update ) FieldName;
+  mapping for ztmig_filter {
+    ReportID = report_id; FieldName = field_name; Description = description;
+    FilterType = filter_type; Recommendation = recommendation; MigrationTarget = migration_target;
+    DataElement = data_element; MandatoryFlag = mandatory_flag; MultiValueFlag = multi_value_flag;
+    Severity = severity; FioriAdaptation = fiori_adaptation;
+  }
+}
+
+define behavior for ZI_MIG_REPORT_DB alias DbTable
+persistent table ztmig_dbtable
+lock dependent by _ReportHeader
+authorization dependent by _ReportHeader
+{
+  update; delete;
+  association _ReportHeader;
+  field ( readonly ) ReportID; field ( readonly : update ) TableName;
+  mapping for ztmig_dbtable {
+    ReportID = report_id; TableName = table_name; Description = description;
+    Operations = operations; Recommendation = recommendation; CdsCandidate = cds_candidate;
+    Priority = priority; MigrationApproach = migration_approach;
+  }
+}
+
+define behavior for ZI_MIG_REPORT_LOGIC alias BusinessLogic
+persistent table ztmig_logic
+lock dependent by _ReportHeader
+authorization dependent by _ReportHeader
+{
+  update; delete;
+  association _ReportHeader;
+  field ( readonly ) ReportID; field ( readonly : update ) ObjectName;
+  mapping for ztmig_logic {
+    ReportID = report_id; ObjectName = object_name; ObjectType = object_type;
+    Description = description; MigrationTarget = migration_target; Severity = severity;
+    Recommendation = recommendation; RemediationComplexity = complexity;
+  }
+}
