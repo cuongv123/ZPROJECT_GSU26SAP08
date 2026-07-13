@@ -17,8 +17,6 @@ authorization master ( global )
   static action analyzeAndSave parameter ZD_ANALYZE_PARAM result [1] $self;
   action exportToExcel result [1] $self;
 
-  action generateCode result [1] $self;
-
   mapping for ztmig_overview {
     ReportID = report_id; ProgramName = program_name; ProgramDescription = description;
     AnalyzedBy = analyzed_by; AnalyzedAt = analyzed_at; TotalTables = total_tables;
@@ -54,7 +52,7 @@ authorization dependent by _ReportHeader
   field ( readonly ) ReportID; field ( readonly : update ) TableName;
   mapping for ztmig_dbtable {
     ReportID = report_id; TableName = table_name; Description = description;
-    Operations = operations; Recommendation = recommendation; CdsCandidate = cds_candidate;
+    Operations = operations; Fields = fields; Recommendation = recommendation; CdsCandidate = cds_candidate;
     Priority = priority; MigrationApproach = migration_approach;
   }
 }

@@ -12,7 +12,6 @@ define behavior for ZC_MIG_REPORT_HD alias ReportHeader
 
   use action analyzeAndSave;
   use action exportToExcel;
-  use action generateCode;
 
   // Khai báo mở khóa các liên kết (associations) đến tất cả các con
   use association _DbTable { create; }

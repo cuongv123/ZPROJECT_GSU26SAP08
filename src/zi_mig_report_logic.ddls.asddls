@@ -12,6 +12,7 @@ define view entity ZI_MIG_REPORT_LOGIC
       severity         as Severity,
       recommendation   as Recommendation,
       complexity       as RemediationComplexity,
+      targetstructure  as  TargetStructure,
       
       _ReportHeader
 }

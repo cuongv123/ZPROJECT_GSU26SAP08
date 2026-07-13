@@ -18,6 +18,10 @@ define root custom entity ZCE_DB_TABLE
       @UI.lineItem      : [ { position: 40 } ]
       @EndUserText.label: 'Operations'
       Operations        : abap.char(100);
+      
+      @UI.lineItem: [{ position: 45 }]
+      @EndUserText.label: 'Selected Fields'
+      Fields : abap.char( 255 );
 
       @UI.lineItem      : [{ position: 90 }]
       @EndUserText.label: 'Recommendation'

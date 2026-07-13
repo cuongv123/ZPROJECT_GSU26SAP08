@@ -78,7 +78,14 @@ CLASS zcl_abap_source_parser DEFINITION
       IMPORTING it_source_code TYPE zcl_parser_types=>tt_source_code
       CHANGING  ct_logic       TYPE zcl_parser_types=>tt_raw_logic.
 
+    METHODS extract_alv_variable
+      IMPORTING iv_statement TYPE string
+                iv_alv_type  TYPE string
+      RETURNING VALUE(rv_variable) TYPE string.
 
+    METHODS extract_select_fields
+      IMPORTING iv_line TYPE string
+      RETURNING VALUE(rv_fields) TYPE string.
 ENDCLASS.
 
 
@@ -384,48 +391,84 @@ CLASS zcl_abap_source_parser IMPLEMENTATION.
         CONTINUE.
       ENDIF.
 
+    "=====================================
+      " Detect SELECT
       "=====================================
-      " Detect SELECT-OPTIONS
-      "=====================================
-      IF lv_upper CS 'SELECT-OPTIONS'.
+      IF lv_upper CS 'SELECT' AND lv_upper CS 'FROM'.
         CLEAR lt_items.
-        SPLIT lv_line AT ',' INTO TABLE lt_items.
-        LOOP AT lt_items INTO lv_item.
-          CLEAR ls_filter.
-          extract_select_option(
-            EXPORTING
-              iv_line = lv_item
-            IMPORTING
-              ev_field        = ls_filter-field_name
-              ev_data_element = ls_filter-data_element ).
-          ls_filter-filter_type = 'SELECT-OPTIONS'.
-          IF ls_filter-field_name IS NOT INITIAL.
-            APPEND ls_filter TO et_ui_filter.
-          ENDIF.
+        lt_items = extract_join_tables( lv_line ).
+
+        DATA: lv_extracted_fields TYPE string,
+              lv_sel_table        TYPE string.
+
+        " Gọi hàm bóc tách trường
+        lv_extracted_fields = me->extract_select_fields( lv_line ).
+
+        LOOP AT lt_items INTO lv_sel_table.
+          CLEAR ls_table.
+          ls_table-table_name = lv_sel_table.
+          ls_table-operation  = 'SELECT'.
+          ls_table-fields     = lv_extracted_fields. " <--- LƯU VÀO ls_table
+          APPEND ls_table TO et_db_table.
         ENDLOOP.
       ENDIF.
 
       "=====================================
-      " Detect PARAMETERS
+      " Detect PARAMETERS & SELECT-OPTIONS (Smart Scan)
       "=====================================
-      IF lv_upper CS 'PARAMETERS'.
-        CLEAR lt_items.
-        SPLIT lv_line AT ',' INTO TABLE lt_items.
-        LOOP AT lt_items INTO lv_item.
-          CLEAR ls_filter.
-          extract_parameter(
-            EXPORTING
-              iv_line = lv_item
-            IMPORTING
-              ev_field        = ls_filter-field_name
-              ev_data_element = ls_filter-data_element ).
-          ls_filter-filter_type = 'PARAMETERS'.
-          IF ls_filter-field_name IS NOT INITIAL.
-            APPEND ls_filter TO et_ui_filter.
-          ENDIF.
-        ENDLOOP.
+      IF lv_upper CS 'PARAMETERS' OR lv_upper CS 'SELECT-OPTIONS'.
+        CLEAR ls_filter.
+
+        " 1. Xác định loại Filter
+        IF lv_upper CS 'PARAMETERS'.
+          ls_filter-filter_type = 'Single Value'.
+        ELSE.
+          ls_filter-filter_type = 'Multiple Range'.
+        ENDIF.
+
+        " 2. Lấy Tên Biến bằng Regex
+        FIND PCRE `(?:PARAMETERS|SELECT-OPTIONS)\s*:?\s*([\w\-]+)` IN lv_upper SUBMATCHES ls_filter-field_name.
+
+        " 3. Lấy Data Element (TYPE, LIKE, FOR)
+        FIND PCRE `(?:TYPE|LIKE|FOR)\s+([\w\-]+)` IN lv_upper SUBMATCHES ls_filter-data_element.
+        " Xóa tiền tố bảng nếu có (VD: VBAK-VBELN -> VBELN)
+        IF ls_filter-data_element CS '-'.
+          SPLIT ls_filter-data_element AT '-' INTO DATA(lv_dummy_tab) ls_filter-data_element.
+        ENDIF.
+
+        " 4. Nhận diện OBLIGATORY (Bắt buộc nhập)
+        IF lv_upper CS 'OBLIGATORY'.
+          ls_filter-mandatory_flag = abap_true.
+        ELSE.
+          ls_filter-mandatory_flag = abap_false.
+        ENDIF.
+
+        " 5. Nhận diện MATCHCODE OBJECT (Search Help)
+        FIND PCRE `MATCHCODE\s+OBJECT\s+([\w]+)` IN lv_upper SUBMATCHES ls_filter-matchcode_object.
+
+        IF ls_filter-field_name IS NOT INITIAL.
+          APPEND ls_filter TO et_ui_filter.
+        ENDIF.
       ENDIF.
 
+      "=====================================
+      " Detect AUTHORITY-CHECK (Security Scan)
+      "=====================================
+      IF lv_upper CS 'AUTHORITY-CHECK OBJECT'.
+        CLEAR ls_logic.
+        " Bắt tên Object phân quyền nằm trong dấu nháy đơn
+        FIND PCRE `AUTHORITY-CHECK\s+OBJECT\s+'([^']+)'` IN lv_upper SUBMATCHES ls_logic-object_name.
+
+        IF ls_logic-object_name IS INITIAL.
+          " Fallback nếu lập trình viên truyền bằng biến thay vì nháy đơn
+          FIND PCRE `AUTHORITY-CHECK\s+OBJECT\s+([\w]+)` IN lv_upper SUBMATCHES ls_logic-object_name.
+        ENDIF.
+
+        IF ls_logic-object_name IS NOT INITIAL.
+          ls_logic-object_type = 'AUTHORITY-CHECK'.
+          APPEND ls_logic TO et_logic.
+        ENDIF.
+      ENDIF.
       "=====================================
       " Detect PERFORM
       "=====================================
@@ -572,6 +615,80 @@ CLASS zcl_abap_source_parser IMPLEMENTATION.
           APPEND ls_table TO et_db_table.
         ENDIF.
       ENDIF.
+      "=====================================
+      " Detect SELECT
+      "=====================================
+      IF lv_upper CS 'SELECT' AND lv_upper CS 'FROM'.
+        CLEAR lt_items.
+        lt_items = extract_join_tables( lv_line ).
+
+        " 1. Đổi sang tên biến hoàn toàn mới (lv_sql_fields) để né code cũ
+        DATA(lv_sql_fields) = me->extract_select_fields( lv_line ).
+
+        " 2. Dùng FIELD-SYMBOL để lặp, tuyệt đối miễn nhiễm với lỗi "already declared"
+        LOOP AT lt_items ASSIGNING FIELD-SYMBOL(<fs_table_name>).
+          CLEAR ls_table.
+          ls_table-table_name = <fs_table_name>.
+          ls_table-operation  = 'SELECT'.
+          ls_table-fields     = lv_sql_fields. " <--- LƯU FIELDS VÀO ĐÂY
+          APPEND ls_table TO et_db_table.
+        ENDLOOP.
+      ENDIF.
+      "===================================================================
+      " THE CORE: DETECT ALV -> EXTRACT VARIABLE -> RESOLVE DATA TYPE
+      "===================================================================
+      DATA: lv_alv_type TYPE string.
+      CLEAR lv_alv_type.
+
+      " 1. Nhận diện các loại ALV trên toàn bộ 1 Statement hoàn chỉnh
+      IF lv_upper CS 'REUSE_ALV_GRID_DISPLAY' OR lv_upper CS 'REUSE_ALV_LIST_DISPLAY'.
+        lv_alv_type = 'ALV_CLASSIC'.
+        ls_logic-object_name = 'REUSE_ALV_DISPLAY'.
+      ELSEIF lv_upper CS 'SET_TABLE_FOR_FIRST_DISPLAY'.
+        lv_alv_type = 'ALV_OO'.
+        ls_logic-object_name = 'CL_GUI_ALV_GRID'.
+      ELSEIF lv_upper CS 'CL_SALV_TABLE=>FACTORY'.
+        lv_alv_type = 'ALV_SALV'.
+        ls_logic-object_name = 'CL_SALV_TABLE'.
+      ENDIF.
+
+      " 2. Nếu tìm thấy ALV, bắt đầu quy trình TRUY HỒI ĐỘNG (Dynamic Resolution)
+      IF lv_alv_type IS NOT INITIAL.
+        ls_logic-object_type = lv_alv_type.
+
+        " A. Bóc tách tên biến (Ví dụ: Lấy ra chữ 'GT_DATA')
+        DATA(lv_var_name) = extract_alv_variable(
+                              iv_statement = lv_upper
+                              iv_alv_type  = lv_alv_type ).
+
+        " B. Kích hoạt cỗ máy Resolver quét ngược toàn bộ Source Code để tìm gốc
+        IF lv_var_name IS NOT INITIAL.
+          DATA(lo_resolver) = NEW zcl_abap_type_resolver( ).
+          ls_logic-target_structure = lo_resolver->resolve_type(
+                                        iv_variable_name = lv_var_name
+                                        it_source_code   = it_source_code ).
+        ENDIF.
+
+    " C. GHI NHẬN THÀNH QUẢ VÀ LÀM SẠCH DỮ LIỆU TRƯỚC KHI LƯU DB
+        IF ls_logic-target_structure IS INITIAL OR ls_logic-target_structure = 'NO_STRUCTURE_FOUND'.
+          " Cứu vớt: Bắt tham số I_STRUCTURE_NAME nếu nó nằm cùng 1 dòng
+          FIND PCRE `I_STRUCTURE_NAME\s*=\s*'([^']+)'` IN lv_upper SUBMATCHES ls_logic-target_structure.
+        ENDIF.
+
+        " TẨY RỬA RÁC: Xóa ngay chữ TABLE OF nếu bộ type_resolver bắt nhầm
+        IF ls_logic-target_structure CS 'TABLE OF'.
+           REPLACE ALL OCCURRENCES OF 'STANDARD TABLE OF' IN ls_logic-target_structure WITH ''.
+           REPLACE ALL OCCURRENCES OF 'TABLE OF' IN ls_logic-target_structure WITH ''.
+           CONDENSE ls_logic-target_structure.
+        ENDIF.
+
+        IF ls_logic-target_structure IS INITIAL.
+          ls_logic-target_structure = 'NO_STRUCTURE_FOUND'.
+        ENDIF.
+
+        APPEND ls_logic TO et_logic.
+        CLEAR ls_logic.
+      ENDIF.
     ENDLOOP.
 
     "=====================================
@@ -599,31 +716,51 @@ CLASS zcl_abap_source_parser IMPLEMENTATION.
     LOOP AT it_source_code INTO DATA(lv_line).
       DATA(lv_upper) = to_upper( condense( lv_line ) ).
 
-      " 1. Bóc tách PARAMETERS (Dùng chuẩn PCRE thay cho REGEX)
+      " 1. Bóc tách PARAMETERS
       IF find( val = lv_upper pcre = `PARAMETERS\s*:?\s*(\w+)\s+TYPE\s+(\w+)` ) >= 0.
         FIND PCRE `PARAMETERS\s*:?\s*(\w+)\s+TYPE\s+(\w+)` IN lv_upper SUBMATCHES lv_field lv_type.
         IF sy-subrc = 0.
           ls_filter-field_name   = lv_field.
           ls_filter-filter_type  = 'Single Value'.
           ls_filter-data_element = lv_type.
-          " Chỉ trích xuất thông tin thô, không gán recommendation ở đây
+
+          " ========================================================
+          " BẮT ĐẦU CHÈN THÊM LOGIC MỚI VÀO ĐÂY (CHO PARAMETERS)
+          IF lv_upper CS 'OBLIGATORY'.
+            ls_filter-mandatory_flag = abap_true.
+          ELSE.
+            ls_filter-mandatory_flag = abap_false.
+          ENDIF.
+          FIND PCRE `MATCHCODE\s+OBJECT\s+([\w]+)` IN lv_upper SUBMATCHES ls_filter-matchcode_object.
+          " ========================================================
+
           APPEND ls_filter TO ct_ui_filter.
           CLEAR ls_filter.
         ENDIF.
       ENDIF.
 
-      " 2. Bóc tách SELECT-OPTIONS (Dùng chuẩn PCRE)
+      " 2. Bóc tách SELECT-OPTIONS
       IF find( val = lv_upper pcre = `SELECT-OPTIONS\s*:?\s*(\w+)\s+FOR\s+([\w-]+)` ) >= 0.
         FIND PCRE `SELECT-OPTIONS\s*:?\s*(\w+)\s+FOR\s+([\w-]+)` IN lv_upper SUBMATCHES lv_field lv_type.
         IF sy-subrc = 0.
           ls_filter-field_name   = lv_field.
           ls_filter-filter_type  = 'Multiple Range'.
           ls_filter-data_element = lv_type.
+
+          " ========================================================
+          " BẮT ĐẦU CHÈN THÊM LOGIC MỚI VÀO ĐÂY (CHO SELECT-OPTIONS)
+          IF lv_upper CS 'OBLIGATORY'.
+            ls_filter-mandatory_flag = abap_true.
+          ELSE.
+            ls_filter-mandatory_flag = abap_false.
+          ENDIF.
+          FIND PCRE `MATCHCODE\s+OBJECT\s+([\w]+)` IN lv_upper SUBMATCHES ls_filter-matchcode_object.
+          " ========================================================
+
           APPEND ls_filter TO ct_ui_filter.
           CLEAR ls_filter.
         ENDIF.
       ENDIF.
-
     ENDLOOP.
   ENDMETHOD.
 
@@ -664,4 +801,53 @@ CLASS zcl_abap_source_parser IMPLEMENTATION.
     ENDLOOP.
   ENDMETHOD.
 
+ METHOD extract_alv_variable.
+    DATA: lv_pattern TYPE string,
+          lv_match   TYPE string.
+
+    " Tùy thuộc vào loại kiến trúc ALV, tham số chứa dữ liệu sẽ khác nhau
+    CASE iv_alv_type.
+      WHEN 'ALV_CLASSIC'.
+        " Bắt biến sau chữ T_OUTTAB = (Ví dụ: T_OUTTAB = gt_sales)
+        lv_pattern = `T_OUTTAB\s*=\s*([\w\-]+)`.
+      WHEN 'ALV_OO'.
+        " Bắt biến sau chữ IT_OUTTAB =
+        lv_pattern = `IT_OUTTAB\s*=\s*([\w\-]+)`.
+      WHEN 'ALV_SALV'.
+        " Bắt biến sau chữ T_TABLE =
+        lv_pattern = `T_TABLE\s*=\s*([\w\-]+)`.
+      WHEN OTHERS.
+        RETURN.
+    ENDCASE.
+
+    " Dùng PCRE quét trên toàn bộ câu lệnh (statement) đã được gộp dòng
+    FIND PCRE lv_pattern IN to_upper( iv_statement ) SUBMATCHES lv_match.
+    IF sy-subrc = 0.
+      " Xóa khoảng trắng thừa
+      rv_variable = condense( lv_match ).
+    ENDIF.
+  ENDMETHOD.
+
+    METHOD extract_select_fields.
+    DATA: lv_pattern TYPE string.
+    DATA(lv_upper) = to_upper( condense( iv_line ) ).
+
+    " Regex: Lấy tất cả mọi thứ nằm giữa SELECT (có thể kèm SINGLE/DISTINCT) và FROM
+    lv_pattern = `SELECT\s+(?:SINGLE\s+)?(?:DISTINCT\s+)?(.*?)\s+FROM`.
+
+    FIND PCRE lv_pattern IN lv_upper SUBMATCHES DATA(lv_raw_fields).
+
+    IF sy-subrc = 0.
+      " Nếu lập trình viên dùng SELECT *
+      IF lv_raw_fields CS '*'.
+        rv_fields = '*'.
+      ELSE.
+        " Xóa dấu phẩy và dọn dẹp khoảng trắng dư thừa
+        REPLACE ALL OCCURRENCES OF ',' IN lv_raw_fields WITH space.
+        rv_fields = condense( lv_raw_fields ).
+        " Kết quả sẽ có dạng: 'VBELN ERDAT MATNR'
+      ENDIF.
+    ENDIF.
+  ENDMETHOD.
 ENDCLASS.
+

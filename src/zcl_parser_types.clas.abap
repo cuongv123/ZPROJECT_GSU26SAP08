@@ -27,11 +27,13 @@ CLASS zcl_parser_types DEFINITION
     "=========================================
     " RAW UI FILTER DTO
     "=========================================
-    TYPES:
+     TYPES:
       BEGIN OF ty_raw_ui_filter,
-        field_name   TYPE string,
-        filter_type  TYPE string,
-        data_element TYPE string,
+        field_name       TYPE string,
+        filter_type      TYPE string,
+        data_element     TYPE string,
+        mandatory_flag   TYPE abap_bool, " <--- MỚI: Cờ bắt buộc nhập
+        matchcode_object TYPE string,    " <--- MỚI: Tên Search Help
       END OF ty_raw_ui_filter.
     TYPES tt_raw_ui_filter TYPE STANDARD TABLE OF ty_raw_ui_filter WITH EMPTY KEY.
 
@@ -74,6 +76,7 @@ CLASS zcl_parser_types DEFINITION
       BEGIN OF ty_raw_db_table,
         table_name TYPE string,
         operation  TYPE string,
+        fields     TYPE string,
       END OF ty_raw_db_table.
     TYPES tt_raw_db_table TYPE STANDARD TABLE OF ty_raw_db_table WITH EMPTY KEY.
 
@@ -86,6 +89,7 @@ CLASS zcl_parser_types DEFINITION
         table_name         TYPE tabname,
         table_description  TYPE string,
         operations         TYPE string,
+        fields             TYPE string,
         cds_candidate      TYPE string,
         priority           TYPE string,
         recommendation     TYPE string,
@@ -114,6 +118,7 @@ CLASS zcl_parser_types DEFINITION
       BEGIN OF ty_raw_logic,
         object_name TYPE string,
         object_type TYPE string,
+        target_structure TYPE string,
       END OF ty_raw_logic.
     TYPES tt_raw_logic TYPE STANDARD TABLE OF ty_raw_logic WITH EMPTY KEY.
 
@@ -126,6 +131,7 @@ CLASS zcl_parser_types DEFINITION
         object_name            TYPE string,
         object_type            TYPE string,
         description            TYPE string,
+        target_structure       TYPE string,
         api_released_flag      TYPE abap_bool,
         cloud_compliant        TYPE abap_bool,
         migration_target       TYPE string,

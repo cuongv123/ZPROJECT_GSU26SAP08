@@ -110,19 +110,26 @@ CLASS zcl_recommendation_engine IMPLEMENTATION.
         ) TO et_ui_filter.
 
       ELSE.
-        " XỬ LÝ MẶC ĐỊNH CHO CÁC BIẾN MÀN HÌNH CHỌN (PARAMETERS / SELECT-OPTIONS)
+        " XỬ LÝ MẶC ĐỊNH CHO CÁC BIẾN MÀN HÌNH CHỌN
         DATA lv_migration_target TYPE string.
         DATA lv_recommendation   TYPE string.
+        DATA lv_fiori_adapt      TYPE string VALUE 'Auto-Generate'.
 
         IF ls_raw-filter_type = 'Single Value'.
           lv_migration_target = 'Fiori SmartFilterBar (Single)'.
           lv_recommendation   = 'Sẵn sàng sinh mã @UI.selectionField'.
         ELSEIF ls_raw-filter_type = 'Multiple Range'.
           lv_migration_target = 'Fiori SmartFilterBar (Multi)'.
-          lv_recommendation   = 'Sẵn sàng sinh mã @UI.selectionField. Cần khai báo Custom Entity nếu xử lý Range phức tạp'.
-        ELSE.
-          lv_migration_target = 'NO_RULE_FOUND'.
-          lv_recommendation   = 'Missing UI Rule'.
+          lv_recommendation   = 'Sinh mã @UI.selectionField. Chú ý: Cần Custom Entity nếu Range phức tạp'.
+        ENDIF.
+
+        " Kích hoạt AI tư vấn dựa trên cờ Mandatory và Matchcode
+        IF ls_raw-mandatory_flag = abap_true.
+          lv_fiori_adapt = |Gắn Annotation @ObjectModel.mandatory: true|.
+        ENDIF.
+        IF ls_raw-matchcode_object IS NOT INITIAL.
+          lv_recommendation = lv_recommendation && | + Kèm Search Help '{ ls_raw-matchcode_object }'|.
+          lv_fiori_adapt = |Gắn Annotation @Consumption.valueHelpDefinition|.
         ENDIF.
 
         APPEND VALUE zcl_parser_types=>ty_ui_filter(
@@ -131,13 +138,12 @@ CLASS zcl_recommendation_engine IMPLEMENTATION.
           description       = get_data_element_text( ls_raw-data_element )
           filter_type       = ls_raw-filter_type
           data_element      = ls_raw-data_element
-          " Tạm thời để trống mandatory vì chưa bóc được từ khoá OBLIGATORY ở bước trước
-          mandatory_flag    = abap_false
+          mandatory_flag    = ls_raw-mandatory_flag " <--- MAP DỮ LIỆU
           multi_value_flag  = xsdbool( ls_raw-filter_type = 'Multiple Range' )
           migration_target  = lv_migration_target
           severity          = 'LOW'
           recommendation    = lv_recommendation
-          fiori_adaptation  = 'Auto-Generate'
+          fiori_adaptation  = lv_fiori_adapt        " <--- LỜI KHUYÊN UI MỚI
         ) TO et_ui_filter.
       ENDIF.
     ENDLOOP.
@@ -149,6 +155,7 @@ CLASS zcl_recommendation_engine IMPLEMENTATION.
       BEGIN OF ty_db_agg,
         table_name TYPE string,
         operations TYPE string,
+        fields     TYPE string,
       END OF ty_db_agg.
     DATA lt_db_agg TYPE SORTED TABLE OF ty_db_agg
                      WITH UNIQUE KEY table_name.
@@ -165,11 +172,17 @@ CLASS zcl_recommendation_engine IMPLEMENTATION.
           <ls_agg>-operations =
             |{ <ls_agg>-operations }, { ls_raw-operation }|.
         ENDIF.
+        IF ls_raw-fields = '*'.
+           <ls_agg>-fields = '*'.
+        ELSEIF ls_raw-fields IS NOT INITIAL AND <ls_agg>-fields NS ls_raw-fields.
+           <ls_agg>-fields = <ls_agg>-fields && ` ` && ls_raw-fields.
+        ENDIF.
 
       ELSE.
         INSERT VALUE #(
           table_name = ls_raw-table_name
           operations = ls_raw-operation
+          fields     = ls_raw-fields
         ) INTO TABLE lt_db_agg.
       ENDIF.
     ENDLOOP.
@@ -216,6 +229,7 @@ CLASS zcl_recommendation_engine IMPLEMENTATION.
           table_name         = ls_agg-table_name
           table_description  = get_table_text( ls_agg-table_name )
           operations         = ls_agg-operations
+          fields             = ls_agg-fields
           cds_candidate      = ls_rule-cds_candidate
           priority           = ls_rule-priority
           recommendation     = ls_rule-recommendation
@@ -228,6 +242,7 @@ CLASS zcl_recommendation_engine IMPLEMENTATION.
           table_name         = ls_agg-table_name
           table_description  = get_table_text( ls_agg-table_name )
           operations         = ls_agg-operations
+          fields             = ls_agg-fields
           cds_candidate      = 'NO_RULE_FOUND'
           priority           = 'HIGH'
           recommendation     = 'Missing migration rule in ZMIG_DB_RULE'
@@ -257,6 +272,7 @@ CLASS zcl_recommendation_engine IMPLEMENTATION.
         program_name = iv_program_name
         object_name  = ls_raw-object_name
         object_type  = ls_raw-object_type
+        target_structure = ls_raw-target_structure
         description  = get_logic_text(
                          iv_name        = ls_raw-object_name
                          iv_object_type = ls_raw-object_type )
@@ -319,6 +335,12 @@ CLASS zcl_recommendation_engine IMPLEMENTATION.
             ls_final-recommendation         = 'Sử dụng cấu trúc bảng nội bộ để sinh CDS View tự động'.
             ls_final-remediation_complexity = 'MEDIUM'.
             ls_final-cloud_compliant        = abap_false.
+          WHEN 'AUTHORITY-CHECK'.
+            ls_final-migration_target       = 'RAP Access Control (DCL)'.
+            ls_final-severity               = 'HIGH'.
+            ls_final-recommendation         = |Tạo file DCL mapping với Authorization Object '{ ls_raw-object_name }'|.
+            ls_final-remediation_complexity = 'MEDIUM'.
+            ls_final-cloud_compliant        = abap_true.
           WHEN OTHERS.
             " DEFAULT RULE CHO CÁC LOGIC KHÁC CHƯA CÓ TRONG BẢNG QUY TẮC
             ls_final-severity       = 'LOW'.

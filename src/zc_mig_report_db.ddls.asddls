@@ -23,6 +23,10 @@ define view entity ZC_MIG_REPORT_DB
       @UI.lineItem: [{ position: 40 }]
       @EndUserText.label: 'Operations'
       Operations,
+      
+      @UI.lineItem: [{ position: 40 }]
+      @EndUserText.label: 'Selected Fields'
+      Fields,
 
       @UI.lineItem: [{ position: 90 }]
       @EndUserText.label: 'Recommendation'

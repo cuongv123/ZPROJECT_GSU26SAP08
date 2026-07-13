@@ -8,6 +8,7 @@ define view entity ZI_MIG_REPORT_DB
   key table_name         as TableName,
       description        as Description,
       operations         as Operations,
+      fields     as Fields,
       recommendation     as Recommendation,
       cds_candidate      as CdsCandidate,
       priority           as Priority,
