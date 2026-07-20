@@ -12,6 +12,7 @@ authorization master ( global )
   association _UiFilter { create; }
   association _DbTable { create; }
   association _BusinessLogic { create; }
+  association _ObjectMap { create; }
 
   field (readonly, numbering : managed ) ReportID;
   static action analyzeAndSave parameter ZD_ANALYZE_PARAM result [1] $self;
@@ -69,5 +70,18 @@ authorization dependent by _ReportHeader
     ReportID = report_id; ObjectName = object_name; ObjectType = object_type;
     Description = description; MigrationTarget = migration_target; Severity = severity;
     Recommendation = recommendation; RemediationComplexity = complexity;
+  }
+}
+
+define behavior for ZI_MIG_REPORT_MAP alias ObjectMap
+persistent table ztmig_obj_map
+lock dependent by _ReportHeader
+authorization dependent by _ReportHeader
+{
+  update; delete;
+  association _ReportHeader;
+  field ( readonly ) ReportID;
+  mapping for ztmig_obj_map {
+    ReportID = report_id; SourceObj = source_obj; SourceType = source_type; TargetObj = target_obj; TargetType = target_type; RelationType = relation_type; Criticality = criticality; Description = description;
   }
 }

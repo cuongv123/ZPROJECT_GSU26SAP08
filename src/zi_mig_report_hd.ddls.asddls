@@ -5,6 +5,7 @@ define root view entity ZI_MIG_REPORT_HD
   composition [0..*] of ZI_MIG_REPORT_FILTER as _UiFilter
   composition [0..*] of ZI_MIG_REPORT_DB     as _DbTable
   composition [0..*] of ZI_MIG_REPORT_LOGIC  as _BusinessLogic
+  composition [0..*] of ZI_MIG_REPORT_MAP as _ObjectMap
 
 {
   key report_id        as ReportID,
@@ -23,5 +24,6 @@ define root view entity ZI_MIG_REPORT_HD
       // Công khai (Expose) các thành phần liên kết cấu trúc
       _UiFilter,
       _DbTable,
-      _BusinessLogic
+      _BusinessLogic,
+      _ObjectMap
 }

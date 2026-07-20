@@ -4,8 +4,7 @@ define service ZUI_ANALYZER_SERVICE {
   expose ZC_MIG_REPORT_LOGIC as SavedReportLogic;
   expose ZC_MIG_REPORT_FILTER as SavedReportFilter;
   expose ZC_MIG_REPORT_DB as SavedReportDbTable;
-  expose ZI_PROGRAM_VH;
-  expose ZCE_UI_FILTER;
-  expose ZCE_DB_TABLE;
-  expose ZCE_MIGRATION_GLOBAL_EXCEL;
+  expose ZI_PROGRAM_VH as ProgramValueHelp;
+  expose ZC_MIG_REPORT_MAP as SavedReportMap;
+  expose ZCE_MIGRATION_GLOBAL_EXCEL as MigrationExcel;
 }

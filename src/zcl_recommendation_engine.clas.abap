@@ -9,7 +9,7 @@ CLASS zcl_recommendation_engine DEFINITION
 
   PRIVATE SECTION.
     METHODS get_data_element_text
-      IMPORTING iv_rollname    TYPE string
+      IMPORTING iv_rollname    TYPE rollname
       RETURNING VALUE(rv_text) TYPE string.
 
     METHODS get_table_text
@@ -349,6 +349,82 @@ CLASS zcl_recommendation_engine IMPLEMENTATION.
       ENDIF.
 
       APPEND ls_final TO et_business_logic.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD zif_recommendation_engine~build_object_mapping.
+    DATA: ls_map TYPE zcl_parser_types=>ty_object_map.
+
+    " ---------------------------------------------------------------------
+    " KỸ THUẬT PERFORMANCE TUNING: Đổi mảng thường thành HASHED TABLE
+    " để tra cứu (Read) với tốc độ O(1) thay vì O(N) trong vòng lặp.
+    " ---------------------------------------------------------------------
+    DATA lt_hashed_tables TYPE HASHED TABLE OF zcl_parser_types=>ty_db_table
+                          WITH UNIQUE KEY table_name.
+    lt_hashed_tables = it_db_table. " Copy dữ liệu vào bảng băm trong 1 nhịp
+
+    " =====================================================================
+    " LUỒNG 1: MAP FILTER -> DATABASE TABLE (Vd: Filter VBAK-VBELN trỏ vào bảng VBAK)
+    " =====================================================================
+    LOOP AT it_ui_filter INTO DATA(ls_filter).
+
+      " Lấy tên bảng từ biến Data Element (Nếu biến có chứa dấu gạch ngang, VD: VBAK-VBELN)
+      IF ls_filter-data_element CS '-'.
+        SPLIT ls_filter-data_element AT '-' INTO DATA(lv_target_table) DATA(lv_dummy).
+
+        " TRA CỨU O(1): Kiểm tra xem bảng này có được SELECT trong code không?
+        IF line_exists( lt_hashed_tables[ table_name = lv_target_table ] ).
+
+          CLEAR ls_map.
+          ls_map-source_obj    = ls_filter-field_name.
+          ls_map-source_type   = zif_mig_constants=>c_obj_type-filter.
+
+          ls_map-target_obj    = lv_target_table.
+          ls_map-target_type   = zif_mig_constants=>c_obj_type-table.
+
+          ls_map-relation_type = zif_mig_constants=>c_rel_type-queries.
+
+          APPEND ls_map TO rt_map.
+        ENDIF.
+      ENDIF.
+    ENDLOOP.
+
+    " =====================================================================
+    " LUỒNG 2: MAP DATABASE TABLE -> CDS VIEW (Dựa vào Recommendation)
+    " =====================================================================
+    LOOP AT it_db_table INTO DATA(ls_table).
+      IF ls_table-cds_candidate IS NOT INITIAL AND ls_table-cds_candidate <> 'NO_RULE_FOUND'.
+
+        CLEAR ls_map.
+        ls_map-source_obj    = ls_table-table_name.
+        ls_map-source_type   = zif_mig_constants=>c_obj_type-table.
+
+        ls_map-target_obj    = ls_table-cds_candidate.
+        ls_map-target_type   = zif_mig_constants=>c_obj_type-cds.
+
+        ls_map-relation_type = zif_mig_constants=>c_rel_type-migrates_to.
+
+        APPEND ls_map TO rt_map.
+      ENDIF.
+    ENDLOOP.
+
+    " =====================================================================
+    " LUỒNG 3: MAP BAPI/FUNCTION -> RAP BEHAVIOR (Dựa vào Recommendation)
+    " =====================================================================
+    LOOP AT it_logic INTO DATA(ls_logic).
+      IF ls_logic-object_type = 'FUNCTION MODULE' AND ls_logic-migration_target IS NOT INITIAL.
+
+        CLEAR ls_map.
+        ls_map-source_obj    = ls_logic-object_name.
+        ls_map-source_type   = zif_mig_constants=>c_obj_type-bapi.
+
+        ls_map-target_obj    = ls_logic-migration_target.
+        ls_map-target_type   = zif_mig_constants=>c_obj_type-rap_bo.
+
+        ls_map-relation_type = zif_mig_constants=>c_rel_type-implemented_by.
+
+        APPEND ls_map TO rt_map.
+      ENDIF.
     ENDLOOP.
 
   ENDMETHOD.

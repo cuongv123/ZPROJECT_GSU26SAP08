@@ -15,7 +15,8 @@ define root view entity ZC_MIG_REPORT_HD
         { id: 'HeaderInfo', purpose: #STANDARD, type: #IDENTIFICATION_REFERENCE, label: 'Overview', position: 10 },
         { id: 'UiFilters',  purpose: #STANDARD, type: #LINEITEM_REFERENCE, label: 'UI Filters', position: 20, targetElement: '_UiFilter' },
         { id: 'DbTables',   purpose: #STANDARD, type: #LINEITEM_REFERENCE, label: 'Database Tables', position: 30, targetElement: '_DbTable' },
-        { id: 'LogicItems', purpose: #STANDARD, type: #LINEITEM_REFERENCE, label: 'Business Logic', position: 40, targetElement: '_BusinessLogic' }        
+        { id: 'LogicItems', purpose: #STANDARD, type: #LINEITEM_REFERENCE, label: 'Business Logic', position: 40, targetElement: '_BusinessLogic' },  
+        { id: 'ObjectMap', purpose: #STANDARD, type: #LINEITEM_REFERENCE, label: 'Roadmap Data (Graph Ready)', position: 50, targetElement: '_ObjectMap' }      
       ]
 
       @UI.hidden: true
@@ -86,5 +87,6 @@ define root view entity ZC_MIG_REPORT_HD
       /* Associations và Compositions */
       _UiFilter      : redirected to composition child ZC_MIG_REPORT_FILTER,
       _DbTable       : redirected to composition child ZC_MIG_REPORT_DB,
-      _BusinessLogic : redirected to composition child ZC_MIG_REPORT_LOGIC
+      _BusinessLogic : redirected to composition child ZC_MIG_REPORT_LOGIC,
+      _ObjectMap     : redirected to composition child ZC_MIG_REPORT_MAP
 }

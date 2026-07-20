@@ -1,6 +1,6 @@
-@EndUserText.label: 'Export Migration Global Excel'
-@ObjectModel.query.implementedBy: 'ABAP:ZCL_CE_MIGRATION_GLOBAL_QP'
-define root custom entity ZCE_MIGRATION_GLOBAL_EXCEL
+@EndUserText.label: 'Export Migration Global PDF'
+@ObjectModel.query.implementedBy: 'ABAP:ZCL_CE_MIGRATION_GLOBAL_PDF'
+define root custom entity ZCE_MIGRATION_GLOBAL_PDF
 {
   key ProgramName : abap.char(40);
 

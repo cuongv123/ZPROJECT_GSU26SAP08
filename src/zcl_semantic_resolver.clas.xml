@@ -3,9 +3,9 @@
  <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
   <asx:values>
    <VSEOCLASS>
-    <CLSNAME>ZCL_DYNAMIC_RAP_PROVIDER</CLSNAME>
+    <CLSNAME>ZCL_SEMANTIC_RESOLVER</CLSNAME>
     <LANGU>E</LANGU>
-    <DESCRIPT>Dynamic Query Provider for Generated Reports</DESCRIPT>
+    <DESCRIPT>Implement interface Semantic Resolver</DESCRIPT>
     <STATE>1</STATE>
     <CLSCCINCL>X</CLSCCINCL>
     <FIXPT>X</FIXPT>

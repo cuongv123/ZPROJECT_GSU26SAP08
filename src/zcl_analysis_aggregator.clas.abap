@@ -8,80 +8,92 @@ CLASS zcl_analysis_aggregator DEFINITION
     INTERFACES zif_analysis_aggregator.
 
   PRIVATE SECTION.
-    METHODS calculate_complexity_score
-      IMPORTING
-                it_business_logic TYPE zcl_parser_types=>tt_business_logic
-      RETURNING VALUE(rv_score)   TYPE decfloat16.
 
-    METHODS calculate_cloud_readiness
-      IMPORTING
-                it_business_logic TYPE zcl_parser_types=>tt_business_logic
-      RETURNING VALUE(rv_score)   TYPE decfloat16.
-
-    METHODS calculate_migration_score
-      IMPORTING
-        iv_complexity   TYPE decfloat16
-      RETURNING
-        VALUE(rv_score) TYPE decfloat16.
 ENDCLASS.
 
+
 CLASS zcl_analysis_aggregator IMPLEMENTATION.
-  METHOD calculate_complexity_score.
-  DATA:
-    lv_actual TYPE decfloat16 VALUE 0,
-    lv_max    TYPE decfloat16 VALUE 0.
-  LOOP AT it_business_logic INTO DATA(ls_logic).
-    lv_max += 3.
-    CASE ls_logic-severity.
-      WHEN 'HIGH'.
-        lv_actual += 3.
-      WHEN 'MEDIUM'.
-        lv_actual += 2.
-      WHEN 'LOW'.
-        lv_actual += 1.
-    ENDCASE.
-  ENDLOOP.
-
-  IF lv_max = 0.
-    rv_score = 0.
-  ELSE.
-    rv_score = ( lv_actual / lv_max ) * 100.
-  ENDIF.
-ENDMETHOD.
-
-  METHOD calculate_cloud_readiness.
-  DATA:
-    lv_ready TYPE decfloat16 VALUE 0,
-    lv_total TYPE decfloat16 VALUE 0.
-  LOOP AT it_business_logic INTO DATA(ls_logic).
-    lv_total += 1.
-    IF ls_logic-cloud_compliant = abap_true.
-      lv_ready += 1.
-    ENDIF.
-  ENDLOOP.
-
-  IF lv_total = 0.
-    rv_score = 100.
-  ELSE.
-    rv_score = ( lv_ready / lv_total ) * 100.
-  ENDIF.
-ENDMETHOD.
-
-  METHOD calculate_migration_score.
-    rv_score = 100 - iv_complexity.
-    IF rv_score < 0.
-      rv_score = 0.
-    ENDIF.
-  ENDMETHOD.
-
   METHOD zif_analysis_aggregator~build_overview.
+    DATA: lv_total_items     TYPE f,
+          lv_ready_items     TYPE f,
+          lv_complexity_base TYPE i.
+
+    " 1. Khởi tạo thông tin Header cơ bản
+    CLEAR es_overview.
     es_overview-program_name = iv_program_name.
-    es_overview-total_tables = lines( it_db_table ).
-    es_overview-total_filters = lines( it_ui_filter ).
-    es_overview-total_business_objects = lines( it_business_logic ).
-    es_overview-complexity_score = calculate_complexity_score( it_business_logic ).
-    es_overview-migration_score = calculate_migration_score( es_overview-complexity_score ).
-    es_overview-cloud_readiness_score = calculate_cloud_readiness( it_business_logic ).
-    es_overview-analysis_status = 'COMPLETED'.
+
+    " Sử dụng API chuẩn của ABAP Cloud để lấy User và Time
+    TRY.
+        es_overview-analyzed_by = cl_abap_context_info=>get_user_technical_name( ).
+        es_overview-analyzed_at = utclong_current( ).
+      CATCH cx_abap_context_info_error.
+        es_overview-analyzed_by = 'SYSTEM'.
+    ENDTRY.
+
+    es_overview-analysis_status        = zif_mig_constants=>c_status-analyzed. " <--- Đã sửa
+    es_overview-total_filters          = lines( it_ui_filter ).
+    es_overview-total_tables           = lines( it_db_table ).
+    es_overview-total_business_objects = lines( it_business_logic ).           " <--- Đã sửa
+
+    lv_total_items = es_overview-total_filters + es_overview-total_tables + es_overview-total_business_objects. " <--- Đã sửa
+
+    " NẾU PROGRAM RỖNG -> FAIL
+    IF lv_total_items = 0.
+      es_overview-analysis_status          = zif_mig_constants=>c_status-failed. " <--- Đã sửa
+      es_overview-migration_score          = 0.
+      es_overview-cloud_readiness_score    = 0.                                  " <--- Đã sửa
+      es_overview-complexity_score         = zif_mig_constants=>c_complexity-low.
+      RETURN.
+    ENDIF.
+
+    " =====================================================================
+    " 2. TÍNH TOÁN CLOUD READINESS & MIGRATION SCORE
+    " =====================================================================
+
+    " A. Đánh giá Table (Nếu có CDS thay thế -> +1 điểm Ready)
+    LOOP AT it_db_table INTO DATA(ls_table).
+      IF ls_table-cds_candidate IS NOT INITIAL AND ls_table-cds_candidate <> 'NO_RULE_FOUND'.
+        lv_ready_items = lv_ready_items + 1.
+      ELSE.
+        lv_complexity_base = lv_complexity_base + 1. " Tăng độ khó nếu phải tự build CDS mới
+      ENDIF.
+    ENDLOOP.
+
+    " B. Đánh giá Logic (Nếu Call Screen/Dynpro -> Gây rủi ro nặng cho Fiori)
+    LOOP AT it_business_logic INTO DATA(ls_logic).
+      IF ls_logic-object_type = 'FUNCTION MODULE' AND ls_logic-migration_target IS NOT INITIAL.
+        lv_ready_items = lv_ready_items + 1.
+      ELSEIF ls_logic-object_type = 'CALL SCREEN'.
+        lv_complexity_base = lv_complexity_base + 3. " Trọng số rủi ro rất cao
+      ELSE.
+        lv_complexity_base = lv_complexity_base + 1.
+      ENDIF.
+    ENDLOOP.
+
+    " C. Đánh giá Filter (Filter luôn dễ migrate lên Fiori Elements)
+    lv_ready_items = lv_ready_items + es_overview-total_filters.
+
+    " Tính % trung bình
+    DATA(lv_percentage) = ( lv_ready_items / lv_total_items ) * 100.
+    es_overview-migration_score = round( val = lv_percentage dec = 0 ).
+    es_overview-cloud_readiness_score = es_overview-migration_score. " <--- Đã sửa
+
+    " =====================================================================
+    " 3. XẾP LOẠI ĐỘ PHỨC TẠP (COMPLEXITY DISTRIBUTION)
+    " =====================================================================
+    " Complexity phụ thuộc vào tổng số lượng object và các "Dead code" (như CALL SCREEN)
+    DATA(lv_total_complexity_points) = lv_total_items + lv_complexity_base.
+
+    IF lv_total_complexity_points <= 5.
+      es_overview-complexity_score = zif_mig_constants=>c_complexity-low.
+    ELSEIF lv_total_complexity_points <= 15.
+      es_overview-complexity_score = zif_mig_constants=>c_complexity-medium.
+    ELSEIF lv_total_complexity_points <= 30.
+      es_overview-complexity_score = zif_mig_constants=>c_complexity-high.
+    ELSE.
+      es_overview-complexity_score = zif_mig_constants=>c_complexity-severe.
+    ENDIF.
+
   ENDMETHOD.
+
 ENDCLASS.

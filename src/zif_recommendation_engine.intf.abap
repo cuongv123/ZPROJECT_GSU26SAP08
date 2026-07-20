@@ -22,4 +22,12 @@ INTERFACE zif_recommendation_engine
     EXPORTING
       et_business_logic TYPE zcl_parser_types=>tt_business_logic.
 
+  METHODS build_object_mapping
+    IMPORTING
+      it_ui_filter  TYPE zcl_parser_types=>tt_ui_filter
+      it_db_table   TYPE zcl_parser_types=>tt_db_table
+      it_logic      TYPE zcl_parser_types=>tt_business_logic
+    RETURNING
+      VALUE(rt_map) TYPE zcl_parser_types=>tt_object_map.
+
 ENDINTERFACE.
