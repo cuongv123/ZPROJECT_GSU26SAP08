@@ -25,14 +25,10 @@ define root view entity ZC_MIG_REPORT_HD
       @UI.selectionField: [{ position: 10 }]
       @UI.lineItem: [
         { position: 10 },
-        { type: #FOR_ACTION, dataAction: 'analyzeAndSave', label: 'New Analysis', position: 10 },
-        // Thêm nút bấm này vào Toolbar của bảng
-        { type: #FOR_ACTION, dataAction: 'generateCode', label: 'Generate RAP Objects', position: 20 }
+        { type: #FOR_ACTION, dataAction: 'analyzeAndSave', label: 'New Analysis', position: 10 }
       ]
       @UI.identification: [
-        { position: 10 },
-        // Thêm nút bấm này vào màn hình Chi tiết (Object Page)
-        { type: #FOR_ACTION, dataAction: 'generateCode', label: 'Generate RAP Objects', position: 20 }
+        { position: 10 }
       ]
       @Consumption.valueHelpDefinition: [{ entity: { name: 'ZI_PROGRAM_VH', element: 'ProgramName' } }]
       @EndUserText.label: 'Program Name'
