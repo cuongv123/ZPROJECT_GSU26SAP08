@@ -42,8 +42,7 @@ DATA(lo_builder) = NEW zcl_symbol_table_builder( ).
 
 lt_symbols =
   lo_builder->zif_symbol_table_builder~build_symbol_table(
-    it_tokens     = lt_tokens
-    it_statements = lt_statements ).
+      it_source_code = lt_source ).
 
 *----------------------------------------------------------------------
 * Semantic Resolver
