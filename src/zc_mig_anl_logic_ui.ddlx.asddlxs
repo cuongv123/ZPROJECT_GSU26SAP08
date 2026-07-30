@@ -1,0 +1,75 @@
+@Metadata.layer: #CORE
+
+annotate view ZC_MIG_ANL_LOGIC with
+{
+  @UI.hidden: true
+  AnalysisId;
+
+  @UI.hidden: true
+  ItemId;
+
+  @UI.lineItem: [
+    {
+      position: 10,
+      importance: #HIGH,
+      label: 'Object'
+    }
+  ]
+  ObjectName;
+
+  @UI.lineItem: [
+    {
+      position: 20,
+      label: 'Type'
+    }
+  ]
+  ObjectType;
+
+  @UI.lineItem: [
+    {
+      position: 30,
+      label: 'Container'
+    }
+  ]
+  ContainerName;
+
+  @UI.lineItem: [
+    {
+      position: 40,
+      label: 'Calling Routine'
+    }
+  ]
+  CallingRoutine;
+
+  @UI.lineItem: [
+    {
+      position: 50,
+      label: 'Side Effect'
+    }
+  ]
+  SideEffect;
+
+  @UI.lineItem: [
+    {
+      position: 60,
+      label: 'GUI Dependency'
+    }
+  ]
+  GuiDependency;
+
+  @UI.lineItem: [
+    {
+      position: 70,
+      label: 'Reuse Feasibility'
+    }
+  ]
+  ReuseFeasibility;
+
+  @UI.lineItem: [
+    {
+      position: 80,
+      label: 'Confidence'
+    }
+  ]
+  Confidence;
+}

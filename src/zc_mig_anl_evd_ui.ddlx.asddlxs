@@ -1,0 +1,51 @@
+@Metadata.layer: #CORE
+
+annotate view ZC_MIG_ANL_EVD with
+{
+  @UI.hidden: true
+  AnalysisId;
+
+  @UI.hidden: true
+  EvidenceId;
+
+  @UI.lineItem: [
+    {
+      position: 10,
+      importance: #HIGH,
+      label: 'Source Object'
+    }
+  ]
+  SourceObject;
+
+  @UI.lineItem: [
+    {
+      position: 20,
+      label: 'Start Line'
+    }
+  ]
+  StartLine;
+
+  @UI.lineItem: [
+    {
+      position: 30,
+      label: 'End Line'
+    }
+  ]
+  EndLine;
+
+  @UI.lineItem: [
+    {
+      position: 40,
+      label: 'Statement'
+    }
+  ]
+  StatementId;
+
+  @UI.lineItem: [
+    {
+      position: 50,
+      label: 'Confidence'
+    }
+  ]
+  Confidence;
+}

@@ -1,0 +1,8 @@
+@EndUserText.label: 'Owner Access Mail Recipient Projection'
+@MappingRole: true
+define role ZAC_MIG_MAIL_RECIP_OWNER {
+
+  grant select on ZC_MIG_MAIL_RECIP
+    where inheriting conditions from entity ZI_MIG_MAIL_RECIP;
+
+}

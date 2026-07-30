@@ -1,0 +1,5 @@
+CLASS zbp_i_mig_mail_job DEFINITION PUBLIC ABSTRACT FINAL FOR BEHAVIOR OF zi_mig_mail_job.
+ENDCLASS.
+
+CLASS zbp_i_mig_mail_job IMPLEMENTATION.
+ENDCLASS.

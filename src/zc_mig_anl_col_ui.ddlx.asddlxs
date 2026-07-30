@@ -1,0 +1,103 @@
+    @Metadata.layer: #CORE
+    
+    annotate view ZC_MIG_ANL_COL with
+    {
+      @UI.hidden: true
+      AnalysisId;
+    
+      @UI.hidden: true
+      OutputId;
+    
+      @UI.hidden: true
+      ItemId;
+    
+      @UI.lineItem: [
+        {
+          position: 10,
+          importance: #HIGH,
+          label: 'Field'
+        }
+      ]
+      FieldName;
+    
+      @UI.lineItem: [
+        {
+          position: 20,
+          importance: #HIGH,
+          label: 'Column Label'
+        }
+      ]
+      ColumnLabel;
+    
+      @UI.lineItem: [
+        {
+          position: 30,
+          label: 'Position'
+        }
+      ]
+      ColumnPosition;
+    
+      @UI.lineItem: [
+        {
+          position: 40,
+          label: 'Data Type'
+        }
+      ]
+      DataType;
+    
+      @UI.lineItem: [
+        {
+          position: 50,
+          label: 'Data Element'
+        }
+      ]
+      DataElement;
+    
+      @UI.lineItem: [
+        {
+          position: 60,
+          label: 'Reference Table'
+        }
+      ]
+      ReferenceTable;
+    
+      @UI.lineItem: [
+        {
+          position: 70,
+          label: 'Reference Field'
+        }
+      ]
+      ReferenceField;
+    
+      @UI.lineItem: [
+        {
+          position: 80,
+          label: 'Visible'
+        }
+      ]
+      Visible;
+    
+      @UI.lineItem: [
+        {
+          position: 90,
+          label: 'Key'
+        }
+      ]
+      KeyField;
+    
+      @UI.lineItem: [
+        {
+          position: 100,
+          label: 'Editable'
+        }
+      ]
+      Editable;
+    
+      @UI.lineItem: [
+        {
+          position: 110,
+          label: 'Confidence'
+        }
+      ]
+      Confidence;
+    }

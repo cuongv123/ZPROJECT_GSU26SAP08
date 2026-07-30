@@ -1,0 +1,52 @@
+@Metadata.layer: #CORE
+
+annotate view ZC_MIG_ANL_MSG with
+{
+  @UI.hidden: true
+  AnalysisId;
+
+  @UI.hidden: true
+  MessageNo;
+
+  @UI.lineItem: [
+    {
+      position: 10,
+      importance: #HIGH,
+      label: 'Type'
+    }
+  ]
+  MessageType;
+
+  @UI.lineItem: [
+    {
+      position: 20,
+      label: 'Code'
+    }
+  ]
+  MessageCode;
+
+  @UI.lineItem: [
+    {
+      position: 30,
+      label: 'Source Object'
+    }
+  ]
+  SourceObject;
+
+  @UI.lineItem: [
+    {
+      position: 40,
+      label: 'Source Line'
+    }
+  ]
+  SourceLine;
+
+  @UI.lineItem: [
+    {
+      position: 50,
+      importance: #HIGH,
+      label: 'Message'
+    }
+  ]
+  MessageText;
+}

@@ -1,0 +1,16 @@
+@EndUserText.label: 'Migration Analysis Service'
+define service ZUI_MIG_ANALYSIS {
+  expose ZC_MIG_ANALYSIS as Analyses;
+  expose ZC_MIG_ANL_UI as UiFilters;
+  expose ZC_MIG_ANL_DB as DatabaseObjects;
+  expose ZC_MIG_ANL_LOGIC as BusinessLogic;
+  expose ZC_MIG_ANL_ALV as AlvOutputs;
+  expose ZC_MIG_ANL_COL as AlvColumns;
+  expose ZC_MIG_ANL_SRT as AlvSorts;
+  expose ZC_MIG_ANL_FLT as AlvFilters;
+  expose ZC_MIG_ANL_EVT as AlvEvents;
+  expose ZC_MIG_ANL_EVD as Evidences;
+  expose ZC_MIG_ANL_REC as Recommendations;
+  expose ZC_MIG_ANL_ANN as Annotations;
+  expose ZC_MIG_ANL_MSG as AnalysisMessages;
+}

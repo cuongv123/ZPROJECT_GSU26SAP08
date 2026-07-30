@@ -1,0 +1,182 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_MSAG" serializer_version="v1.0.0">
+ <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
+  <asx:values>
+   <T100A>
+    <ARBGB>ZMIG_ANALYSIS</ARBGB>
+    <MASTERLANG>E</MASTERLANG>
+    <STEXT> Message Class</STEXT>
+   </T100A>
+   <T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>001</MSGNR>
+     <TEXT>Source program &amp;1 was not found</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>002</MSGNR>
+     <TEXT>Source program &amp;1 could not be read</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>003</MSGNR>
+     <TEXT>Source program &amp;1 could not be scanned</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>004</MSGNR>
+     <TEXT>Include &amp;1 could not be resolved</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>005</MSGNR>
+     <TEXT>Analysis failed for program &amp;1</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>006</MSGNR>
+     <TEXT>Unsupported source object &amp;1</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>007</MSGNR>
+     <TEXT>Recommendation rule &amp;1 failed</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>008</MSGNR>
+     <TEXT>Analysis result could not be stored</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>009</MSGNR>
+     <TEXT>Job name is required</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>010</MSGNR>
+     <TEXT>Report type is required</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>011</MSGNR>
+     <TEXT>File format is required</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>012</MSGNR>
+     <TEXT>Frequency is required</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>013</MSGNR>
+     <TEXT>Mail subject is required</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>014</MSGNR>
+     <TEXT>Start date is required for scheduled jobs</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>015</MSGNR>
+     <TEXT>Start date cannot be in the past</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>016</MSGNR>
+     <TEXT>Start time is required for scheduled jobs</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>017</MSGNR>
+     <TEXT>Day of week must be between 1 and 7</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>018</MSGNR>
+     <TEXT>Day of month must be between 1 and 31</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>019</MSGNR>
+     <TEXT>Frequency &amp;1 is not supported</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>020</MSGNR>
+     <TEXT>Recipient type is required</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>021</MSGNR>
+     <TEXT>SAP user is required</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>022</MSGNR>
+     <TEXT>SAP user &amp;1 does not exist</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>023</MSGNR>
+     <TEXT>Email address is not maintained for SAP user &amp;1</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>024</MSGNR>
+     <TEXT>Recipient type &amp;1 is not supported</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>025</MSGNR>
+     <TEXT>SAP user &amp;1 is already assigned to this mail job</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>026</MSGNR>
+     <TEXT>Active mail job must have at least one recipient</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>027</MSGNR>
+     <TEXT>BCS request created; check SOST for final delivery</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>028</MSGNR>
+     <TEXT>Mail send failed: &amp;1</TEXT>
+    </T100>
+   </T100>
+  </asx:values>
+ </asx:abap>
+</abapGit>

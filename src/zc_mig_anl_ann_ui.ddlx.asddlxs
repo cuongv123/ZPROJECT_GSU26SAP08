@@ -1,0 +1,55 @@
+@Metadata.layer: #CORE
+
+annotate view ZC_MIG_ANL_ANN with
+{
+  @UI.hidden: true
+  AnalysisId;
+
+  @UI.hidden: true
+  RecommendationId;
+
+  @UI.hidden: true
+  ItemId;
+
+  @UI.lineItem: [
+    {
+      position: 10,
+      importance: #HIGH,
+      label: 'Target Entity'
+    }
+  ]
+  TargetEntity;
+
+  @UI.lineItem: [
+    {
+      position: 20,
+      importance: #HIGH,
+      label: 'Target Element'
+    }
+  ]
+  TargetElement;
+
+  @UI.lineItem: [
+    {
+      position: 30,
+      label: 'Annotation'
+    }
+  ]
+  AnnotationName;
+
+  @UI.lineItem: [
+    {
+      position: 40,
+      label: 'Value'
+    }
+  ]
+  AnnotationValue;
+
+  @UI.lineItem: [
+    {
+      position: 50,
+      label: 'Sequence'
+    }
+  ]
+  AnnotationSequence;
+}
