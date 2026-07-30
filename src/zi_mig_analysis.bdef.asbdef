@@ -1,0 +1,172 @@
+unmanaged implementation in class zbp_i_mig_analysis unique;
+strict ( 2 );
+
+define behavior for ZI_MIG_ANALYSIS alias Analysis
+lock master
+authorization master ( global )
+{
+  field ( readonly ) AnalysisId;
+
+  static action Analyze
+    parameter ZA_MIG_ANALYZE_PARAM
+    result [1] $self;
+
+  association _UiFilters;
+  association _DatabaseObjects;
+  association _BusinessLogic;
+  association _AlvOutputs;
+  association _Evidences;
+  association _Recommendations;
+  association _Messages;
+}
+
+
+define behavior for ZI_MIG_ANL_UI alias UiFilter
+lock dependent by _Analysis
+authorization dependent by _Analysis
+{
+  field ( readonly ) AnalysisId, ItemId;
+
+  association _Analysis;
+}
+
+
+define behavior for ZI_MIG_ANL_DB alias DatabaseObject
+lock dependent by _Analysis
+authorization dependent by _Analysis
+{
+  field ( readonly ) AnalysisId, ItemId;
+
+  association _Analysis;
+}
+
+
+define behavior for ZI_MIG_ANL_LOGIC alias BusinessLogic
+lock dependent by _Analysis
+authorization dependent by _Analysis
+{
+  field ( readonly ) AnalysisId, ItemId;
+
+  association _Analysis;
+}
+
+
+define behavior for ZI_MIG_ANL_ALV alias AlvOutput
+lock dependent by _Analysis
+authorization dependent by _Analysis
+{
+  field ( readonly ) AnalysisId, OutputId;
+
+  association _Analysis;
+  association _Columns;
+  association _Sorts;
+  association _Filters;
+  association _Events;
+}
+
+
+define behavior for ZI_MIG_ANL_COL alias AlvColumn
+lock dependent by _Analysis
+authorization dependent by _Analysis
+{
+  field ( readonly )
+    AnalysisId,
+    OutputId,
+    ItemId;
+
+  association _AlvOutput;
+  association _Analysis;
+}
+
+
+define behavior for ZI_MIG_ANL_SRT alias AlvSort
+lock dependent by _Analysis
+authorization dependent by _Analysis
+{
+  field ( readonly )
+    AnalysisId,
+    OutputId,
+    ItemId;
+
+  association _AlvOutput;
+  association _Analysis;
+}
+
+
+define behavior for ZI_MIG_ANL_FLT alias AlvFilter
+lock dependent by _Analysis
+authorization dependent by _Analysis
+{
+  field ( readonly )
+    AnalysisId,
+    OutputId,
+    ItemId;
+
+  association _AlvOutput;
+  association _Analysis;
+}
+
+
+define behavior for ZI_MIG_ANL_EVT alias AlvEvent
+lock dependent by _Analysis
+authorization dependent by _Analysis
+{
+  field ( readonly )
+    AnalysisId,
+    OutputId,
+    ItemId;
+
+  association _AlvOutput;
+  association _Analysis;
+}
+
+
+define behavior for ZI_MIG_ANL_EVD alias Evidence
+lock dependent by _Analysis
+authorization dependent by _Analysis
+{
+  field ( readonly )
+    AnalysisId,
+    EvidenceId;
+
+  association _Analysis;
+}
+
+
+define behavior for ZI_MIG_ANL_REC alias Recommendation
+lock dependent by _Analysis
+authorization dependent by _Analysis
+{
+  field ( readonly )
+    AnalysisId,
+    RecommendationId;
+
+  association _Analysis;
+  association _Annotations;
+}
+
+
+define behavior for ZI_MIG_ANL_ANN alias Annotation
+lock dependent by _Analysis
+authorization dependent by _Analysis
+{
+  field ( readonly )
+    AnalysisId,
+    RecommendationId,
+    ItemId;
+
+  association _Recommendation;
+  association _Analysis;
+}
+
+
+define behavior for ZI_MIG_ANL_MSG alias AnalysisMessage
+lock dependent by _Analysis
+authorization dependent by _Analysis
+{
+  field ( readonly )
+    AnalysisId,
+    MessageNo;
+
+  association _Analysis;
+}

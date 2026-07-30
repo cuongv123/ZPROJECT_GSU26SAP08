@@ -1,5 +1,0 @@
-CLASS zcl_bp_mig_report_hd DEFINITION PUBLIC ABSTRACT FINAL FOR BEHAVIOR OF zi_mig_report_hd.
-ENDCLASS.
-
-CLASS zcl_bp_mig_report_hd IMPLEMENTATION.
-ENDCLASS.

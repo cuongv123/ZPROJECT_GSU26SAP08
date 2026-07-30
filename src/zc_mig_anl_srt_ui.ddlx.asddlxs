@@ -1,0 +1,62 @@
+@Metadata.layer: #CORE
+
+annotate view ZC_MIG_ANL_SRT with
+{
+  @UI.hidden: true
+  AnalysisId;
+
+  @UI.hidden: true
+  OutputId;
+
+  @UI.hidden: true
+  ItemId;
+
+  @UI.lineItem: [
+    {
+      position: 10,
+      importance: #HIGH,
+      label: 'Field'
+    }
+  ]
+  FieldName;
+
+  @UI.lineItem: [
+    {
+      position: 20,
+      label: 'Position'
+    }
+  ]
+  SortPosition;
+
+  @UI.lineItem: [
+    {
+      position: 30,
+      label: 'Ascending'
+    }
+  ]
+  IsAscending;
+
+  @UI.lineItem: [
+    {
+      position: 40,
+      label: 'Descending'
+    }
+  ]
+  IsDescending;
+
+  @UI.lineItem: [
+    {
+      position: 50,
+      label: 'Subtotal'
+    }
+  ]
+  Subtotal;
+
+  @UI.lineItem: [
+    {
+      position: 60,
+      label: 'Confidence'
+    }
+  ]
+  Confidence;
+}

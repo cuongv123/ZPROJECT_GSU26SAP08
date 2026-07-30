@@ -1,0 +1,145 @@
+managed implementation in class zbp_i_mig_mail_job unique;
+strict ( 2 );
+
+define behavior for ZI_MIG_MAIL_JOB alias MailJob
+persistent table zmig_mail_job
+lock master
+authorization master ( global )
+etag master LocalLastChangedAt
+{
+  create;
+  update;
+  delete;
+
+   action sendNow result [1] $self;
+
+  association _Recipients { create; }
+
+  validation validateRequiredFields on save
+  {
+    create;
+    update;
+    field JobName,
+          ReportType,
+          FileFormat,
+          Frequency,
+          MailSubject;
+  }
+
+  validation validateSchedule on save
+  {
+    create;
+    update;
+    field Frequency,
+          StartDate,
+          StartTime,
+          DayOfWeek,
+          DayOfMonth;
+  }
+
+validation validateHasRecipient on save
+{
+  create;
+  update;
+  field Status;
+}
+
+determination calculateNextRunAt on modify
+{
+  create;
+  field Frequency,
+        StartDate,
+        StartTime,
+        DayOfWeek,
+        DayOfMonth,
+        Status;
+}
+
+  field ( numbering : managed, readonly ) JobId;
+
+  field ( readonly )
+    NextRunAt,
+    CreatedBy,
+    CreatedAt,
+    LocalLastChangedBy,
+    LocalLastChangedAt,
+    LastChangedAt;
+
+  mapping for zmig_mail_job
+  {
+    JobId                  = job_id;
+    JobName                = job_name;
+    ReportType             = report_type;
+    FileFormat             = file_format;
+    Frequency              = frequency;
+    StartDate              = start_date;
+    StartTime              = start_time;
+    DayOfWeek              = day_of_week;
+    DayOfMonth             = day_of_month;
+    NextRunAt              = next_run_at;
+    MailSubject            = mail_subject;
+    MailBody               = mail_body;
+    Status                 = status;
+    CreatedBy              = created_by;
+    CreatedAt              = created_at;
+    LocalLastChangedBy     = last_changed_by;
+    LocalLastChangedAt     = local_last_changed_at;
+    LastChangedAt          = last_changed_at;
+  }
+}
+
+define behavior for ZI_MIG_MAIL_RECIP alias Recipient
+persistent table zmig_mail_recip
+lock dependent by _Job
+authorization dependent by _Job
+etag master LocalLastChangedAt
+{
+  update;
+  delete;
+
+  association _Job;
+
+   determination resolveEmail on modify
+  {
+    create;
+    field SapUser;
+  }
+
+  validation validateRecipient on save
+  {
+    create;
+    update;
+    field RecipientType,
+          SapUser;
+  }
+
+  validation validateNoDuplicate on save
+{
+  create;
+  update;
+  field SapUser;
+}
+
+  field ( readonly )
+    JobId,
+    EmailAddress,
+    CreatedBy,
+    CreatedAt,
+    LocalLastChangedBy,
+    LocalLastChangedAt;
+
+  field ( numbering : managed, readonly ) RecipientId;
+
+  mapping for zmig_mail_recip
+  {
+    JobId                  = job_id;
+    RecipientId            = recipient_id;
+    RecipientType          = recipient_type;
+    SapUser                = sap_user;
+    EmailAddress           = email_address;
+    CreatedBy              = created_by;
+    CreatedAt              = created_at;
+    LocalLastChangedBy     = last_changed_by;
+    LocalLastChangedAt     = local_last_changed_at;
+  }
+}

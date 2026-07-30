@@ -1,0 +1,8 @@
+@EndUserText.label: 'Owner Access Mail Log Consumption'
+@MappingRole: true
+define role ZAC_MIG_MAIL_LOG_OWNER {
+
+  grant select on ZC_MIG_MAIL_LOG
+    where inheriting conditions from entity ZI_MIG_MAIL_LOG;
+
+}

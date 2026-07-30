@@ -1,0 +1,203 @@
+@Metadata.layer: #CORE
+
+@UI.headerInfo: {
+  typeName:       'ALV Output',
+  typeNamePlural: 'ALV Outputs',
+  title: {
+    type:  #STANDARD,
+    value: 'OutputName'
+  },
+  description: {
+    value: 'Framework'
+  }
+}
+
+annotate view ZC_MIG_ANL_ALV with
+{
+  @UI.facet: [
+    {
+      id:       'AlvOverview',
+      purpose:  #STANDARD,
+      type:     #IDENTIFICATION_REFERENCE,
+      label:    'Overview',
+      position: 10
+    },
+    {
+      id:            'Columns',
+      purpose:       #STANDARD,
+      type:          #LINEITEM_REFERENCE,
+      label:         'Columns',
+      position:      20,
+      targetElement: '_Columns'
+    },
+    {
+      id:            'Sorts',
+      purpose:       #STANDARD,
+      type:          #LINEITEM_REFERENCE,
+      label:         'Sorts',
+      position:      30,
+      targetElement: '_Sorts'
+    },
+    {
+      id:            'Filters',
+      purpose:       #STANDARD,
+      type:          #LINEITEM_REFERENCE,
+      label:         'Filters',
+      position:      40,
+      targetElement: '_Filters'
+    },
+    {
+      id:            'Events',
+      purpose:       #STANDARD,
+      type:          #LINEITEM_REFERENCE,
+      label:         'Events',
+      position:      50,
+      targetElement: '_Events'
+    }
+  ]
+
+  @UI.hidden: true
+  AnalysisId;
+
+  @UI.hidden: true
+  OutputId;
+
+  @UI.lineItem: [
+    {
+      position: 10,
+      importance: #HIGH,
+      label: 'Output'
+    }
+  ]
+  @UI.identification: [
+    {
+      position: 10,
+      label: 'Output'
+    }
+  ]
+  OutputName;
+
+  @UI.lineItem: [
+    {
+      position: 20,
+      label: 'Kind'
+    }
+  ]
+  @UI.identification: [
+    {
+      position: 20,
+      label: 'Output Kind'
+    }
+  ]
+  OutputKind;
+
+  @UI.lineItem: [
+    {
+      position: 30,
+      label: 'Framework'
+    }
+  ]
+  @UI.identification: [
+    {
+      position: 30,
+      label: 'Framework'
+    }
+  ]
+  Framework;
+
+  @UI.identification: [
+    {
+      position: 40,
+      label: 'Control Object'
+    }
+  ]
+  ControlObject;
+
+  @UI.lineItem: [
+    {
+      position: 40,
+      label: 'Output Table'
+    }
+  ]
+  @UI.identification: [
+    {
+      position: 50,
+      label: 'Output Table'
+    }
+  ]
+  OutputTable;
+
+  @UI.lineItem: [
+    {
+      position: 50,
+      label: 'Row Type'
+    }
+  ]
+  @UI.identification: [
+    {
+      position: 60,
+      label: 'Row Type'
+    }
+  ]
+  RowType;
+
+  @UI.identification: [
+    {
+      position: 70,
+      label: 'Field Catalog'
+    }
+  ]
+  FieldCatalog;
+
+  @UI.identification: [
+    {
+      position: 80,
+      label: 'Layout Object'
+    }
+  ]
+  LayoutObject;
+
+  @UI.lineItem: [
+    {
+      position: 60,
+      label: 'Editable'
+    }
+  ]
+  @UI.identification: [
+    {
+      position: 90,
+      label: 'Editable'
+    }
+  ]
+  Editable;
+
+  @UI.identification: [
+    {
+      position: 100,
+      label: 'Hierarchical'
+    }
+  ]
+  Hierarchical;
+
+  @UI.identification: [
+    {
+      position: 110,
+      label: 'Selection Mode'
+    }
+  ]
+  SelectionMode;
+
+  @UI.lineItem: [
+    {
+      position: 70,
+      label: 'Confidence'
+    }
+  ]
+  @UI.identification: [
+    {
+      position: 120,
+      label: 'Confidence'
+    }
+  ]
+  Confidence;
+}

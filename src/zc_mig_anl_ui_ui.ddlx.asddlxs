@@ -1,0 +1,75 @@
+@Metadata.layer: #CORE
+
+annotate view ZC_MIG_ANL_UI with
+{
+  @UI.hidden: true
+  AnalysisId;
+
+  @UI.hidden: true
+  ItemId;
+
+  @UI.lineItem: [
+    {
+      position: 10,
+      importance: #HIGH,
+      label: 'Field'
+    }
+  ]
+  FieldName;
+
+  @UI.lineItem: [
+    {
+      position: 20,
+      label: 'Kind'
+    }
+  ]
+  FieldKind;
+
+  @UI.lineItem: [
+    {
+      position: 30,
+      label: 'Reference Table'
+    }
+  ]
+  ReferenceTable;
+
+  @UI.lineItem: [
+    {
+      position: 40,
+      label: 'Reference Field'
+    }
+  ]
+  ReferenceField;
+
+  @UI.lineItem: [
+    {
+      position: 50,
+      label: 'Data Element'
+    }
+  ]
+  DataElement;
+
+  @UI.lineItem: [
+    {
+      position: 60,
+      label: 'Mandatory'
+    }
+  ]
+  Mandatory;
+
+  @UI.lineItem: [
+    {
+      position: 70,
+      label: 'Multiple Selection'
+    }
+  ]
+  MultipleSelection;
+
+  @UI.lineItem: [
+    {
+      position: 80,
+      label: 'Confidence'
+    }
+  ]
+  Confidence;
+}

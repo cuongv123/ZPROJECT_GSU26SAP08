@@ -1,0 +1,102 @@
+@Metadata.layer: #CORE
+
+@UI.headerInfo: {
+  typeName:       'Recommendation',
+  typeNamePlural: 'Recommendations',
+  title: {
+    type:  #STANDARD,
+    value: 'Title'
+  },
+  description: {
+    value: 'DisplayText'
+  }
+}
+
+annotate view ZC_MIG_ANL_REC with
+{
+  @UI.facet: [
+    {
+      id:       'RecommendationOverview',
+      purpose:  #STANDARD,
+      type:     #IDENTIFICATION_REFERENCE,
+      label:    'Overview',
+      position: 10
+    },
+    {
+      id:            'Annotations',
+      purpose:       #STANDARD,
+      type:          #LINEITEM_REFERENCE,
+      label:         'Annotation Proposals',
+      position:      20,
+      targetElement: '_Annotations'
+    }
+  ]
+
+  @UI.hidden: true
+  AnalysisId;
+
+  @UI.hidden: true
+  RecommendationId;
+
+  @UI.lineItem: [
+    {
+      position: 10,
+      importance: #HIGH,
+      label: 'Severity'
+    }
+  ]
+  Severity;
+
+  @UI.lineItem: [
+    {
+      position: 20,
+      importance: #HIGH,
+      label: 'Recommendation'
+    }
+  ]
+  @UI.identification: [
+    {
+      position: 10,
+      label: 'Title'
+    }
+  ]
+  Title;
+
+  @UI.lineItem: [
+    {
+      position: 30,
+      label: 'Target Layer'
+    }
+  ]
+  @UI.identification: [
+    {
+      position: 20,
+      label: 'Target Layer'
+    }
+  ]
+  TargetLayer;
+
+  @UI.lineItem: [
+    {
+      position: 40,
+      label: 'Review Status'
+    }
+  ]
+  ReviewStatus;
+
+  @UI.lineItem: [
+    {
+      position: 50,
+      label: 'Manual Review'
+    }
+  ]
+  ManualReview;
+
+  @UI.lineItem: [
+    {
+      position: 60,
+      label: 'Confidence'
+    }
+  ]
+  Confidence;
+}

@@ -1,0 +1,267 @@
+@Metadata.layer: #CORE
+
+@UI.headerInfo: {
+  typeName:       'Analysis',
+  typeNamePlural: 'Analyses',
+  title: {
+    type:  #STANDARD,
+    value: 'ProgramName'
+  },
+  description: {
+    value: 'ProgramDescription'
+  }
+}
+
+annotate view ZC_MIG_ANALYSIS with
+{
+  @UI.facet: [
+    {
+      id:       'Overview',
+      purpose:  #STANDARD,
+      type:     #IDENTIFICATION_REFERENCE,
+      label:    'Overview',
+      position: 10
+    },
+    {
+      id:            'UiFilters',
+      purpose:       #STANDARD,
+      type:          #LINEITEM_REFERENCE,
+      label:         'UI Filters',
+      position:      20,
+      targetElement: '_UiFilters'
+    },
+    {
+      id:            'DatabaseObjects',
+      purpose:       #STANDARD,
+      type:          #LINEITEM_REFERENCE,
+      label:         'Database Objects',
+      position:      30,
+      targetElement: '_DatabaseObjects'
+    },
+    {
+      id:            'BusinessLogic',
+      purpose:       #STANDARD,
+      type:          #LINEITEM_REFERENCE,
+      label:         'Business Logic',
+      position:      40,
+      targetElement: '_BusinessLogic'
+    },
+    {
+      id:            'AlvOutputs',
+      purpose:       #STANDARD,
+      type:          #LINEITEM_REFERENCE,
+      label:         'ALV Outputs',
+      position:      50,
+      targetElement: '_AlvOutputs'
+    },
+    {
+      id:            'Evidences',
+      purpose:       #STANDARD,
+      type:          #LINEITEM_REFERENCE,
+      label:         'Source Evidences',
+      position:      60,
+      targetElement: '_Evidences'
+    },
+    {
+      id:            'Recommendations',
+      purpose:       #STANDARD,
+      type:          #LINEITEM_REFERENCE,
+      label:         'Recommendations',
+      position:      70,
+      targetElement: '_Recommendations'
+    },
+    {
+      id:            'Messages',
+      purpose:       #STANDARD,
+      type:          #LINEITEM_REFERENCE,
+      label:         'Messages',
+      position:      80,
+      targetElement: '_Messages'
+    }
+  ]
+
+  @UI.hidden: true
+  AnalysisId;
+
+  @UI.selectionField: [
+    { position: 10 }
+  ]
+  @UI.lineItem: [
+    {
+      position:   1,
+      type:       #FOR_ACTION,
+      dataAction: 'Analyze',
+      label:      'Analyze Program'
+    },
+    {
+      position:   10,
+      importance: #HIGH,
+      label:      'Program'
+    }
+  ]
+  @UI.identification: [
+    {
+      position: 10,
+      label:    'Program'
+    }
+  ]
+  ProgramName;
+
+  @UI.lineItem: [
+    {
+      position:   20,
+      importance: #HIGH,
+      label:      'Description'
+    }
+  ]
+  @UI.identification: [
+    {
+      position: 20,
+      label:    'Description'
+    }
+  ]
+  ProgramDescription;
+
+  @UI.selectionField: [
+    { position: 20 }
+  ]
+  @UI.lineItem: [
+    {
+      position:   30,
+      importance: #HIGH,
+      label:      'Status'
+    }
+  ]
+  @UI.identification: [
+    {
+      position: 30,
+      label:    'Status'
+    }
+  ]
+  Status;
+
+  @UI.lineItem: [
+    {
+      position: 40,
+      label:    'Complexity'
+    }
+  ]
+  @UI.identification: [
+    {
+      position: 40,
+      label:    'Complexity Score'
+    }
+  ]
+  ComplexityScore;
+
+  @UI.lineItem: [
+    {
+      position: 50,
+      label:    'Readiness'
+    }
+  ]
+  @UI.identification: [
+    {
+      position: 50,
+      label:    'Readiness Score'
+    }
+  ]
+  ReadinessScore;
+
+  @UI.identification: [
+    {
+      position: 60,
+      label:    'Source Objects'
+    }
+  ]
+  TotalSourceObjects;
+
+  @UI.identification: [
+    {
+      position: 70,
+      label:    'UI Filters'
+    }
+  ]
+  TotalUiFilters;
+
+  @UI.identification: [
+    {
+      position: 80,
+      label:    'Database Objects'
+    }
+  ]
+  TotalDatabaseObjects;
+
+  @UI.identification: [
+    {
+      position: 90,
+      label:    'Business Logic'
+    }
+  ]
+  TotalBusinessLogic;
+
+  @UI.identification: [
+    {
+      position: 100,
+      label:    'ALV Outputs'
+    }
+  ]
+  TotalAlvOutputs;
+
+  @UI.identification: [
+    {
+      position: 110,
+      label:    'ALV Columns'
+    }
+  ]
+  TotalAlvColumns;
+
+  @UI.identification: [
+    {
+      position: 120,
+      label:    'Recommendations'
+    }
+  ]
+  TotalRecommendations;
+
+  @UI.selectionField: [
+    { position: 30 }
+  ]
+  @UI.lineItem: [
+    {
+      position:   60,
+      importance: #MEDIUM,
+      label:      'Analyzed At'
+    }
+  ]
+  @UI.identification: [
+    {
+      position: 130,
+      label:    'Analyzed At'
+    }
+  ]
+  CreatedAt;
+
+  @UI.identification: [
+    {
+      position: 140,
+      label:    'Analyzed By'
+    }
+  ]
+  CreatedBy;
+
+  @UI.hidden: true
+  LastChangedBy;
+
+  @UI.hidden: true
+  LocalLastChangedAt;
+
+  @UI.hidden: true
+  ParserVersion;
+
+  @UI.hidden: true
+  RuleVersion;
+
+  @UI.hidden: true
+  SourceHash;
+}
