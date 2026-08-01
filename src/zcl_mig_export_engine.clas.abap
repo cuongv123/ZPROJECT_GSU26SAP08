@@ -4,42 +4,72 @@ CLASS zcl_mig_export_engine DEFINITION
   CREATE PUBLIC.
 
   PUBLIC SECTION.
+
     INTERFACES zif_mig_export_provider.
 
   PRIVATE SECTION.
-    TYPES: BEGIN OF ty_report_data,
-             header TYPE zmig_anl_h,
-             ui     TYPE STANDARD TABLE OF zmig_anl_ui  WITH DEFAULT KEY,
-             db     TYPE STANDARD TABLE OF zmig_anl_db  WITH DEFAULT KEY,
-             logic  TYPE STANDARD TABLE OF zmig_anl_log WITH DEFAULT KEY,
-           END OF ty_report_data.
 
-    METHODS fetch_all_report_data
-      IMPORTING iv_program_name TYPE zmig_anl_h-program_name
-      RETURNING VALUE(rs_data)  TYPE ty_report_data.
+    TYPES: BEGIN OF ty_section_registry,
+             section_code TYPE zif_mig_export_provider=>ty_export_section,
+             view_name    TYPE tabname,
+             sheet_title  TYPE string,
+           END OF ty_section_registry,
+           tt_section_registry TYPE STANDARD TABLE OF ty_section_registry
+             WITH NON-UNIQUE DEFAULT KEY.
 
-    METHODS build_csv
-      IMPORTING is_data TYPE ty_report_data
-      RETURNING VALUE(rv_content) TYPE xstring.
+    METHODS get_section_registry
+      RETURNING VALUE(rt_registry) TYPE tt_section_registry.
 
-    METHODS build_excel
-  IMPORTING is_data TYPE ty_report_data
-  RETURNING VALUE(rv_content) TYPE xstring
-  RAISING zcx_excel.
+    METHODS get_analysis_id
+      IMPORTING
+        iv_report_type        TYPE zmig_mail_job-report_type
+      RETURNING
+        VALUE(rv_analysis_id) TYPE sysuuid_x16
+      RAISING
+        cx_root.
 
-    METHODS build_pdf
-      IMPORTING is_data TYPE ty_report_data
-      RETURNING VALUE(rv_content) TYPE xstring.
+    METHODS export_excel
+      IMPORTING
+        iv_job_id         TYPE sysuuid_x16
+        iv_report_type    TYPE zmig_mail_job-report_type
+        iv_export_section TYPE zif_mig_export_provider=>ty_export_section
+      RETURNING
+        VALUE(rs_result)  TYPE zif_mig_export_provider=>ty_export_result.
 
-    METHODS build_pdf_from_lines
-      IMPORTING it_lines TYPE string_table
-      RETURNING VALUE(rv_content) TYPE xstring.
+    METHODS export_csv
+      IMPORTING
+        iv_job_id         TYPE sysuuid_x16
+        iv_report_type    TYPE zmig_mail_job-report_type
+        iv_export_section TYPE zif_mig_export_provider=>ty_export_section
+      RETURNING
+        VALUE(rs_result)  TYPE zif_mig_export_provider=>ty_export_result.
 
-    METHODS pdf_escape
-      IMPORTING iv_text TYPE string
-      RETURNING VALUE(rv_text) TYPE string.
+    METHODS escape_csv_value
+      IMPORTING
+        iv_value        TYPE string
+      RETURNING
+        VALUE(rv_value) TYPE string.
+
+    METHODS export_pdf
+      IMPORTING
+        iv_job_id         TYPE sysuuid_x16
+        iv_report_type    TYPE zmig_mail_job-report_type
+        iv_export_section TYPE zif_mig_export_provider=>ty_export_section
+      RETURNING
+        VALUE(rs_result)  TYPE zif_mig_export_provider=>ty_export_result.
+
+    CONSTANTS:
+      gc_format_excel TYPE zmig_e_file_format VALUE 'X',
+      gc_format_csv   TYPE zmig_e_file_format VALUE 'C',
+      gc_format_pdf   TYPE zmig_e_file_format VALUE 'P'.
+
+    CONSTANTS:
+      gc_excel_name TYPE zmig_mail_log-file_name VALUE 'migration_report.xlsx',
+      gc_csv_name   TYPE zmig_mail_log-file_name VALUE 'migration_report.csv',
+      gc_pdf_name   TYPE zmig_mail_log-file_name VALUE 'migration_report.pdf'.
 
 ENDCLASS.
+
 
 
 CLASS zcl_mig_export_engine IMPLEMENTATION.
@@ -47,287 +77,475 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
   METHOD zif_mig_export_provider~generate.
 
     TRY.
-        DATA(ls_data) = fetch_all_report_data( CONV #( iv_report_type ) ).
-
-        IF ls_data-header IS INITIAL.
-          rs_result-success = abap_false.
-          rs_result-message = |Khong tim thay du lieu phan tich cho { iv_report_type }|.
-          RETURN.
-        ENDIF.
 
         CASE iv_file_format.
 
-          WHEN 'C'.
-            rs_result-content     = build_csv( ls_data ).
-            rs_result-file_name   = 'migration_report.csv'.
-            rs_result-file_type   = 'CSV'.
-            rs_result-file_format = 'C'.
-            rs_result-mime_type   = 'text/csv'.
+          WHEN gc_format_excel.
 
-          WHEN 'X'.
-            rs_result-content     = build_excel( ls_data ).
-            rs_result-file_name   = 'migration_report.xlsx'.
-            rs_result-file_type   = 'BIN'.
-            rs_result-file_format = 'X'.
-            rs_result-mime_type   =
-              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'.
+            rs_result = export_excel(
+              iv_job_id         = iv_job_id
+              iv_report_type    = iv_report_type
+              iv_export_section = iv_export_section ).
 
-          WHEN 'P'.
-            rs_result-content     = build_pdf( ls_data ).
-            rs_result-file_name   = 'migration_report.pdf'.
-            rs_result-file_type   = 'PDF'.
-            rs_result-file_format = 'P'.
-            rs_result-mime_type   = 'application/pdf'.
+          WHEN gc_format_csv.
+
+            rs_result = export_csv(
+              iv_job_id         = iv_job_id
+              iv_report_type    = iv_report_type
+              iv_export_section = iv_export_section ).
+
+          WHEN gc_format_pdf.
+
+            rs_result = export_pdf(
+              iv_job_id         = iv_job_id
+              iv_report_type    = iv_report_type
+              iv_export_section = iv_export_section ).
 
           WHEN OTHERS.
+
             rs_result-success = abap_false.
-            rs_result-message = |Unsupported file format { iv_file_format }.|.
-            RETURN.
+            rs_result-message =
+              |Unsupported export format { iv_file_format }.|.
+
         ENDCASE.
 
-        IF rs_result-content IS INITIAL.
-          rs_result-success = abap_false.
-          rs_result-message = |Generated { iv_file_format } content is empty.|.
-          RETURN.
-        ENDIF.
-
-        rs_result-success = abap_true.
-        rs_result-message = |Export format { iv_file_format } generated successfully.|.
-
       CATCH cx_root INTO DATA(lx_error).
-        CLEAR: rs_result-content, rs_result-file_name,
-               rs_result-file_type, rs_result-file_format, rs_result-mime_type.
+
+        CLEAR:
+          rs_result-content,
+          rs_result-file_name,
+          rs_result-file_type,
+          rs_result-file_format,
+          rs_result-mime_type.
+
         rs_result-success = abap_false.
         rs_result-message = lx_error->get_text( ).
+
     ENDTRY.
 
   ENDMETHOD.
 
 
-  METHOD fetch_all_report_data.
-    SELECT SINGLE * FROM zmig_anl_h
-      WHERE program_name = @iv_program_name
-      INTO @rs_data-header.
+  METHOD get_section_registry.
 
-    IF rs_data-header IS INITIAL.
+    rt_registry = VALUE #(
+      ( section_code = 'OVERVIEW'        view_name = 'ZMIG_ANL_H'   sheet_title = 'Overview' )
+      ( section_code = 'UI_FILTER'       view_name = 'ZMIG_ANL_UI'  sheet_title = 'UI Filters' )
+      ( section_code = 'DB_OBJECT'       view_name = 'ZMIG_ANL_DB'  sheet_title = 'Database Objects' )
+      ( section_code = 'BUSINESS_LOGIC'  view_name = 'ZMIG_ANL_LOG' sheet_title = 'Business Logic' )
+      ( section_code = 'ALV_OUTPUT'      view_name = 'ZMIG_ANL_ALV' sheet_title = 'ALV Outputs' )
+      ( section_code = 'SOURCE_EVIDENCE' view_name = 'ZMIG_ANL_EVD' sheet_title = 'Source Evidences' )
+      ( section_code = 'RECOMMENDATION'  view_name = 'ZMIG_ANL_REC' sheet_title = 'Recommendations' )
+      ( section_code = 'MESSAGE'         view_name = 'ZMIG_ANL_MSG' sheet_title = 'Messages' )
+    ).
+
+  ENDMETHOD.
+
+
+  METHOD get_analysis_id.
+
+    SELECT SINGLE analysis_id
+      FROM zmig_anl_h
+      WHERE program_name = @iv_report_type
+      INTO @rv_analysis_id.
+
+    IF sy-subrc <> 0.
+      RAISE EXCEPTION TYPE cx_sy_itab_line_not_found.
+    ENDIF.
+
+  ENDMETHOD.
+
+
+  METHOD export_excel.
+
+    DATA(lt_registry) = get_section_registry( ).
+
+    TRY.
+        DATA(lv_analysis_id) = get_analysis_id( iv_report_type ).
+      CATCH cx_root.
+        rs_result-success = abap_false.
+        rs_result-message = |No analysis found for program { iv_report_type }.|.
+        RETURN.
+    ENDTRY.
+
+    DATA(lo_excel) = NEW zcl_excel( ).
+    DATA(lv_sheet_count) = 0.
+    DATA(lv_any_data) = abap_false.
+
+    TRY.
+
+        LOOP AT lt_registry INTO DATA(ls_section).
+
+          IF iv_export_section <> 'ALL' AND ls_section-section_code <> iv_export_section.
+            CONTINUE.
+          ENDIF.
+
+          TRY.
+              DATA(lo_struct) = CAST cl_abap_structdescr(
+                cl_abap_typedescr=>describe_by_name( ls_section-view_name ) ).
+            CATCH cx_root.
+              CONTINUE.
+          ENDTRY.
+
+          DATA(lo_table_type) = cl_abap_tabledescr=>create( lo_struct ).
+          DATA lr_data TYPE REF TO data.
+          CREATE DATA lr_data TYPE HANDLE lo_table_type.
+          ASSIGN lr_data->* TO FIELD-SYMBOL(<lt_data>).
+
+          SELECT * FROM (ls_section-view_name)
+            WHERE analysis_id = @lv_analysis_id
+            INTO TABLE @<lt_data>.
+
+          IF sy-subrc <> 0 OR lines( <lt_data> ) = 0.
+            CONTINUE.
+          ENDIF.
+
+          lv_any_data = abap_true.
+
+          DATA(lo_sheet) = COND #(
+            WHEN lv_sheet_count = 0
+            THEN lo_excel->get_active_worksheet( )
+            ELSE lo_excel->add_new_worksheet( ) ).
+
+          lo_sheet->set_title( ip_title = CONV #( ls_section-sheet_title ) ).
+          lo_sheet->bind_table(
+            ip_table           = <lt_data>
+            is_table_settings  = VALUE #( top_left_column = 1 top_left_row = 1 ) ).
+
+          lv_sheet_count = lv_sheet_count + 1.
+
+        ENDLOOP.
+
+      CATCH zcx_excel INTO DATA(lx_excel_build).
+        rs_result-success = abap_false.
+        rs_result-message = |Excel build error: { lx_excel_build->get_text( ) }.|.
+        RETURN.
+
+    ENDTRY.
+
+    IF lv_any_data = abap_false.
+      rs_result-success = abap_false.
+      rs_result-message = |No data found for section { iv_export_section } and analysis { lv_analysis_id }.|.
       RETURN.
     ENDIF.
 
-    DATA(lv_analysis_id) = rs_data-header-analysis_id.
+    DATA(lo_writer) = CAST zif_excel_writer( NEW zcl_excel_writer_2007( ) ).
 
-    SELECT * FROM zmig_anl_ui  WHERE analysis_id = @lv_analysis_id INTO TABLE @rs_data-ui.
-    SELECT * FROM zmig_anl_db  WHERE analysis_id = @lv_analysis_id INTO TABLE @rs_data-db.
-    SELECT * FROM zmig_anl_log WHERE analysis_id = @lv_analysis_id INTO TABLE @rs_data-logic.
-  ENDMETHOD.
+    TRY.
+        DATA(lv_content) = lo_writer->write_file( io_excel = lo_excel ).
+      CATCH zcx_excel INTO DATA(lx_excel).
+        rs_result-success = abap_false.
+        rs_result-message = |Excel writer error: { lx_excel->get_text( ) }.|.
+        RETURN.
+    ENDTRY.
 
-
-  METHOD build_csv.
-    DATA: lv_csv TYPE string.
-
-    lv_csv = |[OVERVIEW]\r\n|.
-    lv_csv = lv_csv && |Program Name;{ is_data-header-program_name }\r\n|.
-    lv_csv = lv_csv && |Description;{ is_data-header-program_description }\r\n|.
-    lv_csv = lv_csv && |Status;{ is_data-header-status }\r\n|.
-    lv_csv = lv_csv && |Total Source Objects;{ is_data-header-total_source_objects }\r\n|.
-    lv_csv = lv_csv && |Total UI Filters;{ is_data-header-total_ui_filters }\r\n|.
-    lv_csv = lv_csv && |Total Database Objects;{ is_data-header-total_database_objects }\r\n|.
-    lv_csv = lv_csv && |Total Business Logic;{ is_data-header-total_business_logic }\r\n|.
-    lv_csv = lv_csv && |Complexity Score;{ is_data-header-complexity_score }\r\n|.
-    lv_csv = lv_csv && |Readiness Score;{ is_data-header-readiness_score }\r\n|.
-    lv_csv = lv_csv && |\r\n|.
-
-    lv_csv = lv_csv && |[UI FILTERS]\r\n|.
-    lv_csv = lv_csv && |Field Name;Field Kind;Description;Mandatory\r\n|.
-    LOOP AT is_data-ui INTO DATA(ls_ui).
-      lv_csv = lv_csv &&
-        |{ ls_ui-field_name };{ ls_ui-field_kind };{ ls_ui-description };{ ls_ui-mandatory }\r\n|.
-    ENDLOOP.
-    lv_csv = lv_csv && |\r\n|.
-
-    lv_csv = lv_csv && |[DATABASE OBJECTS]\r\n|.
-    lv_csv = lv_csv && |Object Name;Object Type;Operation;Description\r\n|.
-    LOOP AT is_data-db INTO DATA(ls_db).
-      lv_csv = lv_csv &&
-        |{ ls_db-object_name };{ ls_db-object_type };{ ls_db-operation };{ ls_db-description }\r\n|.
-    ENDLOOP.
-    lv_csv = lv_csv && |\r\n|.
-
-    lv_csv = lv_csv && |[BUSINESS LOGIC]\r\n|.
-    lv_csv = lv_csv && |Object Name;Object Type;Description;Reuse Feasibility\r\n|.
-    LOOP AT is_data-logic INTO DATA(ls_logic).
-      lv_csv = lv_csv &&
-        |{ ls_logic-object_name };{ ls_logic-object_type };{ ls_logic-description };{ ls_logic-reuse_feasibility }\r\n|.
-    ENDLOOP.
-
-    DATA(lv_full) = cl_abap_char_utilities=>byte_order_mark_utf8 && lv_csv.
-    rv_content = cl_abap_codepage=>convert_to( lv_full ).
-  ENDMETHOD.
-
-
-  METHOD build_excel.
-    DATA(lo_excel) = NEW zcl_excel( ).
-    DATA(lo_style_hdr) = lo_excel->add_new_style( ).
-    lo_style_hdr->font->bold = abap_true.
-    lo_style_hdr->fill->filltype = zcl_excel_style_fill=>c_fill_solid.
-    lo_style_hdr->fill->fgcolor-rgb = 'D9E1F2'.
-
-    DATA(lo_sheet) = lo_excel->get_active_worksheet( ).
-    lo_sheet->set_title( 'Overview' ).
-
-    lo_sheet->set_cell( ip_column = 'B' ip_row = 2 ip_value = 'MIGRATION ANALYSIS OVERVIEW' ).
-    lo_sheet->set_cell_style( ip_column = 'B' ip_row = 2 ip_style = lo_style_hdr->get_guid( ) ).
-
-    DATA(lv_row) = 4.
-    lo_sheet->set_cell( ip_column = 'B' ip_row = lv_row     ip_value = 'Program Name:' ).
-    lo_sheet->set_cell( ip_column = 'C' ip_row = lv_row     ip_value = is_data-header-program_name ).
-    lo_sheet->set_cell( ip_column = 'B' ip_row = lv_row + 1 ip_value = 'Description:' ).
-    lo_sheet->set_cell( ip_column = 'C' ip_row = lv_row + 1 ip_value = is_data-header-program_description ).
-    lo_sheet->set_cell( ip_column = 'B' ip_row = lv_row + 2 ip_value = 'Status:' ).
-    lo_sheet->set_cell( ip_column = 'C' ip_row = lv_row + 2 ip_value = is_data-header-status ).
-    lo_sheet->set_cell( ip_column = 'B' ip_row = lv_row + 3 ip_value = 'Total Source Objects:' ).
-    lo_sheet->set_cell( ip_column = 'C' ip_row = lv_row + 3 ip_value = is_data-header-total_source_objects ).
-    lo_sheet->set_cell( ip_column = 'B' ip_row = lv_row + 4 ip_value = 'Total UI Filters:' ).
-    lo_sheet->set_cell( ip_column = 'C' ip_row = lv_row + 4 ip_value = is_data-header-total_ui_filters ).
-    lo_sheet->set_cell( ip_column = 'B' ip_row = lv_row + 5 ip_value = 'Total Database Objects:' ).
-    lo_sheet->set_cell( ip_column = 'C' ip_row = lv_row + 5 ip_value = is_data-header-total_database_objects ).
-    lo_sheet->set_cell( ip_column = 'B' ip_row = lv_row + 6 ip_value = 'Total Business Logic:' ).
-    lo_sheet->set_cell( ip_column = 'C' ip_row = lv_row + 6 ip_value = is_data-header-total_business_logic ).
-    lo_sheet->set_cell( ip_column = 'B' ip_row = lv_row + 7 ip_value = 'Complexity Score:' ).
-    lo_sheet->set_cell( ip_column = 'C' ip_row = lv_row + 7 ip_value = is_data-header-complexity_score ).
-    lo_sheet->set_cell( ip_column = 'B' ip_row = lv_row + 8 ip_value = 'Readiness Score:' ).
-    lo_sheet->set_cell( ip_column = 'C' ip_row = lv_row + 8 ip_value = is_data-header-readiness_score ).
-
-    lo_sheet->set_column_width( ip_column = 'B' ip_width_fix = 26 ).
-    lo_sheet->set_column_width( ip_column = 'C' ip_width_fix = 35 ).
-
-    IF is_data-ui IS NOT INITIAL.
-      lo_sheet = lo_excel->add_new_worksheet( ).
-      lo_sheet->set_title( 'UI Filters' ).
-      lo_sheet->bind_table( ip_table = is_data-ui ).
+    IF lv_content IS INITIAL.
+      rs_result-success = abap_false.
+      rs_result-message = 'Generated Excel content is empty.'.
+      RETURN.
     ENDIF.
 
-    IF is_data-db IS NOT INITIAL.
-      lo_sheet = lo_excel->add_new_worksheet( ).
-      lo_sheet->set_title( 'Database Objects' ).
-      lo_sheet->bind_table( ip_table = is_data-db ).
+    rs_result-success     = abap_true.
+    rs_result-content     = lv_content.
+    rs_result-file_name   = gc_excel_name.
+    rs_result-file_type   = 'BIN'.
+    rs_result-file_format = gc_format_excel.
+    rs_result-mime_type   =
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'.
+    rs_result-message     = 'Excel export generated successfully.'.
+
+  ENDMETHOD.
+
+  METHOD escape_csv_value.
+
+    DATA(lv_escaped) = replace(
+      val  = iv_value
+      sub  = '"'
+      with = '""'
+      occ  = 0 ).
+
+    rv_value = |"{ lv_escaped }"|.
+
+  ENDMETHOD.
+
+  METHOD export_csv.
+
+    DATA(lt_registry) = get_section_registry( ).
+
+    TRY.
+        DATA(lv_analysis_id) = get_analysis_id( iv_report_type ).
+      CATCH cx_root.
+        rs_result-success = abap_false.
+        rs_result-message = |No analysis found for program { iv_report_type }.|.
+        RETURN.
+    ENDTRY.
+
+    DATA lv_csv_text TYPE string.
+    DATA(lv_any_data) = abap_false.
+
+    LOOP AT lt_registry INTO DATA(ls_section).
+
+      IF iv_export_section <> 'ALL' AND ls_section-section_code <> iv_export_section.
+        CONTINUE.
+      ENDIF.
+
+      TRY.
+          DATA(lo_struct) = CAST cl_abap_structdescr(
+            cl_abap_typedescr=>describe_by_name( ls_section-view_name ) ).
+        CATCH cx_root.
+          CONTINUE.
+      ENDTRY.
+
+      DATA(lo_table_type) = cl_abap_tabledescr=>create( lo_struct ).
+      DATA lr_data TYPE REF TO data.
+      CREATE DATA lr_data TYPE HANDLE lo_table_type.
+      ASSIGN lr_data->* TO FIELD-SYMBOL(<lt_data>).
+
+      SELECT * FROM (ls_section-view_name)
+        WHERE analysis_id = @lv_analysis_id
+        INTO TABLE @<lt_data>.
+
+      IF sy-subrc <> 0 OR lines( <lt_data> ) = 0.
+        CONTINUE.
+      ENDIF.
+
+      lv_any_data = abap_true.
+
+      lv_csv_text = lv_csv_text && |=== { ls_section-sheet_title } ===| && cl_abap_char_utilities=>cr_lf.
+
+      DATA(lt_fields) = lo_struct->get_components( ).
+      DATA lv_header_line TYPE string.
+      CLEAR lv_header_line.
+      LOOP AT lt_fields INTO DATA(ls_field).
+        DATA(lv_header_cell) = escape_csv_value( ls_field-name ).
+        lv_header_line = COND #(
+          WHEN lv_header_line IS INITIAL THEN lv_header_cell
+          ELSE lv_header_line && ',' && lv_header_cell ).
+      ENDLOOP.
+      lv_csv_text = lv_csv_text && lv_header_line && cl_abap_char_utilities=>cr_lf.
+
+      LOOP AT <lt_data> ASSIGNING FIELD-SYMBOL(<ls_row>).
+        DATA lv_row_line TYPE string.
+        CLEAR lv_row_line.
+        DO lines( lt_fields ) TIMES.
+          DATA(lv_idx) = sy-index.
+          ASSIGN COMPONENT lv_idx OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_cell>).
+          IF sy-subrc = 0.
+            DATA(lv_escaped_cell) = escape_csv_value( |{ <lv_cell> }| ).
+            lv_row_line = COND #(
+              WHEN lv_row_line IS INITIAL THEN lv_escaped_cell
+              ELSE lv_row_line && ',' && lv_escaped_cell ).
+          ENDIF.
+        ENDDO.
+        lv_csv_text = lv_csv_text && lv_row_line && cl_abap_char_utilities=>cr_lf.
+      ENDLOOP.
+
+      lv_csv_text = lv_csv_text && cl_abap_char_utilities=>cr_lf.
+
+    ENDLOOP.
+
+    IF lv_any_data = abap_false.
+      rs_result-success = abap_false.
+      rs_result-message = |No data found for section { iv_export_section } and analysis { lv_analysis_id }.|.
+      RETURN.
     ENDIF.
 
-    IF is_data-logic IS NOT INITIAL.
-      lo_sheet = lo_excel->add_new_worksheet( ).
-      lo_sheet->set_title( 'Business Logic' ).
-      lo_sheet->bind_table( ip_table = is_data-logic ).
+    TRY.
+        DATA(lv_xstring) = cl_bcs_convert=>string_to_xstring(
+          iv_string   = lv_csv_text
+          iv_codepage = '4110' ).  " UTF-8
+      CATCH cx_bcs INTO DATA(lx_bcs).
+        rs_result-success = abap_false.
+        rs_result-message = |CSV conversion error: { lx_bcs->get_text( ) }.|.
+        RETURN.
+    ENDTRY.
+
+    IF lv_xstring IS INITIAL.
+      rs_result-success = abap_false.
+      rs_result-message = 'Generated CSV content is empty.'.
+      RETURN.
     ENDIF.
 
-    DATA: lo_writer TYPE REF TO zif_excel_writer.
-CREATE OBJECT lo_writer TYPE zcl_excel_writer_2007.
-rv_content = lo_writer->write_file( lo_excel ).
+    rs_result-success     = abap_true.
+    rs_result-content     = lv_xstring.
+    rs_result-file_name   = gc_csv_name.
+    rs_result-file_type   = 'CSV'.
+    rs_result-file_format = gc_format_csv.
+    rs_result-mime_type   = 'text/csv'.
+    rs_result-message     = 'CSV export generated successfully.'.
+
   ENDMETHOD.
 
 
-  METHOD build_pdf.
-    DATA: lt_lines TYPE string_table.
+  METHOD export_pdf.
 
-    APPEND 'MIGRATION ANALYSIS REPORT' TO lt_lines.
-    APPEND |Program: { is_data-header-program_name }| TO lt_lines.
-    APPEND |Description: { is_data-header-program_description }| TO lt_lines.
-    APPEND |Status: { is_data-header-status }| TO lt_lines.
-    APPEND |Total Source Objects: { is_data-header-total_source_objects }| TO lt_lines.
-    APPEND |Total UI Filters: { is_data-header-total_ui_filters }| TO lt_lines.
-    APPEND |Total Database Objects: { is_data-header-total_database_objects }| TO lt_lines.
-    APPEND |Total Business Logic: { is_data-header-total_business_logic }| TO lt_lines.
-    APPEND |Complexity Score: { is_data-header-complexity_score }| TO lt_lines.
-    APPEND |Readiness Score: { is_data-header-readiness_score }| TO lt_lines.
-    APPEND '' TO lt_lines.
+    DATA(lt_registry) = get_section_registry( ).
 
-    APPEND 'SECTION: UI FILTERS' TO lt_lines.
-    LOOP AT is_data-ui INTO DATA(ls_ui).
-      APPEND |{ ls_ui-field_name } | && |- { ls_ui-description }| TO lt_lines.
+    TRY.
+        DATA(lv_analysis_id) = get_analysis_id( iv_report_type ).
+      CATCH cx_root.
+        rs_result-success = abap_false.
+        rs_result-message = |No analysis found for program { iv_report_type }.|.
+        RETURN.
+    ENDTRY.
+
+    TYPES: BEGIN OF ty_section_data,
+             sheet_title TYPE string,
+             fields      TYPE REF TO cl_abap_structdescr,
+             data_ref    TYPE REF TO data,
+           END OF ty_section_data.
+    DATA lt_section_data TYPE STANDARD TABLE OF ty_section_data.
+    DATA(lv_any_data) = abap_false.
+
+    LOOP AT lt_registry INTO DATA(ls_section).
+
+      IF iv_export_section <> 'ALL' AND ls_section-section_code <> iv_export_section.
+        CONTINUE.
+      ENDIF.
+
+      TRY.
+          DATA(lo_struct) = CAST cl_abap_structdescr(
+            cl_abap_typedescr=>describe_by_name( ls_section-view_name ) ).
+        CATCH cx_root.
+          CONTINUE.
+      ENDTRY.
+
+      DATA(lo_table_type) = cl_abap_tabledescr=>create( lo_struct ).
+      DATA lr_data TYPE REF TO data.
+      CREATE DATA lr_data TYPE HANDLE lo_table_type.
+      ASSIGN lr_data->* TO FIELD-SYMBOL(<lt_data>).
+
+      SELECT * FROM (ls_section-view_name)
+        WHERE analysis_id = @lv_analysis_id
+        INTO TABLE @<lt_data>.
+
+      IF sy-subrc <> 0 OR lines( <lt_data> ) = 0.
+        CONTINUE.
+      ENDIF.
+
+      lv_any_data = abap_true.
+
+      APPEND VALUE #(
+        sheet_title = ls_section-sheet_title
+        fields      = lo_struct
+        data_ref    = lr_data
+      ) TO lt_section_data.
+
     ENDLOOP.
-    APPEND '' TO lt_lines.
 
-    APPEND 'SECTION: DATABASE OBJECTS' TO lt_lines.
-    LOOP AT is_data-db INTO DATA(ls_db).
-      APPEND |{ ls_db-object_name } | && |- { ls_db-operation }| TO lt_lines.
-    ENDLOOP.
-    APPEND '' TO lt_lines.
-
-    APPEND 'SECTION: BUSINESS LOGIC' TO lt_lines.
-    LOOP AT is_data-logic INTO DATA(ls_logic).
-      APPEND |{ ls_logic-object_name } | && |- { ls_logic-description }| TO lt_lines.
-    ENDLOOP.
-
-    rv_content = build_pdf_from_lines( lt_lines ).
-  ENDMETHOD.
-
-
-  METHOD pdf_escape.
-    rv_text = replace( val = iv_text sub = '\' with = '\\' occ = 0 ).
-    rv_text = replace( val = rv_text sub = '(' with = '\(' occ = 0 ).
-    rv_text = replace( val = rv_text sub = ')' with = '\)' occ = 0 ).
-  ENDMETHOD.
-
-
-  METHOD build_pdf_from_lines.
-    CONSTANTS: c_lines_per_page TYPE i VALUE 55.
-
-    DATA: lv_pdf        TYPE string,
-          lv_page_count TYPE i,
-          lt_page_objs  TYPE TABLE OF string.
-
-    lv_page_count = ceil( lines( it_lines ) / c_lines_per_page ).
-    IF lv_page_count = 0.
-      lv_page_count = 1.
+    IF lv_any_data = abap_false.
+      rs_result-success = abap_false.
+      rs_result-message = |No data found for section { iv_export_section } and analysis { lv_analysis_id }.|.
+      RETURN.
     ENDIF.
 
-    DATA(lv_line_idx) = 1.
-    DO lv_page_count TIMES.
-      DATA(lv_content_stream) = |BT /F1 10 Tf 40 800 Td 14 TL\r\n|.
+    NEW-PAGE PRINT ON
+      NO DIALOG
+      DESTINATION 'LOCL'
+      IMMEDIATELY ' '
+      KEEP IN SPOOL 'X'
+      LIST NAME 'MIG_EXPORT'.
 
-      DATA(lv_lines_in_page) = 0.
-      WHILE lv_lines_in_page < c_lines_per_page AND lv_line_idx <= lines( it_lines ).
-        DATA(lv_text) = pdf_escape( it_lines[ lv_line_idx ] ).
-        lv_content_stream = lv_content_stream && |({ lv_text }) Tj T*\r\n|.
-        lv_line_idx = lv_line_idx + 1.
-        lv_lines_in_page = lv_lines_in_page + 1.
-      ENDWHILE.
+    WRITE: / 'Migration Analysis Report'   COLOR COL_HEADING.
+    WRITE: / 'Program:', iv_report_type.
+    WRITE: / 'Generated:', sy-datum, sy-uzeit.
+    ULINE.
 
-      lv_content_stream = lv_content_stream && |ET|.
-      APPEND lv_content_stream TO lt_page_objs.
-    ENDDO.
+    LOOP AT lt_section_data INTO DATA(ls_sec_data).
 
-    DATA(lv_obj1) = |1 0 obj\r\n<< /Type /Catalog /Pages 2 0 R >>\r\nendobj\r\n|.
+      ASSIGN ls_sec_data-data_ref->* TO FIELD-SYMBOL(<lt_sec_table>).
+      DATA(lt_sec_fields) = ls_sec_data-fields->get_components( ).
 
-    DATA(lv_kids) = ``.
-    DATA(lv_obj_num) = 4.
-    DO lv_page_count TIMES.
-      lv_kids = lv_kids && |{ lv_obj_num } 0 R |.
-      lv_obj_num = lv_obj_num + 2.
-    ENDDO.
+      SKIP.
+      WRITE: / ls_sec_data-sheet_title COLOR COL_GROUP.
+      ULINE.
 
-    DATA(lv_obj2) = |2 0 obj\r\n<< /Type /Pages /Kids [ { lv_kids }] /Count { lv_page_count } >>\r\nendobj\r\n|.
-    DATA(lv_obj3) = |3 0 obj\r\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\r\nendobj\r\n|.
+      LOOP AT <lt_sec_table> ASSIGNING FIELD-SYMBOL(<ls_sec_row>).
+        DATA lv_line TYPE string.
+        CLEAR lv_line.
+        DO lines( lt_sec_fields ) TIMES.
+          DATA(lv_col_idx) = sy-index.
+          ASSIGN COMPONENT lv_col_idx OF STRUCTURE <ls_sec_row> TO FIELD-SYMBOL(<lv_sec_cell>).
+          IF sy-subrc = 0.
+            lv_line = COND #(
+              WHEN lv_line IS INITIAL THEN |{ <lv_sec_cell> }|
+              ELSE lv_line && ` | ` && |{ <lv_sec_cell> }| ).
+          ENDIF.
+        ENDDO.
+        WRITE: / lv_line.
+      ENDLOOP.
 
-    lv_pdf = |%PDF-1.4\r\n| && lv_obj1 && lv_obj2 && lv_obj3.
-
-    lv_obj_num = 4.
-    LOOP AT lt_page_objs INTO DATA(lv_stream).
-      DATA(lv_page_obj) =
-        |{ lv_obj_num } 0 obj\r\n| &&
-        |<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 3 0 R >> >> | &&
-        |/MediaBox [0 0 595 842] /Contents { lv_obj_num + 1 } 0 R >>\r\nendobj\r\n|.
-
-      DATA(lv_content_obj) =
-        |{ lv_obj_num + 1 } 0 obj\r\n| &&
-        |<< /Length { strlen( lv_stream ) } >>\r\nstream\r\n| &&
-        lv_stream && |\r\nendstream\r\nendobj\r\n|.
-
-      lv_pdf = lv_pdf && lv_page_obj && lv_content_obj.
-      lv_obj_num = lv_obj_num + 2.
     ENDLOOP.
 
-    lv_pdf = lv_pdf && |trailer\r\n<< /Root 1 0 R /Size { lv_obj_num } >>\r\n%%EOF|.
+    SKIP.
+    ULINE.
+    WRITE: / 'End of report - generated automatically, do not reply.'.
 
-    rv_content = cl_abap_codepage=>convert_to( lv_pdf ).
+    NEW-PAGE PRINT OFF.
+
+    DATA(lv_spool_id) = sy-spono.
+
+    IF lv_spool_id IS INITIAL.
+      rs_result-success = abap_false.
+      rs_result-message = 'Could not create spool job for PDF conversion.'.
+      RETURN.
+    ENDIF.
+
+    DATA lv_pdf_bytecount TYPE i.
+    DATA lt_pdf_lines TYPE STANDARD TABLE OF tline.
+
+    CALL FUNCTION 'CONVERT_ABAPSPOOLJOB_2_PDF'
+      EXPORTING
+        src_spoolid              = lv_spool_id
+        no_dialog                = abap_true
+      IMPORTING
+        pdf_bytecount            = lv_pdf_bytecount
+      TABLES
+        pdf                      = lt_pdf_lines
+      EXCEPTIONS
+        err_no_abap_spooljob     = 1
+        err_no_spooljob          = 2
+        err_no_permission        = 3
+        err_conv_not_possible    = 4
+        err_bad_dstdevice        = 5
+        user_cancelled           = 6
+        err_spoolerror           = 7
+        err_temseerror           = 8
+        err_btcjob_open_failed   = 9
+        err_btcjob_submit_failed = 10
+        err_btcjob_close_failed  = 11
+        OTHERS                   = 12.
+
+    IF sy-subrc <> 0 OR lv_pdf_bytecount = 0.
+      rs_result-success = abap_false.
+      rs_result-message = |PDF conversion failed, subrc = { sy-subrc }.|.
+      RETURN.
+    ENDIF.
+
+    CALL FUNCTION 'SCMS_BINARY_TO_XSTRING'
+      EXPORTING
+        input_length = lv_pdf_bytecount
+      IMPORTING
+        buffer       = rs_result-content
+      TABLES
+        binary_tab   = lt_pdf_lines
+      EXCEPTIONS
+        failed       = 1
+        OTHERS       = 2.
+
+    IF sy-subrc <> 0 OR rs_result-content IS INITIAL.
+      rs_result-success = abap_false.
+      rs_result-message = 'Generated PDF content is empty.'.
+      RETURN.
+    ENDIF.
+
+    rs_result-success     = abap_true.
+    rs_result-file_name   = gc_pdf_name.
+    rs_result-file_type   = 'PDF'.
+    rs_result-file_format = gc_format_pdf.
+    rs_result-mime_type   = 'application/pdf'.
+    rs_result-message     = 'PDF export generated successfully.'.
+
   ENDMETHOD.
 
 ENDCLASS.

@@ -13,4 +13,5 @@ define service ZUI_MIG_ANALYSIS {
   expose ZC_MIG_ANL_REC as Recommendations;
   expose ZC_MIG_ANL_ANN as Annotations;
   expose ZC_MIG_ANL_MSG as AnalysisMessages;
+  expose ZCE_MIG_EXPORT as MigExport;
 }
