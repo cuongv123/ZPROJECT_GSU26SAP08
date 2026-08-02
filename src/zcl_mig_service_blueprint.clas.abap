@@ -131,54 +131,62 @@ CLASS zcl_mig_service_blueprint IMPLEMENTATION.
 
   ENDMETHOD.
 
-    METHOD build_parameters.
+   METHOD build_parameters.
 
-    LOOP AT it_ui_filters
-      INTO DATA(ls_filter).
+  LOOP AT it_ui_filters
+    INTO DATA(ls_filter).
 
-      DATA(lv_odata_kind) =
-        COND #( WHEN ls_filter-field_kind = 'SELECT_OPTIONS'
-                THEN 'RANGE'
-                ELSE 'PROPERTY' ).
+    DATA lv_odata_kind TYPE c LENGTH 20.
 
-      APPEND VALUE #(
-        source_item_id =
-          ls_filter-item_id
+    IF ls_filter-field_kind = 'SELECT_OPTIONS'.
 
-        parameter_name =
-          ls_filter-field_name
+      lv_odata_kind = 'RANGE'.
 
-        source_kind =
-          ls_filter-field_kind
+    ELSE.
 
-        odata_kind =
-          lv_odata_kind
+      lv_odata_kind = 'PROPERTY'.
 
-        edm_type =
-          map_edm_type(
-            iv_data_type = ls_filter-data_type
-            iv_checkbox  = ls_filter-checkbox
-          )
+    ENDIF.
 
-        mandatory =
-          ls_filter-mandatory
 
-        multiple_selection =
-          ls_filter-multiple_selection
+    APPEND VALUE #(
+      source_item_id =
+        ls_filter-item_id
 
-        range_supported =
-          ls_filter-range_supported
+      parameter_name =
+        ls_filter-field_name
 
-        default_value =
-          ls_filter-default_value
-      ) TO rt_parameters.
+      source_kind =
+        ls_filter-field_kind
 
-    ENDLOOP.
+      odata_kind =
+        lv_odata_kind
 
-    SORT rt_parameters
-      BY parameter_name.
+      edm_type =
+        map_edm_type(
+          iv_data_type = ls_filter-data_type
+          iv_checkbox  = ls_filter-checkbox
+        )
 
-  ENDMETHOD.
+      mandatory =
+        ls_filter-mandatory
+
+      multiple_selection =
+        ls_filter-multiple_selection
+
+      range_supported =
+        ls_filter-range_supported
+
+      default_value =
+        ls_filter-default_value
+    ) TO rt_parameters.
+
+  ENDLOOP.
+
+  SORT rt_parameters
+    BY parameter_name.
+
+ENDMETHOD.
 
     METHOD build_fields.
 

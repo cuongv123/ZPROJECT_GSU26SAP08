@@ -637,6 +637,221 @@
           messages   TYPE tt_message,
         END OF ty_service_blueprint_result.
 
+
+
+        "============================================================
+      " Provider Contract
+      "============================================================
+      TYPES:
+        ty_provider_kind   TYPE c LENGTH 20,
+        ty_provider_status TYPE c LENGTH 20.
+
+
+      CONSTANTS:
+        gc_provider_none
+          TYPE ty_provider_kind
+          VALUE 'NONE',
+
+        gc_provider_class_method
+          TYPE ty_provider_kind
+          VALUE 'CLASS_METHOD',
+
+        gc_provider_function
+          TYPE ty_provider_kind
+          VALUE 'FUNCTION_MODULE',
+
+        gc_provider_bapi
+          TYPE ty_provider_kind
+          VALUE 'BAPI',
+
+        gc_provider_report_logic
+          TYPE ty_provider_kind
+          VALUE 'REPORT_LOGIC'.
+
+
+      CONSTANTS:
+        gc_provider_ready
+          TYPE ty_provider_status
+          VALUE 'READY',
+
+        gc_provider_signature
+          TYPE ty_provider_status
+          VALUE 'SIGNATURE_REQUIRED',
+
+        gc_provider_refactor
+          TYPE ty_provider_status
+          VALUE 'REFACTOR_REQUIRED',
+
+        gc_provider_review
+          TYPE ty_provider_status
+          VALUE 'MANUAL_REVIEW',
+
+        gc_provider_unsupported
+          TYPE ty_provider_status
+          VALUE 'UNSUPPORTED'.
+
+
+      TYPES:
+        BEGIN OF ty_provider_candidate,
+          source_item_id         TYPE ty_item_id,
+
+          object_name            TYPE c LENGTH 120,
+          object_type            TYPE c LENGTH 30,
+          container_name         TYPE c LENGTH 120,
+          calling_routine        TYPE c LENGTH 120,
+          interface_summary      TYPE string,
+
+          provider_kind          TYPE ty_provider_kind,
+          provider_status        TYPE ty_provider_status,
+          priority               TYPE i,
+
+          side_effect            TYPE c LENGTH 20,
+          transaction_dependency TYPE abap_bool,
+          gui_dependency         TYPE abap_bool,
+          reuse_feasibility      TYPE c LENGTH 20,
+
+          selected               TYPE abap_bool,
+          decision_reason        TYPE string,
+        END OF ty_provider_candidate,
+
+        tt_provider_candidate
+          TYPE STANDARD TABLE OF ty_provider_candidate
+          WITH EMPTY KEY.
+
+
+      TYPES:
+        BEGIN OF ty_provider_contract,
+          analysis_id             TYPE ty_analysis_id,
+          service_strategy        TYPE ty_service_strategy,
+
+          source_item_id          TYPE ty_item_id,
+          provider_kind           TYPE ty_provider_kind,
+          provider_status         TYPE ty_provider_status,
+
+          source_object_name      TYPE c LENGTH 120,
+          source_container_name   TYPE c LENGTH 120,
+          source_interface_summary TYPE string,
+
+          proposed_class_name     TYPE c LENGTH 30,
+          proposed_method_name    TYPE c LENGTH 30,
+
+          manual_review           TYPE abap_bool,
+          decision_reason         TYPE string,
+        END OF ty_provider_contract.
+
+
+      TYPES:
+        BEGIN OF ty_provider_contract_result,
+          contract   TYPE ty_provider_contract,
+          candidates TYPE tt_provider_candidate,
+          messages   TYPE tt_message,
+        END OF ty_provider_contract_result.
+
+
+       "============================================================
+      " Provider Signature
+      "============================================================
+      TYPES:
+        ty_sig_name   TYPE c LENGTH 120,
+        ty_sig_dir    TYPE c LENGTH 10,
+        ty_sig_role   TYPE c LENGTH 10,
+        ty_sig_status TYPE c LENGTH 20.
+
+
+      CONSTANTS:
+        gc_sig_imp TYPE ty_sig_dir
+          VALUE 'IMPORTING',
+
+        gc_sig_exp TYPE ty_sig_dir
+          VALUE 'EXPORTING',
+
+        gc_sig_chg TYPE ty_sig_dir
+          VALUE 'CHANGING',
+
+        gc_sig_tab TYPE ty_sig_dir
+          VALUE 'TABLES',
+
+        gc_sig_ret TYPE ty_sig_dir
+          VALUE 'RETURNING'.
+
+
+      CONSTANTS:
+        gc_sig_in TYPE ty_sig_role
+          VALUE 'INPUT',
+
+        gc_sig_out TYPE ty_sig_role
+          VALUE 'OUTPUT',
+
+        gc_sig_both TYPE ty_sig_role
+          VALUE 'BOTH'.
+
+
+      CONSTANTS:
+        gc_sig_ready TYPE ty_sig_status
+          VALUE 'READY',
+
+        gc_sig_not_found TYPE ty_sig_status
+          VALUE 'NOT_FOUND',
+
+        gc_sig_review TYPE ty_sig_status
+          VALUE 'MANUAL_REVIEW',
+
+        gc_sig_unsup TYPE ty_sig_status
+          VALUE 'UNSUPPORTED'.
+
+
+      TYPES:
+        BEGIN OF ty_sig_par,
+          par_name   TYPE c LENGTH 30,
+          direction  TYPE ty_sig_dir,
+          abap_type  TYPE c LENGTH 30,
+          type_name  TYPE c LENGTH 80,
+          edm_type   TYPE c LENGTH 30,
+          odata_role TYPE ty_sig_role,
+
+          optional   TYPE abap_bool,
+          is_table   TYPE abap_bool,
+          is_ref     TYPE abap_bool,
+          is_deep    TYPE abap_bool,
+        END OF ty_sig_par,
+
+        tt_sig_par TYPE STANDARD TABLE OF ty_sig_par
+          WITH EMPTY KEY.
+
+
+      TYPES:
+        BEGIN OF ty_sig_def,
+          provider_kind TYPE ty_provider_kind,
+
+          obj_name      TYPE ty_sig_name,
+          class_name    TYPE ty_sig_name,
+          method_name   TYPE ty_sig_name,
+
+          exists        TYPE abap_bool,
+          is_static     TYPE abap_bool,
+
+          params        TYPE tt_sig_par,
+        END OF ty_sig_def.
+
+
+      TYPES:
+        BEGIN OF ty_sig_result,
+          analysis_id      TYPE ty_analysis_id,
+          service_strategy TYPE ty_service_strategy,
+          provider_kind    TYPE ty_provider_kind,
+
+          object_name      TYPE ty_sig_name,
+          container_name   TYPE ty_sig_name,
+
+          status           TYPE ty_sig_status,
+          manual_review    TYPE abap_bool,
+          decision_reason  TYPE string,
+
+          input_params     TYPE tt_sig_par,
+          output_params    TYPE tt_sig_par,
+          all_params       TYPE tt_sig_par,
+        END OF ty_sig_result.
+
   "============================================================
   " Complete analysis result
   "============================================================
