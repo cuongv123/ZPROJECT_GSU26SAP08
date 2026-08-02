@@ -112,49 +112,63 @@ CLASS ltc_stmt_normalizer IMPLEMENTATION.
 
   METHOD normalize_chained_parameters.
 
-    DATA(ls_result) = get_result( ).
+  DATA(ls_result) = get_result( ).
 
-    DATA:
-      lv_parameter_count TYPE i,
-      lv_p_one_found     TYPE abap_bool,
-      lv_p_two_found     TYPE abap_bool.
+  DATA:
+    lv_parameter_count TYPE i,
+    lv_p_one_text      TYPE string,
+    lv_p_two_text      TYPE string.
 
-    LOOP AT ls_result-statements
-      ASSIGNING FIELD-SYMBOL(<statement>)
-      WHERE statement_type = 'PARAMETERS'.
+  LOOP AT ls_result-statements
+    ASSIGNING FIELD-SYMBOL(<statement>)
+    WHERE statement_type = 'PARAMETERS'.
 
-      lv_parameter_count += 1.
+    lv_parameter_count += 1.
 
-      DATA(lv_statement_text) =
-        to_upper( <statement>-statement_text ).
+    DATA(lv_statement_text) =
+      to_upper( <statement>-statement_text ).
 
-      IF lv_statement_text CS 'P_ONE'.
-        lv_p_one_found = abap_true.
-      ENDIF.
+    IF lv_statement_text CS 'P_ONE'.
+      lv_p_one_text = lv_statement_text.
+    ENDIF.
 
-      IF lv_statement_text CS 'P_TWO'.
-        lv_p_two_found = abap_true.
-      ENDIF.
+    IF lv_statement_text CS 'P_TWO'.
+      lv_p_two_text = lv_statement_text.
+    ENDIF.
 
-    ENDLOOP.
+  ENDLOOP.
 
-    cl_abap_unit_assert=>assert_equals(
-      exp = 2
-      act = lv_parameter_count
-      msg = 'Chained PARAMETERS phải tạo hai logical statements'
-    ).
+  cl_abap_unit_assert=>assert_equals(
+    exp = 2
+    act = lv_parameter_count
+    msg = 'Chained PARAMETERS phải tạo hai logical statements'
+  ).
 
-    cl_abap_unit_assert=>assert_true(
-      act = lv_p_one_found
-      msg = 'Không dựng được logical statement cho P_ONE'
-    ).
+  cl_abap_unit_assert=>assert_not_initial(
+    act = lv_p_one_text
+    msg = 'Không dựng được statement riêng cho P_ONE'
+  ).
 
-    cl_abap_unit_assert=>assert_true(
-      act = lv_p_two_found
-      msg = 'Không dựng được logical statement cho P_TWO'
-    ).
+  cl_abap_unit_assert=>assert_not_initial(
+    act = lv_p_two_text
+    msg = 'Không dựng được statement riêng cho P_TWO'
+  ).
 
-  ENDMETHOD.
+  cl_abap_unit_assert=>assert_false(
+    act = xsdbool(
+      lv_p_one_text CS 'P_TWO'
+    )
+    msg = |Statement P_ONE chứa cả P_TWO: { lv_p_one_text }|
+  ).
+
+  cl_abap_unit_assert=>assert_false(
+    act = xsdbool(
+      lv_p_two_text CS 'P_ONE'
+    )
+    msg = |Statement P_TWO chứa cả P_ONE: { lv_p_two_text }|
+  ).
+
+ENDMETHOD.
 
 
   METHOD assign_form_context.

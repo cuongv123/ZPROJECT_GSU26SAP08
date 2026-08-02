@@ -1,4 +1,4 @@
-CLASS zcl_mig_analysis_service DEFINITION
+    CLASS zcl_mig_analysis_service DEFINITION
   PUBLIC
   FINAL
   CREATE PUBLIC.
@@ -64,6 +64,14 @@ CLASS zcl_mig_analysis_service DEFINITION
       RETURNING
         VALUE(rv_analysis_id)
           TYPE zif_mig_types=>ty_analysis_id
+      RAISING
+        zcx_mig_analysis.
+     METHODS create_item_id
+      IMPORTING
+        iv_source_object TYPE progname
+      RETURNING
+        VALUE(rv_item_id)
+          TYPE zif_mig_types=>ty_item_id
       RAISING
         zcx_mig_analysis.
 
@@ -185,29 +193,39 @@ METHOD build_source_units.
   ENDIF.
 
 
-  "==========================================================
-  " Chuẩn hóa statements của từng source unit.
-  "
-  " Không gọi scanner lần nữa.
-  "==========================================================
   LOOP AT rt_source_units
-    ASSIGNING FIELD-SYMBOL(<source_unit>).
+  ASSIGNING FIELD-SYMBOL(<source_unit>).
 
-    "Toàn bộ root/include phải thuộc cùng analysis
-    <source_unit>-source_object-analysis_id =
-      iv_analysis_id.
+  "Toàn bộ root/include thuộc cùng analysis
+  <source_unit>-source_object-analysis_id =
+    iv_analysis_id.
 
+  "Mỗi source object có identity riêng trong snapshot
+  IF <source_unit>-source_object-item_id IS INITIAL.
 
-    DATA(ls_normalized_scan) =
-      mo_normalizer->normalize(
-        is_scan_result =
-          <source_unit>-scan_result
+    <source_unit>-source_object-item_id =
+      create_item_id(
+        iv_source_object =
+          <source_unit>-source_object-object_name
       ).
 
-    <source_unit>-scan_result =
-      ls_normalized_scan.
+  ENDIF.
 
-  ENDLOOP.
+  <source_unit>-source_object-line_count =
+    lines(
+      <source_unit>-source_object-source_lines
+    ).
+
+  DATA(ls_normalized_scan) =
+    mo_normalizer->normalize(
+      is_scan_result =
+        <source_unit>-scan_result
+    ).
+
+  <source_unit>-scan_result =
+    ls_normalized_scan.
+
+ENDLOOP.
 
 ENDMETHOD.
 
@@ -326,6 +344,25 @@ METHOD create_uuid.
         textid       = zcx_mig_analysis=>analysis_failed
         previous     = lx_uuid
         program_name = iv_program_name
+      ).
+
+  ENDTRY.
+
+ENDMETHOD.
+
+METHOD create_item_id.
+
+  TRY.
+
+      rv_item_id =
+        cl_system_uuid=>create_uuid_x16_static( ).
+
+    CATCH cx_uuid_error INTO DATA(lx_uuid).
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid       = zcx_mig_analysis=>analysis_failed
+        previous     = lx_uuid
+        program_name = iv_source_object
       ).
 
   ENDTRY.

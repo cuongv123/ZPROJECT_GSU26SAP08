@@ -77,6 +77,7 @@ CLASS ltc_analysis_store IMPLEMENTATION.
           ( 'ZMIG_ANL_REC' )
           ( 'ZMIG_ANL_ANN' )
           ( 'ZMIG_ANL_MSG' )
+          ( 'ZMIG_ANL_SRC' )
         )
       ).
 
@@ -124,6 +125,12 @@ CLASS ltc_analysis_store IMPLEMENTATION.
       CONV zif_mig_types=>ty_analysis_id(
         create_uuid( )
       ).
+
+    DATA(lv_root_source_id) =
+      create_uuid( ).
+
+    DATA(lv_include_source_id) =
+      create_uuid( ).
 
     DATA(lv_evidence_id) =
       CONV zif_mig_types=>ty_evidence_id(
@@ -186,7 +193,7 @@ CLASS ltc_analysis_store IMPLEMENTATION.
       zif_mig_types=>gc_status_completed.
 
     rs_result-overview-total_source_objects =
-      1.
+      2.
 
     rs_result-overview-total_ui_filters =
       1.
@@ -220,6 +227,34 @@ CLASS ltc_analysis_store IMPLEMENTATION.
 
     rs_result-overview-source_hash =
       '0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF'.
+
+
+    "========================================================
+" Source Objects
+"========================================================
+APPEND VALUE #(
+  item_id       = lv_root_source_id
+  analysis_id   = lv_analysis_id
+  object_name   = 'ZRMIG_SAMPLE_ALV'
+  object_type   = 'PROGRAM'
+  parent_object = ''
+  include_depth = 0
+  line_count    = 120
+  source_hash   =
+    'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+) TO rs_result-source_objects.
+
+APPEND VALUE #(
+  item_id       = lv_include_source_id
+  analysis_id   = lv_analysis_id
+  object_name   = 'ZRMIG_SAMPLE_ALV_F01'
+  object_type   = 'INCLUDE'
+  parent_object = 'ZRMIG_SAMPLE_ALV'
+  include_depth = 1
+  line_count    = 45
+  source_hash   =
+    'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB'
+) TO rs_result-source_objects.
 
 
     "========================================================
@@ -507,6 +542,7 @@ CLASS ltc_analysis_store IMPLEMENTATION.
       act = ls_actual-overview-readiness_score
     ).
 
+
   ENDMETHOD.
 
     METHOD check_exists.
@@ -626,6 +662,17 @@ CLASS ltc_analysis_store IMPLEMENTATION.
       iv_analysis_id = ls_result-analysis_id
     ).
 
+    SELECT COUNT( * )
+  FROM zmig_anl_src
+  WHERE analysis_id = @ls_result-analysis_id
+  INTO @DATA(lv_source_count).
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 0
+  act = lv_source_count
+  msg = 'Source objects chưa bị xóa'
+).
+
     cl_abap_unit_assert=>assert_equals(
       exp = abap_false
       act = lo_store->zif_mig_analysis_store~exists(
@@ -688,6 +735,85 @@ CLASS ltc_analysis_store IMPLEMENTATION.
         iv_analysis_id = ls_expected-analysis_id
       ).
 
+    "========================================================
+" Verify Source Object round-trip
+"========================================================
+cl_abap_unit_assert=>assert_equals(
+  exp = lines( ls_expected-source_objects )
+  act = lines( ls_actual-source_objects )
+  msg = 'Source objects không được phục hồi đầy đủ'
+).
+
+LOOP AT ls_expected-source_objects
+  ASSIGNING FIELD-SYMBOL(<expected_source>).
+
+  READ TABLE ls_actual-source_objects
+    WITH KEY
+      item_id = <expected_source>-item_id
+    INTO DATA(ls_actual_source).
+
+  cl_abap_unit_assert=>assert_subrc(
+    exp = 0
+    msg = |Không đọc lại được source object {
+      <expected_source>-object_name }|
+  ).
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = <expected_source>-analysis_id
+    act = ls_actual_source-analysis_id
+    msg = |AnalysisId sai ở source object {
+      <expected_source>-object_name }|
+  ).
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = <expected_source>-object_name
+    act = ls_actual_source-object_name
+    msg = 'ObjectName không được bảo toàn'
+  ).
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = <expected_source>-object_type
+    act = ls_actual_source-object_type
+    msg = |ObjectType không được bảo toàn: {
+      <expected_source>-object_name }|
+  ).
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = <expected_source>-parent_object
+    act = ls_actual_source-parent_object
+    msg = |ParentObject không được bảo toàn: {
+      <expected_source>-object_name }|
+  ).
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = <expected_source>-include_depth
+    act = ls_actual_source-include_depth
+    msg = |IncludeDepth không được bảo toàn: {
+      <expected_source>-object_name }|
+  ).
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = <expected_source>-line_count
+    act = ls_actual_source-line_count
+    msg = |LineCount không được bảo toàn: {
+      <expected_source>-object_name }|
+  ).
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = <expected_source>-source_hash
+    act = ls_actual_source-source_hash
+    msg = |SourceHash không được bảo toàn: {
+      <expected_source>-object_name }|
+  ).
+
+  "Source text không được persist
+  cl_abap_unit_assert=>assert_initial(
+    act = ls_actual_source-source_lines
+    msg = |SOURCE_LINES không được persist: {
+      <expected_source>-object_name }|
+  ).
+
+ENDLOOP.
 
     "========================================================
     " Verify every child collection

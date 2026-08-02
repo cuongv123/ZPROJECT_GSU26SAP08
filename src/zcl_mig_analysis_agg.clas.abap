@@ -8,6 +8,14 @@ CLASS zcl_mig_analysis_agg DEFINITION
     INTERFACES zif_mig_analysis_agg.
 
   PRIVATE SECTION.
+    TYPES:
+      ty_message_type TYPE c LENGTH 10,
+      ty_message_code TYPE c LENGTH 30.
+
+    CONSTANTS:
+      gc_msg_info    TYPE ty_message_type VALUE 'INFO',
+      gc_msg_warning TYPE ty_message_type VALUE 'WARNING',
+      gc_msg_error   TYPE ty_message_type VALUE 'ERROR'.
 
     TYPES:
       tt_evidence_id_set TYPE HASHED TABLE OF
@@ -43,6 +51,34 @@ CLASS zcl_mig_analysis_agg DEFINITION
         VALUE(rv_uuid) TYPE sysuuid_x16
       RAISING
         zcx_mig_analysis.
+
+    METHODS build_quality_messages
+      CHANGING
+        cs_result TYPE zif_mig_types=>ty_analysis_result.
+
+    METHODS add_quality_message
+      IMPORTING
+        iv_message_type  TYPE ty_message_type
+        iv_message_code  TYPE ty_message_code
+        iv_source_object TYPE progname
+        iv_source_line   TYPE i
+        iv_message_text  TYPE string
+      CHANGING
+        ct_messages TYPE zif_mig_types=>tt_message.
+
+    METHODS get_evidence_location
+      IMPORTING
+        iv_evidence_id TYPE zif_mig_types=>ty_evidence_id
+        it_evidences   TYPE zif_mig_types=>tt_evidence
+      EXPORTING
+        ev_source_object TYPE progname
+        ev_source_line   TYPE i.
+
+    METHODS determine_status
+      IMPORTING
+        it_messages TYPE zif_mig_types=>tt_message
+      RETURNING
+        VALUE(rv_status) TYPE zif_mig_types=>ty_status.
 
 ENDCLASS.
 
@@ -88,6 +124,48 @@ CLASS zcl_mig_analysis_agg IMPLEMENTATION.
 
     rs_result-analysis_id =
       lv_analysis_id.
+
+    "==========================================================
+    " Preserve source tree
+    "==========================================================
+    CLEAR rs_result-source_objects.
+
+    LOOP AT it_source_units
+      ASSIGNING FIELD-SYMBOL(<source_unit_for_result>).
+
+      DATA(ls_source_object) =
+        <source_unit_for_result>-source_object.
+
+      "Toàn bộ source objects thuộc cùng analysis snapshot
+      ls_source_object-analysis_id =
+        lv_analysis_id.
+
+      "Caller có thể chưa tạo ItemId, ví dụ Aggregator unit test
+      IF ls_source_object-item_id IS INITIAL.
+
+        ls_source_object-item_id =
+          create_uuid(
+            iv_source_object =
+              ls_source_object-object_name
+          ).
+
+      ENDIF.
+
+      "Luôn tính lại để metadata khớp runtime source
+      ls_source_object-line_count =
+        lines(
+          ls_source_object-source_lines
+        ).
+
+      APPEND ls_source_object
+        TO rs_result-source_objects.
+
+    ENDLOOP.
+
+    SORT rs_result-source_objects
+      BY include_depth
+         parent_object
+         object_name.
 
 
     "========================================================
@@ -343,49 +421,63 @@ CLASS zcl_mig_analysis_agg IMPLEMENTATION.
         ct_target = rs_result-messages
     ).
 
+    "==========================================================
+    " Build quality/limitation messages
+    "==========================================================
+    build_quality_messages(
+      CHANGING
+        cs_result = rs_result
+    ).
 
-    "========================================================
-    " Stable sorting
-    "========================================================
-    SORT rs_result-ui_filters
-      BY field_name.
+    SORT rs_result-messages
+      BY message_type
+         message_code
+         source_object
+         source_line.
 
-    SORT rs_result-database_objects
-      BY object_name
-         operation.
 
-    SORT rs_result-business_logic
-      BY object_type
-         object_name.
+        "========================================================
+        " Stable sorting
+        "========================================================
+        SORT rs_result-ui_filters
+          BY field_name.
 
-    SORT rs_result-alv_outputs
-      BY framework
-         output_name.
+        SORT rs_result-database_objects
+          BY object_name
+             operation.
 
-    SORT rs_result-alv_columns
-      BY output_id
-         position
-         field_name.
+        SORT rs_result-business_logic
+          BY object_type
+             object_name.
 
-    SORT rs_result-alv_sorts
-      BY output_id
-         position
-         field_name.
+        SORT rs_result-alv_outputs
+          BY framework
+             output_name.
 
-    SORT rs_result-alv_filters
-      BY output_id
-         field_name
-         option.
+        SORT rs_result-alv_columns
+          BY output_id
+             position
+             field_name.
 
-    SORT rs_result-alv_events
-      BY output_id
-         event_name
-         handler_name.
+        SORT rs_result-alv_sorts
+          BY output_id
+             position
+             field_name.
 
-    SORT rs_result-evidences
-      BY source_object
-         start_line
-         statement_id.
+        SORT rs_result-alv_filters
+          BY output_id
+             field_name
+             option.
+
+        SORT rs_result-alv_events
+          BY output_id
+             event_name
+             handler_name.
+
+        SORT rs_result-evidences
+          BY source_object
+             start_line
+             statement_id.
 
     "==========================================================
     " Build Overview
@@ -514,7 +606,9 @@ CLASS zcl_mig_analysis_agg IMPLEMENTATION.
   " Analysis status
   "==========================================================
   rs_overview-status =
-    'COMPLETED'.
+  determine_status(
+    it_messages = is_result-messages
+  ).
 
 
   "==========================================================
@@ -547,6 +641,294 @@ CLASS zcl_mig_analysis_agg IMPLEMENTATION.
   CLEAR rs_overview-source_hash.
 
 ENDMETHOD.
+
+METHOD get_evidence_location.
+
+  CLEAR:
+    ev_source_object,
+    ev_source_line.
+
+  IF iv_evidence_id IS INITIAL.
+    RETURN.
+  ENDIF.
+
+  READ TABLE it_evidences
+    WITH KEY
+      evidence_id = iv_evidence_id
+    INTO DATA(ls_evidence).
+
+  IF sy-subrc <> 0.
+    RETURN.
+  ENDIF.
+
+  ev_source_object =
+    ls_evidence-source_object.
+
+  ev_source_line =
+    ls_evidence-start_line.
+
+ENDMETHOD.
+
+METHOD add_quality_message.
+
+  IF iv_message_code IS INITIAL
+     OR iv_message_text IS INITIAL.
+
+    RETURN.
+
+  ENDIF.
+
+  READ TABLE ct_messages
+    WITH KEY
+      message_type  = iv_message_type
+      message_code  = iv_message_code
+      source_object = iv_source_object
+      source_line   = iv_source_line
+    TRANSPORTING NO FIELDS.
+
+  IF sy-subrc = 0.
+    RETURN.
+  ENDIF.
+
+  APPEND VALUE #(
+    message_type  = iv_message_type
+    message_code  = iv_message_code
+    source_object = iv_source_object
+    source_line   = iv_source_line
+    message_text  = iv_message_text
+  ) TO ct_messages.
+
+ENDMETHOD.
+
+METHOD build_quality_messages.
+
+  "==========================================================
+  " UI: SELECT-OPTIONS reference chưa resolve
+  "==========================================================
+  LOOP AT cs_result-ui_filters
+    ASSIGNING FIELD-SYMBOL(<ui_filter>)
+    WHERE field_kind = 'SELECT_OPTIONS'.
+
+    IF <ui_filter>-reference_table IS NOT INITIAL
+       AND <ui_filter>-reference_field IS NOT INITIAL.
+
+      CONTINUE.
+
+    ENDIF.
+
+    DATA:
+      lv_ui_source TYPE progname,
+      lv_ui_line   TYPE i.
+
+    get_evidence_location(
+      EXPORTING
+        iv_evidence_id = <ui_filter>-evidence_id
+        it_evidences   = cs_result-evidences
+      IMPORTING
+        ev_source_object = lv_ui_source
+        ev_source_line   = lv_ui_line
+    ).
+
+    add_quality_message(
+      EXPORTING
+        iv_message_type  = gc_msg_warning
+        iv_message_code  = 'UI_REFERENCE_UNRESOLVED'
+        iv_source_object = lv_ui_source
+        iv_source_line   = lv_ui_line
+        iv_message_text  =
+          |Reference type of selection field {
+             <ui_filter>-field_name } could not be resolved completely.|
+      CHANGING
+        ct_messages = cs_result-messages
+    ).
+
+  ENDLOOP.
+
+
+  "==========================================================
+  " Database: dynamic table/view access
+  "==========================================================
+  LOOP AT cs_result-database_objects
+    ASSIGNING FIELD-SYMBOL(<database_object>)
+    WHERE dynamic_access = abap_true.
+
+    DATA:
+      lv_db_source TYPE progname,
+      lv_db_line   TYPE i.
+
+    get_evidence_location(
+      EXPORTING
+        iv_evidence_id = <database_object>-evidence_id
+        it_evidences   = cs_result-evidences
+      IMPORTING
+        ev_source_object = lv_db_source
+        ev_source_line   = lv_db_line
+    ).
+
+    add_quality_message(
+      EXPORTING
+        iv_message_type  = gc_msg_warning
+        iv_message_code  = 'DB_DYNAMIC_ACCESS'
+        iv_source_object = lv_db_source
+        iv_source_line   = lv_db_line
+        iv_message_text  =
+          |Dynamic database access requires manual review: {
+             <database_object>-object_name }.|
+      CHANGING
+        ct_messages = cs_result-messages
+    ).
+
+  ENDLOOP.
+
+
+  "==========================================================
+  " Business logic: side effect chỉ là heuristic hint
+  "
+  "INFO không làm status thành WARNING.
+  "==========================================================
+  LOOP AT cs_result-business_logic
+    ASSIGNING FIELD-SYMBOL(<business_logic>)
+    WHERE side_effect = 'REVIEW'.
+
+    DATA:
+      lv_logic_source TYPE progname,
+      lv_logic_line   TYPE i.
+
+    get_evidence_location(
+      EXPORTING
+        iv_evidence_id = <business_logic>-evidence_id
+        it_evidences   = cs_result-evidences
+      IMPORTING
+        ev_source_object = lv_logic_source
+        ev_source_line   = lv_logic_line
+    ).
+
+    add_quality_message(
+      EXPORTING
+        iv_message_type  = gc_msg_info
+        iv_message_code  = 'LOGIC_SIDE_EFFECT_REVIEW'
+        iv_source_object = lv_logic_source
+        iv_source_line   = lv_logic_line
+        iv_message_text  =
+          |Side effect of {
+             <business_logic>-object_name
+           } requires manual review.|
+      CHANGING
+        ct_messages = cs_result-messages
+    ).
+
+  ENDLOOP.
+
+
+  "==========================================================
+  " ALV output completeness
+  "==========================================================
+  LOOP AT cs_result-alv_outputs
+    ASSIGNING FIELD-SYMBOL(<alv_output>).
+
+    DATA:
+      lv_alv_source TYPE progname,
+      lv_alv_line   TYPE i.
+
+    get_evidence_location(
+      EXPORTING
+        iv_evidence_id = <alv_output>-evidence_id
+        it_evidences   = cs_result-evidences
+      IMPORTING
+        ev_source_object = lv_alv_source
+        ev_source_line   = lv_alv_line
+    ).
+
+
+    "--------------------------------------------------------
+    " Không resolve được output table
+    "--------------------------------------------------------
+    IF <alv_output>-output_table IS INITIAL.
+
+      add_quality_message(
+        EXPORTING
+          iv_message_type  = gc_msg_warning
+          iv_message_code  = 'ALV_TABLE_UNRESOLVED'
+          iv_source_object = lv_alv_source
+          iv_source_line   = lv_alv_line
+          iv_message_text  =
+            |Output table of {
+               <alv_output>-framework
+             } could not be resolved.|
+        CHANGING
+          ct_messages = cs_result-messages
+      ).
+
+    ENDIF.
+
+
+    "--------------------------------------------------------
+    " Không có column fact cho output
+    "--------------------------------------------------------
+    READ TABLE cs_result-alv_columns
+      WITH KEY
+        output_id = <alv_output>-output_id
+      TRANSPORTING NO FIELDS.
+
+    IF sy-subrc <> 0.
+
+      add_quality_message(
+        EXPORTING
+          iv_message_type  = gc_msg_warning
+          iv_message_code  = 'ALV_COLUMNS_UNRESOLVED'
+          iv_source_object = lv_alv_source
+          iv_source_line   = lv_alv_line
+          iv_message_text  =
+            |No static column metadata could be resolved for {
+               <alv_output>-output_name }.|
+        CHANGING
+          ct_messages = cs_result-messages
+      ).
+
+    ENDIF.
+
+  ENDLOOP.
+
+ENDMETHOD.
+
+METHOD determine_status.
+
+  rv_status =
+    zif_mig_types=>gc_status_completed.
+
+  LOOP AT it_messages
+    ASSIGNING FIELD-SYMBOL(<message>).
+
+    DATA(lv_message_type) =
+      to_upper(
+        CONV string(
+          <message>-message_type
+        )
+      ).
+
+    CASE lv_message_type.
+
+      WHEN 'ERROR'
+        OR 'E'.
+
+        rv_status =
+          zif_mig_types=>gc_status_failed.
+
+        RETURN.
+
+
+      WHEN 'WARNING'
+        OR 'W'.
+
+        rv_status =
+          zif_mig_types=>gc_status_warning.
+
+    ENDCASE.
+
+  ENDLOOP.
+
+ENDMETHOD.
+
     METHOD create_uuid.
 
     TRY.

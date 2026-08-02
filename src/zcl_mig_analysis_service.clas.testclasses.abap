@@ -91,7 +91,7 @@ CLASS ltc_analysis_service IMPLEMENTATION.
 
   DATA(ls_result) =
     lo_service->zif_mig_analysis_service~analyze_program(
-      iv_program_name = 'ZRMIG_SAMPLE_ALV'
+      iv_program_name = 'ZRMIG_TEST_FULL'
     ).
 
   cl_abap_unit_assert=>assert_not_initial(
@@ -106,7 +106,7 @@ CLASS ltc_analysis_service IMPLEMENTATION.
   ).
 
   cl_abap_unit_assert=>assert_equals(
-    exp = 'ZRMIG_SAMPLE_ALV'
+    exp = 'ZRMIG_TEST_FULL'
     act = ls_result-overview-program_name
   ).
 
@@ -122,7 +122,7 @@ METHOD use_requested_analysis_id.
 
   DATA(ls_result) =
     lo_service->zif_mig_analysis_service~analyze_program(
-      iv_program_name = 'ZRMIG_SAMPLE_ALV'
+      iv_program_name = 'ZRMIG_TEST_FULL'
       iv_analysis_id  = lv_analysis_id
     ).
 
@@ -156,7 +156,7 @@ METHOD return_complete_result.
 
   DATA(ls_result) =
     lo_service->zif_mig_analysis_service~analyze_program(
-      iv_program_name = 'ZRMIG_SAMPLE_ALV'
+      iv_program_name = 'ZRMIG_TEST_FULL'
     ).
 
 
@@ -219,11 +219,11 @@ METHOD preserve_root_program.
 
   DATA(ls_result) =
     lo_service->zif_mig_analysis_service~analyze_program(
-      iv_program_name = 'ZRMIG_SAMPLE_ALV'
+      iv_program_name = 'ZRMIG_TEST_FULL'
     ).
 
   cl_abap_unit_assert=>assert_equals(
-    exp = 'ZRMIG_SAMPLE_ALV'
+    exp = 'ZRMIG_TEST_FULL'
     act = ls_result-overview-program_name
     msg = 'Overview phải giữ root program, không phải include'
   ).
@@ -307,7 +307,7 @@ METHOD analyze_and_save_persists.
 
   DATA(ls_result) =
     lo_service->zif_mig_analysis_service~analyze_and_save(
-      iv_program_name = 'ZRMIG_SAMPLE_ALV'
+      iv_program_name = 'ZRMIG_TEST_FULL'
     ).
 
   cl_abap_unit_assert=>assert_not_initial(
@@ -338,7 +338,7 @@ METHOD analyze_and_save_persists.
   ).
 
   cl_abap_unit_assert=>assert_equals(
-    exp = 'ZRMIG_SAMPLE_ALV'
+    exp = 'ZRMIG_TEST_FULL'
     act = ls_saved_result-overview-program_name
   ).
 
@@ -359,7 +359,7 @@ METHOD preserve_requested_saved_id.
 
   DATA(ls_result) =
     lo_service->zif_mig_analysis_service~analyze_and_save(
-      iv_program_name = 'ZRMIG_SAMPLE_ALV'
+      iv_program_name = 'ZRMIG_TEST_FULL'
       iv_analysis_id  = lv_analysis_id
     ).
 
@@ -401,14 +401,14 @@ METHOD reject_duplicate_saved_id.
     NEW zcl_mig_analysis_service( ).
 
   lo_service->zif_mig_analysis_service~analyze_and_save(
-    iv_program_name = 'ZRMIG_SAMPLE_ALV'
+    iv_program_name = 'ZRMIG_TEST_FULL'
     iv_analysis_id  = lv_analysis_id
   ).
 
   TRY.
 
       lo_service->zif_mig_analysis_service~analyze_and_save(
-        iv_program_name = 'ZRMIG_SAMPLE_ALV'
+        iv_program_name = 'ZRMIG_TEST_FULL'
         iv_analysis_id  = lv_analysis_id
       ).
 
@@ -431,7 +431,7 @@ METHOD analyze_program_stays_pure.
 
   DATA(ls_result) =
     lo_service->zif_mig_analysis_service~analyze_program(
-      iv_program_name = 'ZRMIG_SAMPLE_ALV'
+      iv_program_name = 'ZRMIG_TEST_FULL'
     ).
 
   DATA(lo_store) =

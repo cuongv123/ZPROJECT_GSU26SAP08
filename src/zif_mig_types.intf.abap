@@ -61,11 +61,16 @@
     BEGIN OF ty_source_object,
       item_id        TYPE ty_item_id,
       analysis_id    TYPE ty_analysis_id,
+
       object_name    TYPE ty_program_name,
       object_type    TYPE c LENGTH 15,
       parent_object  TYPE ty_program_name,
       include_depth  TYPE i,
+      line_count     TYPE i,
       source_hash    TYPE c LENGTH 64,
+
+      "Chỉ tồn tại trong pipeline runtime.
+      "Không persist toàn bộ source text.
       source_lines   TYPE tt_source_line,
     END OF ty_source_object,
 
@@ -551,12 +556,90 @@
         messages    TYPE tt_message,
       END OF ty_alv_le_result.
 
+
+      "============================================================
+      " Target OData Service Blueprint
+      "============================================================
+      TYPES:
+        ty_service_strategy TYPE c LENGTH 20.
+
+      CONSTANTS:
+        gc_svc_query  TYPE ty_service_strategy VALUE 'QUERY',
+        gc_svc_action TYPE ty_service_strategy VALUE 'ACTION',
+        gc_svc_manual TYPE ty_service_strategy VALUE 'MANUAL_REVIEW'.
+
+
+      TYPES:
+        BEGIN OF ty_service_parameter,
+          source_item_id     TYPE ty_item_id,
+          parameter_name     TYPE c LENGTH 40,
+          source_kind        TYPE c LENGTH 20,
+          odata_kind         TYPE c LENGTH 20,
+          edm_type           TYPE c LENGTH 30,
+          mandatory          TYPE abap_bool,
+          multiple_selection TYPE abap_bool,
+          range_supported    TYPE abap_bool,
+          default_value      TYPE string,
+        END OF ty_service_parameter,
+
+        tt_service_parameter
+          TYPE STANDARD TABLE OF ty_service_parameter
+          WITH EMPTY KEY.
+
+
+      TYPES:
+        BEGIN OF ty_service_field,
+          source_item_id TYPE ty_item_id,
+          field_name     TYPE c LENGTH 40,
+          label          TYPE c LENGTH 120,
+          edm_type       TYPE c LENGTH 30,
+          position       TYPE i,
+          key_field      TYPE abap_bool,
+          visible        TYPE abap_bool,
+          filterable     TYPE abap_bool,
+          sortable       TYPE abap_bool,
+          source_mapping TYPE string,
+        END OF ty_service_field,
+
+        tt_service_field
+          TYPE STANDARD TABLE OF ty_service_field
+          WITH EMPTY KEY.
+
+
+      TYPES:
+        BEGIN OF ty_service_blueprint,
+          analysis_id       TYPE ty_analysis_id,
+          source_program    TYPE ty_program_name,
+
+          service_name      TYPE c LENGTH 30,
+          entity_name       TYPE c LENGTH 30,
+
+          strategy          TYPE ty_service_strategy,
+
+          source_output_id  TYPE ty_item_id,
+          source_table      TYPE c LENGTH 80,
+          source_row_type   TYPE c LENGTH 80,
+
+          supports_filter   TYPE abap_bool,
+          supports_sort     TYPE abap_bool,
+          supports_paging   TYPE abap_bool,
+
+          manual_review     TYPE abap_bool,
+          decision_reason   TYPE string,
+        END OF ty_service_blueprint.
+
+
+      TYPES:
+        BEGIN OF ty_service_blueprint_result,
+          blueprint  TYPE ty_service_blueprint,
+          parameters TYPE tt_service_parameter,
+          fields     TYPE tt_service_field,
+          messages   TYPE tt_message,
+        END OF ty_service_blueprint_result.
+
   "============================================================
   " Complete analysis result
   "============================================================
-  "============================================================
-" Complete Analysis Result
-"============================================================
    TYPES:
       BEGIN OF ty_analysis_result,
         analysis_id      TYPE ty_analysis_id,
@@ -565,6 +648,7 @@
         ui_filters       TYPE tt_ui_filter,
         database_objects TYPE tt_database_object,
         business_logic   TYPE tt_business_logic,
+        source_objects TYPE tt_source_object,
 
         alv_outputs      TYPE tt_alv_output,
         alv_columns      TYPE tt_alv_column,
@@ -574,6 +658,7 @@
 
         evidences        TYPE tt_evidence,
         messages         TYPE tt_message,
+
 
         "Giữ các field này nếu đã tồn tại
         recommendations  TYPE tt_recommendation,

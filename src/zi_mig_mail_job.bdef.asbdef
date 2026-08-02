@@ -68,6 +68,7 @@ determination calculateNextRunAt on modify
   mapping for zmig_mail_job
   {
     JobId                  = job_id;
+    AnalysisId             = analysis_id;
     JobName                = job_name;
     ReportType             = report_type;
     FileFormat             = file_format;

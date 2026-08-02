@@ -13,10 +13,10 @@ define root view entity ZI_MIG_MAIL_JOB
   key job_id                as JobId,
 
       job_name              as JobName,
+      analysis_id           as AnalysisId,
       report_type           as ReportType,
       file_format           as FileFormat,
       frequency             as Frequency,
-
       start_date            as StartDate,
       start_time            as StartTime,
       day_of_week           as DayOfWeek,

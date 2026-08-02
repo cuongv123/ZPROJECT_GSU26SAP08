@@ -25,6 +25,9 @@ define root view entity ZI_MIG_ANALYSIS
 
   composition [0..*] of ZI_MIG_ANL_MSG
     as _Messages
+    
+  composition [0..*] of ZI_MIG_ANL_SRC
+    as _SourceObjects
 {
   key analysis_id                as AnalysisId,
 
@@ -66,5 +69,6 @@ define root view entity ZI_MIG_ANALYSIS
       _AlvOutputs,
       _Evidences,
       _Recommendations,
+      _SourceObjects,
       _Messages
 }

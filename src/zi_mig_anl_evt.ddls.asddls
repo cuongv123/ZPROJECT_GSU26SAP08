@@ -28,4 +28,4 @@ define view entity ZI_MIG_ANL_EVT
 
       _AlvOutput,
       _Analysis
-}
+} 

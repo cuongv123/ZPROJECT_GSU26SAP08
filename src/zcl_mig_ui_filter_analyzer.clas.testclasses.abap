@@ -42,6 +42,19 @@ CLASS ltc_ui_filter_analyzer DEFINITION
         FOR TESTING
         RAISING zcx_mig_analysis.
 
+        METHODS:
+          get_chained_result
+            RETURNING
+              VALUE(rs_result)
+                TYPE zif_mig_types=>ty_ui_analysis_result
+            RAISING
+              zcx_mig_analysis,
+
+          attributes_do_not_leak
+            FOR TESTING
+            RAISING
+              zcx_mig_analysis.
+
 ENDCLASS.
 
 CLASS ltc_ui_filter_analyzer IMPLEMENTATION.
@@ -295,5 +308,209 @@ CLASS ltc_ui_filter_analyzer IMPLEMENTATION.
     ENDLOOP.
 
   ENDMETHOD.
+
+  METHOD get_chained_result.
+
+  CONSTANTS gc_program TYPE progname
+    VALUE 'ZRMIG_UT_CHAIN'.
+
+  DATA lt_source
+    TYPE zif_mig_types=>tt_source_line.
+
+  lt_source = VALUE #(
+    (
+      source_object = gc_program
+      line_number   = 1
+      source_text   = `REPORT zrmig_ut_chain.`
+    )
+    (
+      source_object = gc_program
+      line_number   = 2
+      source_text   = `PARAMETERS:`
+    )
+    (
+      source_object = gc_program
+      line_number   = 3
+      source_text   = `  p_req TYPE c LENGTH 10 OBLIGATORY,`
+    )
+    (
+      source_object = gc_program
+      line_number   = 4
+      source_text   = `  p_max TYPE i DEFAULT 100,`
+    )
+    (
+      source_object = gc_program
+      line_number   = 5
+      source_text   = `  p_chk AS CHECKBOX.`
+    )
+    (
+      source_object = gc_program
+      line_number   = 6
+      source_text   = `SELECT-OPTIONS s_value FOR p_max.`
+    )
+  ).
+
+  DATA(lo_scanner) =
+    NEW zcl_mig_abap_scanner( ).
+
+  DATA(ls_scan_result) =
+    lo_scanner->zif_mig_abap_scanner~scan(
+      iv_source_object = gc_program
+      it_source        = lt_source
+    ).
+
+  DATA(lo_normalizer) =
+    NEW zcl_mig_stmt_normalizer( ).
+
+  DATA(ls_normalized_result) =
+    lo_normalizer->zif_mig_stmt_normalizer~normalize(
+      is_scan_result = ls_scan_result
+    ).
+
+  DATA lt_source_units
+    TYPE zif_mig_types=>tt_source_unit.
+
+  APPEND VALUE #(
+    source_object = VALUE #(
+      object_name  = gc_program
+      object_type  = 'PROGRAM'
+      source_lines = lt_source
+    )
+    scan_result = ls_normalized_result
+  ) TO lt_source_units.
+
+  DATA(lo_analyzer) =
+    NEW zcl_mig_ui_filter_analyzer( ).
+
+  rs_result =
+    lo_analyzer->zif_mig_ui_filter_analyzer~analyze(
+      it_source_units = lt_source_units
+    ).
+
+ENDMETHOD.
+
+METHOD attributes_do_not_leak.
+
+  DATA(ls_result) =
+    get_chained_result( ).
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = 4
+    act = lines( ls_result-ui_filters )
+    msg = 'Phải phát hiện đủ 4 selection fields'
+  ).
+
+  "----------------------------------------------------------
+  " P_REQ: chỉ field này được OBLIGATORY
+  "----------------------------------------------------------
+  READ TABLE ls_result-ui_filters
+    WITH KEY field_name = 'P_REQ'
+    INTO DATA(ls_required).
+
+  cl_abap_unit_assert=>assert_subrc(
+    exp = 0
+    msg = 'Không phát hiện P_REQ'
+  ).
+
+  cl_abap_unit_assert=>assert_true(
+    act = ls_required-mandatory
+    msg = 'P_REQ phải là mandatory'
+  ).
+
+  cl_abap_unit_assert=>assert_false(
+    act = ls_required-checkbox
+    msg = 'P_REQ không được kế thừa CHECKBOX'
+  ).
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = ``
+    act = ls_required-default_value
+    msg = 'P_REQ không được kế thừa DEFAULT'
+  ).
+
+  "----------------------------------------------------------
+  " P_MAX: có DEFAULT nhưng không mandatory
+  "----------------------------------------------------------
+  READ TABLE ls_result-ui_filters
+    WITH KEY field_name = 'P_MAX'
+    INTO DATA(ls_max).
+
+  cl_abap_unit_assert=>assert_subrc(
+    exp = 0
+    msg = 'Không phát hiện P_MAX'
+  ).
+
+  cl_abap_unit_assert=>assert_false(
+    act = ls_max-mandatory
+    msg = 'OBLIGATORY của P_REQ bị lan sang P_MAX'
+  ).
+
+  cl_abap_unit_assert=>assert_false(
+    act = ls_max-checkbox
+    msg = 'P_MAX không phải checkbox'
+  ).
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = `100`
+    act = ls_max-default_value
+    msg = 'DEFAULT của P_MAX không chính xác'
+  ).
+
+  "----------------------------------------------------------
+  " P_CHK: checkbox nhưng không mandatory/default
+  "----------------------------------------------------------
+  READ TABLE ls_result-ui_filters
+    WITH KEY field_name = 'P_CHK'
+    INTO DATA(ls_checkbox).
+
+  cl_abap_unit_assert=>assert_subrc(
+    exp = 0
+    msg = 'Không phát hiện P_CHK'
+  ).
+
+  cl_abap_unit_assert=>assert_true(
+    act = ls_checkbox-checkbox
+    msg = 'P_CHK phải được nhận diện là checkbox'
+  ).
+
+  cl_abap_unit_assert=>assert_false(
+    act = ls_checkbox-mandatory
+    msg = 'OBLIGATORY bị lan sang P_CHK'
+  ).
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = ``
+    act = ls_checkbox-default_value
+    msg = 'DEFAULT bị lan sang P_CHK'
+  ).
+
+  "----------------------------------------------------------
+  " S_VALUE: SELECT-OPTIONS độc lập với PARAMETERS chain
+  "----------------------------------------------------------
+  READ TABLE ls_result-ui_filters
+    WITH KEY field_name = 'S_VALUE'
+    INTO DATA(ls_select_option).
+
+  cl_abap_unit_assert=>assert_subrc(
+    exp = 0
+    msg = 'Không phát hiện S_VALUE'
+  ).
+
+  cl_abap_unit_assert=>assert_false(
+    act = ls_select_option-mandatory
+    msg = 'OBLIGATORY bị lan sang SELECT-OPTIONS'
+  ).
+
+  cl_abap_unit_assert=>assert_true(
+    act = ls_select_option-multiple_selection
+    msg = 'S_VALUE phải hỗ trợ multiple selection'
+  ).
+
+  cl_abap_unit_assert=>assert_true(
+    act = ls_select_option-range_supported
+    msg = 'S_VALUE phải hỗ trợ range'
+  ).
+
+ENDMETHOD.
 
 ENDCLASS.

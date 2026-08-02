@@ -23,6 +23,14 @@ annotate view ZC_MIG_ANALYSIS with
       position: 10
     },
     {
+      id:            'SourceObjects',
+      purpose:       #STANDARD,
+      type:          #LINEITEM_REFERENCE,
+      label:         'Source Structure',
+      position:      15,
+      targetElement: '_SourceObjects'
+    },
+    {
       id:            'UiFilters',
       purpose:       #STANDARD,
       type:          #LINEITEM_REFERENCE,

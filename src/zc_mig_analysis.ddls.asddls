@@ -31,7 +31,10 @@ define root view entity ZC_MIG_ANALYSIS
       CreatedAt,
       LastChangedBy,
       LocalLastChangedAt,
-
+      
+      _SourceObjects :
+        redirected to composition child ZC_MIG_ANL_SRC,
+      
       _UiFilters :
         redirected to composition child ZC_MIG_ANL_UI,
 

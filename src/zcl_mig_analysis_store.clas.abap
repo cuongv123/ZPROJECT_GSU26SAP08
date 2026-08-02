@@ -98,6 +98,9 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
     DELETE FROM zmig_anl_ui
       WHERE analysis_id = @iv_analysis_id.
 
+    DELETE FROM zmig_anl_src
+     WHERE analysis_id = @iv_analysis_id.
+
     DELETE FROM zmig_anl_h
       WHERE analysis_id = @iv_analysis_id.
 
@@ -191,6 +194,49 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
     ls_header-last_changed_at =
       lv_timestamp.
 
+    "========================================================
+    " Source Objects
+    "
+    "Không persist SOURCE_LINES vì đây là runtime data.
+    "========================================================
+    DATA lt_source_object
+      TYPE STANDARD TABLE OF zmig_anl_src
+      WITH EMPTY KEY.
+
+    LOOP AT is_result-source_objects
+      ASSIGNING FIELD-SYMBOL(<source_object>).
+
+      APPEND VALUE #(
+        analysis_id   = lv_analysis_id
+        item_id       = <source_object>-item_id
+        object_name   = <source_object>-object_name
+        object_type   = <source_object>-object_type
+        parent_object = <source_object>-parent_object
+        include_depth = <source_object>-include_depth
+        line_count    = <source_object>-line_count
+        source_hash   = <source_object>-source_hash
+      ) TO lt_source_object.
+
+    ENDLOOP.
+
+    "====================================================
+    " Source Objects
+    "====================================================
+    IF lt_source_object IS NOT INITIAL.
+
+      INSERT zmig_anl_src
+        FROM TABLE @lt_source_object.
+
+      IF sy-subrc <> 0.
+
+        raise_store_error(
+          iv_program_name =
+            is_result-overview-program_name
+        ).
+
+      ENDIF.
+
+    ENDIF.
 
     "========================================================
     " UI Filters
@@ -265,6 +311,7 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
       APPEND ls_logic TO lt_logic.
 
     ENDLOOP.
+
 
 
     "========================================================
@@ -790,7 +837,6 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
     rs_result-overview-analysis_id =
       iv_analysis_id.
 
-
     "========================================================
     " Read all child tables
     "========================================================
@@ -848,6 +894,11 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
       FROM zmig_anl_ann
       WHERE analysis_id = @iv_analysis_id
       INTO TABLE @DATA(lt_annotation).
+
+    SELECT *
+      FROM zmig_anl_src
+      WHERE analysis_id = @iv_analysis_id
+      INTO TABLE @DATA(lt_source_object).
 
     SELECT *
       FROM zmig_anl_msg
@@ -1099,6 +1150,30 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
         TO rs_result-annotations.
 
     ENDLOOP.
+
+    "========================================================
+    " Source Objects
+    "========================================================
+    LOOP AT lt_source_object
+      ASSIGNING FIELD-SYMBOL(<db_source_object>).
+
+      APPEND VALUE #(
+        item_id       = <db_source_object>-item_id
+        analysis_id   = <db_source_object>-analysis_id
+        object_name   = <db_source_object>-object_name
+        object_type   = <db_source_object>-object_type
+        parent_object = <db_source_object>-parent_object
+        include_depth = <db_source_object>-include_depth
+        line_count    = <db_source_object>-line_count
+        source_hash   = <db_source_object>-source_hash
+      ) TO rs_result-source_objects.
+
+    ENDLOOP.
+
+    SORT rs_result-source_objects
+      BY include_depth
+         parent_object
+         object_name.
 
 
     "========================================================

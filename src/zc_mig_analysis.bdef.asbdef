@@ -5,7 +5,7 @@ define behavior for ZC_MIG_ANALYSIS //alias <alias_name>
 {
 
   use action Analyze;
-
+  use association _SourceObjects;
   use association _UiFilters;
   use association _DatabaseObjects;
   use association _BusinessLogic;
@@ -94,5 +94,9 @@ define behavior for ZC_MIG_ANL_ANN //alias <alias_name>
 define behavior for ZC_MIG_ANL_UI //alias <alias_name>
 {
 
+  use association _Analysis;
+}
+define behavior for ZC_MIG_ANL_SRC
+{
   use association _Analysis;
 }

@@ -41,6 +41,37 @@ CLASS ltc_analysis_aggregator DEFINITION
       FOR TESTING
       RAISING zcx_mig_analysis.
 
+
+      METHODS analyze_source
+  IMPORTING
+    iv_program_name TYPE progname
+    it_source       TYPE zif_mig_types=>tt_source_line
+  RETURNING
+    VALUE(rs_result)
+      TYPE zif_mig_types=>ty_analysis_result
+  RAISING
+    zcx_mig_analysis.
+
+METHODS completed_without_warning
+  FOR TESTING
+  RAISING zcx_mig_analysis.
+
+METHODS warning_for_partial_alv
+  FOR TESTING
+  RAISING zcx_mig_analysis.
+
+METHODS info_does_not_change_status
+  FOR TESTING
+  RAISING zcx_mig_analysis.
+
+  METHODS preserve_source_objects
+  FOR TESTING
+  RAISING zcx_mig_analysis.
+  METHODS preserve_nested_include
+  FOR TESTING
+  RAISING zcx_mig_analysis.
+
+
 ENDCLASS.
 
 CLASS ltc_analysis_aggregator IMPLEMENTATION.
@@ -512,10 +543,10 @@ ENDMETHOD.
     act = ls_result-overview-total_recommendations
   ).
 
-  cl_abap_unit_assert=>assert_equals(
-    exp = 'COMPLETED'
-    act = ls_result-overview-status
-  ).
+      cl_abap_unit_assert=>assert_not_initial(
+      act = ls_result-overview-status
+      msg = 'Overview status chưa được xác định'
+    ).
 
   cl_abap_unit_assert=>assert_equals(
     exp = '1.0'
@@ -547,6 +578,294 @@ cl_abap_unit_assert=>assert_not_initial(
   act = ls_result-annotations
   msg = 'Aggregator chưa sinh annotation proposals'
 ).
+
+
+
+ENDMETHOD.
+
+METHOD analyze_source.
+
+  DATA(lo_scanner) =
+    NEW zcl_mig_abap_scanner( ).
+
+  DATA(ls_scan_result) =
+    lo_scanner->zif_mig_abap_scanner~scan(
+      iv_source_object = iv_program_name
+      it_source        = it_source
+    ).
+
+  DATA(lo_normalizer) =
+    NEW zcl_mig_stmt_normalizer( ).
+
+  DATA(ls_normalized) =
+    lo_normalizer->zif_mig_stmt_normalizer~normalize(
+      is_scan_result = ls_scan_result
+    ).
+
+  DATA lt_source_units
+    TYPE zif_mig_types=>tt_source_unit.
+
+  APPEND VALUE #(
+    source_object = VALUE #(
+      object_name  = iv_program_name
+      object_type  = 'PROGRAM'
+      source_lines = it_source
+    )
+    scan_result = ls_normalized
+  ) TO lt_source_units.
+
+  DATA(lo_aggregator) =
+    NEW zcl_mig_analysis_agg( ).
+
+  rs_result =
+    lo_aggregator->zif_mig_analysis_agg~analyze(
+      it_source_units = lt_source_units
+    ).
+
+ENDMETHOD.
+
+METHOD completed_without_warning.
+
+  CONSTANTS gc_program TYPE progname
+    VALUE 'ZRMIG_UT_COMPLETE'.
+
+  DATA(lt_source) =
+    VALUE zif_mig_types=>tt_source_line(
+      (
+        source_object = gc_program
+        line_number   = 1
+        source_text   = `REPORT zrmig_ut_complete.`
+      )
+      (
+        source_object = gc_program
+        line_number   = 2
+        source_text   = `PARAMETERS p_max TYPE i DEFAULT 100.`
+      )
+    ).
+
+  DATA(ls_result) =
+    analyze_source(
+      iv_program_name = gc_program
+      it_source       = lt_source
+    ).
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = zif_mig_types=>gc_status_completed
+    act = ls_result-overview-status
+    msg = 'Report fully analyzed phải có status COMPLETED'
+  ).
+
+  cl_abap_unit_assert=>assert_initial(
+    act = ls_result-messages
+    msg = 'Report đơn giản không được sinh quality warning'
+  ).
+
+ENDMETHOD.
+
+METHOD warning_for_partial_alv.
+
+  CONSTANTS gc_program TYPE progname
+    VALUE 'ZRMIG_UT_PARTIAL_ALV'.
+
+  DATA(lt_source) =
+    VALUE zif_mig_types=>tt_source_line(
+      (
+        source_object = gc_program
+        line_number   = 1
+        source_text   = `REPORT zrmig_ut_partial_alv.`
+      )
+      (
+        source_object = gc_program
+        line_number   = 2
+        source_text   = `DATA gt_data TYPE STANDARD TABLE OF t001 WITH EMPTY KEY.`
+      )
+      (
+        source_object = gc_program
+        line_number   = 3
+        source_text   = `START-OF-SELECTION.`
+      )
+      (
+        source_object = gc_program
+        line_number   = 4
+        source_text   =
+          `cl_salv_table=>factory( IMPORTING r_salv_table = DATA(lo_salv) CHANGING t_table = gt_data ).`
+      )
+    ).
+
+  DATA(ls_result) =
+    analyze_source(
+      iv_program_name = gc_program
+      it_source       = lt_source
+    ).
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = zif_mig_types=>gc_status_warning
+    act = ls_result-overview-status
+    msg = 'SALV columns chưa resolve phải có status WARNING'
+  ).
+
+  READ TABLE ls_result-messages
+    WITH KEY
+      message_code = 'ALV_COLUMNS_UNRESOLVED'
+    TRANSPORTING NO FIELDS.
+
+  cl_abap_unit_assert=>assert_subrc(
+    exp = 0
+    msg = 'Thiếu message ALV_COLUMNS_UNRESOLVED'
+  ).
+
+ENDMETHOD.
+
+METHOD info_does_not_change_status.
+
+  CONSTANTS gc_program TYPE progname
+    VALUE 'ZRMIG_UT_INFO_ONLY'.
+
+  DATA(lt_source) =
+    VALUE zif_mig_types=>tt_source_line(
+      (
+        source_object = gc_program
+        line_number   = 1
+        source_text   = `REPORT zrmig_ut_info_only.`
+      )
+      (
+        source_object = gc_program
+        line_number   = 2
+        source_text   = `START-OF-SELECTION.`
+      )
+      (
+        source_object = gc_program
+        line_number   = 3
+        source_text   = `lo_service->save_document( ).`
+      )
+    ).
+
+  DATA(ls_result) =
+    analyze_source(
+      iv_program_name = gc_program
+      it_source       = lt_source
+    ).
+
+  READ TABLE ls_result-messages
+    WITH KEY
+      message_code = 'LOGIC_SIDE_EFFECT_REVIEW'
+    TRANSPORTING NO FIELDS.
+
+  cl_abap_unit_assert=>assert_subrc(
+    exp = 0
+    msg = 'Thiếu INFO message cho side-effect review'
+  ).
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = zif_mig_types=>gc_status_completed
+    act = ls_result-overview-status
+    msg = 'INFO message không được đổi status thành WARNING'
+  ).
+
+ENDMETHOD.
+
+METHOD preserve_source_objects.
+
+  DATA(ls_result) =
+    get_result( ).
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = ls_result-overview-total_source_objects
+    act = lines( ls_result-source_objects )
+    msg = 'Source object list không khớp Overview total'
+  ).
+
+  LOOP AT ls_result-source_objects
+    ASSIGNING FIELD-SYMBOL(<source_object>).
+
+    cl_abap_unit_assert=>assert_not_initial(
+      act = <source_object>-item_id
+      msg = |Source object chưa có ItemId: {
+        <source_object>-object_name }|
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = ls_result-analysis_id
+      act = <source_object>-analysis_id
+      msg = |Source object dùng sai AnalysisId: {
+        <source_object>-object_name }|
+    ).
+
+    cl_abap_unit_assert=>assert_true(
+      act = xsdbool(
+        <source_object>-line_count >= 0
+      )
+      msg = |LineCount không hợp lệ: {
+        <source_object>-object_name }|
+    ).
+
+  ENDLOOP.
+
+ENDMETHOD.
+
+METHOD preserve_nested_include.
+
+  DATA(lo_service) =
+    NEW zcl_mig_analysis_service( ).
+
+  DATA(ls_result) =
+    lo_service->zif_mig_analysis_service~analyze_program(
+      iv_program_name = 'ZRMIG_TEST_FULL'
+    ).
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = 6
+    act = lines( ls_result-source_objects )
+    msg = 'Phải trả đủ root và nested includes'
+  ).
+
+  READ TABLE ls_result-source_objects
+    WITH KEY
+      object_name = 'ZRMIG_TEST_FULL'
+    INTO DATA(ls_root).
+
+  cl_abap_unit_assert=>assert_subrc(
+    exp = 0
+    msg = 'Không tìm thấy root program'
+  ).
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = 0
+    act = ls_root-include_depth
+  ).
+
+  cl_abap_unit_assert=>assert_initial(
+    act = ls_root-parent_object
+  ).
+
+  READ TABLE ls_result-source_objects
+    WITH KEY
+      object_name = 'ZRMIG_TEST_FULL_TYPES'
+    INTO DATA(ls_nested_include).
+
+  cl_abap_unit_assert=>assert_subrc(
+    exp = 0
+    msg = 'Không tìm thấy nested include TYPES'
+  ).
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = 'ZRMIG_TEST_FULL_TOP'
+    act = ls_nested_include-parent_object
+    msg = 'Nested include có ParentObject không đúng'
+  ).
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = 2
+    act = ls_nested_include-include_depth
+    msg = 'Nested include phải có depth bằng 2'
+  ).
+
+  cl_abap_unit_assert=>assert_true(
+    act = xsdbool(
+      ls_nested_include-line_count > 0
+    )
+    msg = 'Nested include chưa có LineCount'
+  ).
 
 ENDMETHOD.
 

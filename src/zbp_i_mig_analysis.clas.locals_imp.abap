@@ -89,6 +89,8 @@ CLASS lhc_Analysis DEFINITION INHERITING FROM cl_abap_behavior_handler.
 
     METHODS rba_Uifilters FOR READ
       IMPORTING keys_rba FOR READ Analysis\_Uifilters FULL result_requested RESULT result LINK association_links.
+    METHODS rba_Sourceobjects FOR READ
+      IMPORTING keys_rba FOR READ Analysis\_SourceObjects FULL result_requested RESULT result LINK association_links.
 
     METHODS Analyze FOR MODIFY
       IMPORTING keys FOR ACTION Analysis~Analyze RESULT result.
@@ -530,6 +532,63 @@ ENDMETHOD.
       target-%tky = VALUE #(
         AnalysisId = <ui_filter>-AnalysisId
         ItemId     = <ui_filter>-ItemId
+      )
+    ) TO association_links.
+
+  ENDLOOP.
+
+ENDMETHOD.
+
+METHOD rba_Sourceobjects.
+
+  IF keys_rba IS INITIAL.
+    RETURN.
+  ENDIF.
+
+  DATA lt_keys LIKE keys_rba.
+
+  lt_keys = keys_rba.
+
+  SORT lt_keys BY AnalysisId.
+
+  DELETE ADJACENT DUPLICATES FROM lt_keys
+    COMPARING AnalysisId.
+
+
+  SELECT FROM zi_mig_anl_src AS source_object
+    INNER JOIN @lt_keys AS requested
+      ON source_object~AnalysisId =
+         requested~AnalysisId
+
+    FIELDS source_object~*
+
+    INTO CORRESPONDING FIELDS OF TABLE @result.
+
+
+  LOOP AT result
+    ASSIGNING FIELD-SYMBOL(<source_object>).
+
+    READ TABLE lt_keys
+      ASSIGNING FIELD-SYMBOL(<source_key>)
+      WITH KEY
+        AnalysisId =
+          <source_object>-AnalysisId
+      BINARY SEARCH.
+
+    IF sy-subrc <> 0.
+      CONTINUE.
+    ENDIF.
+
+    APPEND VALUE #(
+      source-%tky =
+        <source_key>-%tky
+
+      target-%tky = VALUE #(
+        AnalysisId =
+          <source_object>-AnalysisId
+
+        ItemId =
+          <source_object>-ItemId
       )
     ) TO association_links.
 
@@ -2422,6 +2481,113 @@ CLASS lhc_AnalysisMessage IMPLEMENTATION.
   ENDIF.
 
 ENDMETHOD.
+
+ENDCLASS.
+
+CLASS lhc_SourceObject DEFINITION
+  INHERITING FROM cl_abap_behavior_handler.
+
+  PRIVATE SECTION.
+
+    METHODS read FOR READ
+      IMPORTING
+        keys FOR READ SourceObject
+      RESULT result.
+
+    METHODS rba_Analysis FOR READ
+      IMPORTING
+        keys_rba FOR READ SourceObject\_Analysis
+        FULL result_requested
+      RESULT result
+      LINK association_links.
+
+ENDCLASS.
+
+CLASS lhc_SourceObject IMPLEMENTATION.
+
+  METHOD read.
+
+    IF keys IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    DATA lt_keys LIKE keys.
+
+    lt_keys = keys.
+
+    SORT lt_keys
+      BY AnalysisId
+         ItemId.
+
+    DELETE ADJACENT DUPLICATES FROM lt_keys
+      COMPARING
+        AnalysisId
+        ItemId.
+
+
+    SELECT FROM zmig_anl_src AS source_object
+      INNER JOIN @lt_keys AS requested
+        ON  source_object~analysis_id =
+              requested~AnalysisId
+        AND source_object~item_id =
+              requested~ItemId
+
+      FIELDS
+        source_object~analysis_id   AS AnalysisId,
+        source_object~item_id       AS ItemId,
+        source_object~object_name   AS ObjectName,
+        source_object~object_type   AS ObjectType,
+        source_object~parent_object AS ParentObject,
+        source_object~include_depth AS IncludeDepth,
+        source_object~line_count    AS LineCount,
+        source_object~source_hash   AS SourceHash
+
+      INTO CORRESPONDING FIELDS OF TABLE @result.
+
+  ENDMETHOD.
+
+    METHOD rba_Analysis.
+
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    DATA lt_parent_keys LIKE keys_rba.
+
+    lt_parent_keys = keys_rba.
+
+    SORT lt_parent_keys BY AnalysisId.
+
+    DELETE ADJACENT DUPLICATES FROM lt_parent_keys
+      COMPARING AnalysisId.
+
+
+    SELECT FROM zi_mig_analysis AS analysis
+      INNER JOIN @lt_parent_keys AS requested
+        ON analysis~AnalysisId =
+           requested~AnalysisId
+
+      FIELDS analysis~*
+
+      INTO CORRESPONDING FIELDS OF TABLE @result.
+
+
+    LOOP AT keys_rba
+      ASSIGNING FIELD-SYMBOL(<source_key>).
+
+      APPEND VALUE #(
+        source-%tky =
+          <source_key>-%tky
+
+        target-%tky = VALUE #(
+          AnalysisId =
+            <source_key>-AnalysisId
+        )
+      ) TO association_links.
+
+    ENDLOOP.
+
+  ENDMETHOD.
 
 ENDCLASS.
 

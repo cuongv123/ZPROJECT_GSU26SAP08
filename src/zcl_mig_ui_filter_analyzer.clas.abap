@@ -286,18 +286,22 @@ CLASS zcl_mig_ui_filter_analyzer IMPLEMENTATION.
       ENDIF.
 
       DATA:
-        ls_filter   TYPE zif_mig_types=>ty_ui_filter,
-        ls_evidence TYPE zif_mig_types=>ty_evidence.
+      ls_filter   TYPE zif_mig_types=>ty_ui_filter,
+      ls_evidence TYPE zif_mig_types=>ty_evidence.
 
-      build_filter(
-        EXPORTING
-          iv_analysis_id     = iv_analysis_id
-          iv_selection_block = lv_current_block
-          is_statement       = <statement>
-        IMPORTING
-          es_filter          = ls_filter
-          es_evidence        = ls_evidence
-      ).
+    CLEAR:
+      ls_filter,
+      ls_evidence.
+
+    build_filter(
+      EXPORTING
+        iv_analysis_id     = iv_analysis_id
+        iv_selection_block = lv_current_block
+        is_statement       = <statement>
+      IMPORTING
+        es_filter          = ls_filter
+        es_evidence        = ls_evidence
+    ).
 
       IF ls_filter-field_name IS INITIAL.
         CONTINUE.
@@ -319,19 +323,23 @@ CLASS zcl_mig_ui_filter_analyzer IMPLEMENTATION.
 
     METHOD build_filter.
 
-    DATA(lt_words) =
-      split_words(
-        iv_statement_text =
-          is_statement-statement_text
-      ).
+      CLEAR:
+        es_filter,
+        es_evidence.
 
-    READ TABLE lt_words
-      INDEX 2
-      INTO DATA(ls_field_word).
+      DATA(lt_words) =
+        split_words(
+          iv_statement_text =
+            is_statement-statement_text
+        ).
 
-    IF sy-subrc <> 0.
-      RETURN.
-    ENDIF.
+      READ TABLE lt_words
+        INDEX 2
+        INTO DATA(ls_field_word).
+
+      IF sy-subrc <> 0.
+        RETURN.
+      ENDIF.
 
     es_filter-analysis_id =
       iv_analysis_id.

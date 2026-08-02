@@ -110,6 +110,12 @@ CLASS zcl_mig_logic_analyzer DEFINITION
       RETURNING
         VALUE(rv_result) TYPE abap_bool.
 
+    METHODS has_write_name_hint
+      IMPORTING
+        iv_object_name TYPE ty_object_name
+      RETURNING
+        VALUE(rv_result) TYPE abap_bool.
+
     METHODS create_uuid
       IMPORTING
         iv_source_object TYPE progname
@@ -117,6 +123,7 @@ CLASS zcl_mig_logic_analyzer DEFINITION
         VALUE(rv_uuid) TYPE sysuuid_x16
       RAISING
         zcx_mig_analysis.
+
 
 ENDCLASS.
 
@@ -803,6 +810,15 @@ CLASS zcl_mig_logic_analyzer IMPLEMENTATION.
           cs_state-transaction_dependent
     ).
 
+    IF cs_state-side_effect = 'REVIEW'
+       AND cs_state-confidence =
+             zif_mig_types=>gc_conf_high.
+
+      cs_state-confidence =
+        zif_mig_types=>gc_conf_medium.
+
+    ENDIF.
+
     IF cs_state-reuse_feasibility IS INITIAL.
 
       CASE cs_state-object_type.
@@ -841,57 +857,177 @@ CLASS zcl_mig_logic_analyzer IMPLEMENTATION.
 
   ENDMETHOD.
 
-    METHOD infer_side_effect.
+METHOD infer_side_effect.
 
-    CLEAR:
-      ev_side_effect,
-      ev_transaction_dependency.
+  CLEAR:
+    ev_side_effect,
+    ev_transaction_dependency.
 
-    IF iv_object_type = 'DYPRO'
-       OR iv_object_type = 'TRANSACTION'
-       OR iv_object_type = 'MODULE'.
+  "==========================================================
+  " Definitions chỉ mô tả cấu trúc source.
+  "
+  "Không thể suy ra side effect từ tên của definition.
+  "==========================================================
+  CASE iv_object_type.
+
+    WHEN 'METHOD_DEFINITION'
+      OR 'FORM_DEFINITION'
+      OR 'FUNCTION_DEFINITION'.
+
+      ev_side_effect =
+        'NONE'.
+
+      RETURN.
+
+  ENDCASE.
+
+
+  "==========================================================
+  " GUI dependencies
+  "==========================================================
+  CASE iv_object_type.
+
+    WHEN 'DYPRO'
+      OR 'MODULE'.
 
       ev_side_effect =
         'GUI_DEPENDENT'.
 
       RETURN.
 
-    ENDIF.
 
-    DATA(lv_name) =
-      to_upper(
-        CONV string( iv_object_name )
-      ).
-
-    IF lv_name CS 'CREATE'
-       OR lv_name CS 'CHANGE'
-       OR lv_name CS 'UPDATE'
-       OR lv_name CS 'DELETE'
-       OR lv_name CS 'POST'
-       OR lv_name CS 'SAVE'
-       OR lv_name CS 'CANCEL'
-       OR lv_name CS 'RELEASE'
-       OR lv_name CS 'APPROVE'.
+    WHEN 'TRANSACTION'.
 
       ev_side_effect =
-        'WRITE'.
+        'GUI_DEPENDENT'.
 
       ev_transaction_dependency =
         abap_true.
 
-    ELSEIF iv_object_type = 'BAPI'.
+      RETURN.
 
-      ev_side_effect =
-        'REVIEW'.
+  ENDCASE.
 
-    ELSE.
 
-      ev_side_effect =
-        'READ_OR_UNKNOWN'.
+  DATA(lv_name) =
+    to_upper(
+      CONV string( iv_object_name )
+    ).
 
-    ENDIF.
 
-  ENDMETHOD.
+  "==========================================================
+  " Explicit transaction APIs
+  "==========================================================
+  IF lv_name = 'BAPI_TRANSACTION_COMMIT'
+     OR lv_name = 'BAPI_TRANSACTION_ROLLBACK'.
+
+    ev_side_effect =
+      'TRANSACTION'.
+
+    ev_transaction_dependency =
+      abap_true.
+
+    RETURN.
+
+  ENDIF.
+
+
+  "==========================================================
+  " BAPI
+  "
+  "Chỉ dựa vào tên BAPI chưa đủ để kết luận READ/WRITE.
+  "==========================================================
+  IF iv_object_type = 'BAPI'.
+
+    ev_side_effect =
+      'REVIEW'.
+
+    RETURN.
+
+  ENDIF.
+
+
+  "==========================================================
+  " Write-name hint
+  "
+  "Đây chỉ là hint, không phải bằng chứng về side effect.
+  "Không đặt transaction_dependency.
+  "==========================================================
+  IF has_write_name_hint(
+       iv_object_name = iv_object_name
+     ) = abap_true.
+
+    CASE iv_object_type.
+
+      WHEN 'STATIC_METHOD'
+        OR 'INSTANCE_METHOD'
+        OR 'FUNCTION_MODULE'
+        OR 'FORM_CALL'
+        OR 'REPORT_SUBMIT'.
+
+        ev_side_effect =
+          'REVIEW'.
+
+        RETURN.
+
+    ENDCASE.
+
+  ENDIF.
+
+
+  "==========================================================
+  " Không có đủ evidence để kết luận
+  "==========================================================
+  ev_side_effect =
+    'READ_OR_UNKNOWN'.
+
+ENDMETHOD.
+  METHOD has_write_name_hint.
+
+  DATA(lv_name) =
+    to_upper(
+      CONV string( iv_object_name )
+    ).
+
+  "Không dùng substring vì:
+  "HANDLE_DATA_CHANGED chứa CHANGE nhưng không có nghĩa
+  "method thực hiện database write.
+  REPLACE ALL OCCURRENCES OF `-`
+    IN lv_name
+    WITH `_`.
+
+  DATA lt_name_parts
+    TYPE STANDARD TABLE OF string
+    WITH EMPTY KEY.
+
+  SPLIT lv_name
+    AT `_`
+    INTO TABLE lt_name_parts.
+
+  LOOP AT lt_name_parts
+    INTO DATA(lv_name_part).
+
+    CASE lv_name_part.
+
+      WHEN 'CREATE'
+        OR 'CHANGE'
+        OR 'UPDATE'
+        OR 'DELETE'
+        OR 'POST'
+        OR 'SAVE'
+        OR 'CANCEL'
+        OR 'RELEASE'
+        OR 'APPROVE'.
+
+        rv_result = abap_true.
+        RETURN.
+
+    ENDCASE.
+
+  ENDLOOP.
+
+ENDMETHOD.
+
     METHOD create_uuid.
 
     TRY.

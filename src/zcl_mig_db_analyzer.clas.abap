@@ -114,6 +114,29 @@ CLASS zcl_mig_db_analyzer DEFINITION
       RAISING
         zcx_mig_analysis.
 
+    TYPES tt_statement_word
+      TYPE STANDARD TABLE OF string
+      WITH EMPTY KEY.
+
+    METHODS is_internal_table_operation
+      IMPORTING
+        is_statement TYPE zif_mig_types=>ty_statement
+      RETURNING
+        VALUE(rv_result) TYPE abap_bool.
+
+    METHODS split_statement_words
+      IMPORTING
+        iv_statement_text TYPE string
+      RETURNING
+        VALUE(rt_words) TYPE tt_statement_word.
+
+    METHODS contains_word
+      IMPORTING
+        it_words TYPE tt_statement_word
+        iv_word  TYPE string
+      RETURNING
+        VALUE(rv_result) TYPE abap_bool.
+
 ENDCLASS.
 
 CLASS zcl_mig_db_analyzer IMPLEMENTATION.
@@ -242,6 +265,14 @@ CLASS zcl_mig_db_analyzer IMPLEMENTATION.
          ) = abap_false.
 
         CONTINUE.
+
+      ENDIF.
+
+      IF is_internal_table_operation(
+             is_statement = <statement>
+           ) = abap_true.
+
+          CONTINUE.
 
       ENDIF.
 
@@ -753,5 +784,235 @@ ENDMETHOD.
     ENDTRY.
 
   ENDMETHOD.
+
+  METHOD split_statement_words.
+
+  DATA(lv_text) =
+    to_upper( iv_statement_text ).
+
+  REPLACE ALL OCCURRENCES OF `.`
+    IN lv_text WITH ` `.
+
+  REPLACE ALL OCCURRENCES OF `,`
+    IN lv_text WITH ` `.
+
+  REPLACE ALL OCCURRENCES OF `:`
+    IN lv_text WITH ` `.
+
+  REPLACE ALL OCCURRENCES OF `(`
+    IN lv_text WITH ` `.
+
+  REPLACE ALL OCCURRENCES OF `)`
+    IN lv_text WITH ` `.
+
+  DATA lt_raw_words
+    TYPE STANDARD TABLE OF string
+    WITH EMPTY KEY.
+
+  SPLIT lv_text
+    AT space
+    INTO TABLE lt_raw_words.
+
+  LOOP AT lt_raw_words
+    INTO DATA(lv_word).
+
+    IF lv_word IS INITIAL.
+      CONTINUE.
+    ENDIF.
+
+    APPEND lv_word
+      TO rt_words.
+
+  ENDLOOP.
+
+ENDMETHOD.
+
+METHOD contains_word.
+
+  READ TABLE it_words
+    WITH KEY table_line = to_upper( iv_word )
+    TRANSPORTING NO FIELDS.
+
+  rv_result =
+    xsdbool(
+      sy-subrc = 0
+    ).
+
+ENDMETHOD.
+
+METHOD is_internal_table_operation.
+
+  DATA(lt_words) =
+    split_statement_words(
+      iv_statement_text =
+        is_statement-statement_text
+    ).
+
+  IF lt_words IS INITIAL.
+    RETURN.
+  ENDIF.
+
+  DATA:
+    lv_operation TYPE string,
+    lv_word_2    TYPE string.
+
+  READ TABLE lt_words
+    INDEX 1
+    INTO lv_operation.
+
+  READ TABLE lt_words
+    INDEX 2
+    INTO lv_word_2.
+
+  CASE lv_operation.
+
+    "========================================================
+    " SELECT / UPDATE
+    "
+    "SELECT được xử lý như Open SQL ở scope hiện tại.
+    "UPDATE không có biến thể internal-table tương ứng.
+    "========================================================
+    WHEN 'SELECT'
+      OR 'UPDATE'.
+
+      rv_result = abap_false.
+
+
+    "========================================================
+    " INSERT
+    "========================================================
+    WHEN 'INSERT'.
+
+      "INSERT LINES OF source INTO TABLE target
+      "INSERT INITIAL LINE INTO TABLE target
+      IF lv_word_2 = 'LINES'
+         OR lv_word_2 = 'INITIAL'.
+
+        rv_result = abap_true.
+        RETURN.
+
+      ENDIF.
+
+      "Open SQL hợp lệ:
+      "INSERT INTO dbtab ...
+      IF lv_word_2 = 'INTO'.
+
+        rv_result = abap_false.
+        RETURN.
+
+      ENDIF.
+
+      "Nếu INTO xuất hiện sau source object:
+      "INSERT ls_row INTO TABLE lt_table
+      "INSERT ls_row INTO lt_table INDEX ...
+      IF contains_word(
+           it_words = lt_words
+           iv_word  = 'INTO'
+         ) = abap_true.
+
+        rv_result = abap_true.
+        RETURN.
+
+      ENDIF.
+
+
+    "========================================================
+    " MODIFY
+    "========================================================
+    WHEN 'MODIFY'.
+
+      "MODIFY TABLE lt_table FROM ls_row
+      IF lv_word_2 = 'TABLE'.
+
+        rv_result = abap_true.
+        RETURN.
+
+      ENDIF.
+
+      "Các addition này thuộc internal table
+      IF contains_word(
+           it_words = lt_words
+           iv_word  = 'INDEX'
+         ) = abap_true
+         OR contains_word(
+              it_words = lt_words
+              iv_word  = 'TRANSPORTING'
+            ) = abap_true
+         OR contains_word(
+              it_words = lt_words
+              iv_word  = 'USING'
+            ) = abap_true
+         OR contains_word(
+              it_words = lt_words
+              iv_word  = 'WHERE'
+            ) = abap_true.
+
+        rv_result = abap_true.
+        RETURN.
+
+      ENDIF.
+
+
+    "========================================================
+    " DELETE
+    "========================================================
+    WHEN 'DELETE'.
+
+      "DELETE ADJACENT DUPLICATES FROM lt_table
+      "DELETE TABLE lt_table FROM ls_row
+      IF lv_word_2 = 'ADJACENT'
+         OR lv_word_2 = 'TABLE'.
+
+        rv_result = abap_true.
+        RETURN.
+
+      ENDIF.
+
+      "Open SQL:
+      "DELETE FROM dbtab WHERE ...
+      IF lv_word_2 = 'FROM'.
+
+        rv_result = abap_false.
+        RETURN.
+
+      ENDIF.
+
+      "Internal table variants:
+      "DELETE lt_table.
+      "DELETE lt_table INDEX n.
+      "DELETE lt_table FROM n TO m.
+      "DELETE lt_table WHERE ...
+      IF contains_word(
+           it_words = lt_words
+           iv_word  = 'INDEX'
+         ) = abap_true
+         OR contains_word(
+              it_words = lt_words
+              iv_word  = 'TO'
+            ) = abap_true
+         OR contains_word(
+              it_words = lt_words
+              iv_word  = 'WHERE'
+            ) = abap_true.
+
+        rv_result = abap_true.
+        RETURN.
+
+      ENDIF.
+
+      "Không có FROM thì đây là DELETE internal table đơn giản
+      IF contains_word(
+           it_words = lt_words
+           iv_word  = 'FROM'
+         ) = abap_false.
+
+        rv_result = abap_true.
+        RETURN.
+
+      ENDIF.
+
+  ENDCASE.
+
+ENDMETHOD.
 
 ENDCLASS.

@@ -8,6 +8,7 @@ CLASS zcl_mig_mail_runner DEFINITION
     TYPES:
       BEGIN OF ty_due_job,
             job_id       TYPE sysuuid_x16,
+            analysis_id TYPE zmig_mail_job-analysis_id,
             job_name     TYPE zmig_mail_job-job_name,
             report_type  TYPE zmig_mail_job-report_type,
             file_format  TYPE zmig_e_file_format,
@@ -84,6 +85,7 @@ CLASS zcl_mig_mail_runner IMPLEMENTATION.
       FROM zmig_mail_job
       FIELDS
         job_id,
+        analysis_id,
         job_name,
         report_type,
         file_format,
@@ -125,6 +127,7 @@ CLASS zcl_mig_mail_runner IMPLEMENTATION.
     DATA(ls_export_result) =
       lo_export_provider->generate(
         iv_job_id      = ls_due_job-job_id
+        iv_analysis_id    = ls_due_job-analysis_id
         iv_report_type = ls_due_job-report_type
         iv_file_format = ls_due_job-file_format
       ).

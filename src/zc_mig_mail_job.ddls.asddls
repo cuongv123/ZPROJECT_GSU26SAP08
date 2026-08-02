@@ -7,7 +7,7 @@ define root view entity ZC_MIG_MAIL_JOB
   as projection on ZI_MIG_MAIL_JOB
 {
   key JobId,
-
+      AnalysisId,
       JobName,
       ReportType,
       FileFormat,
