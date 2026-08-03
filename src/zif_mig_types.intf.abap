@@ -852,6 +852,359 @@
           all_params       TYPE tt_sig_par,
         END OF ty_sig_result.
 
+       "============================================================
+      " Service Mapping
+      "============================================================
+      TYPES:
+        ty_svc_map_status TYPE c LENGTH 20,
+        ty_svc_map_state  TYPE c LENGTH 20.
+
+
+      CONSTANTS:
+        gc_smap_ready TYPE ty_svc_map_status
+          VALUE 'READY',
+
+        gc_smap_review TYPE ty_svc_map_status
+          VALUE 'MANUAL_REVIEW'.
+
+
+      CONSTANTS:
+        gc_smap_auto TYPE ty_svc_map_state
+          VALUE 'AUTO',
+
+        gc_smap_missing TYPE ty_svc_map_state
+          VALUE 'MISSING',
+
+        gc_smap_ambig TYPE ty_svc_map_state
+          VALUE 'AMBIGUOUS',
+
+        gc_smap_type TYPE ty_svc_map_state
+          VALUE 'TYPE_CONFLICT',
+
+        gc_smap_unused TYPE ty_svc_map_state
+          VALUE 'UNUSED'.
+
+
+      TYPES:
+        BEGIN OF ty_svc_in_map,
+          svc_item_id TYPE ty_item_id,
+
+          svc_name    TYPE c LENGTH 40,
+          prv_name    TYPE c LENGTH 30,
+
+          svc_kind    TYPE c LENGTH 20,
+          svc_edm     TYPE c LENGTH 30,
+          prv_edm     TYPE c LENGTH 30,
+
+          map_state   TYPE ty_svc_map_state,
+
+          exact_name  TYPE abap_bool,
+          type_match  TYPE abap_bool,
+
+          mandatory   TYPE abap_bool,
+          prv_optional TYPE abap_bool,
+
+          reason      TYPE string,
+        END OF ty_svc_in_map,
+
+        tt_svc_in_map TYPE STANDARD TABLE OF ty_svc_in_map
+          WITH EMPTY KEY.
+
+
+      TYPES:
+        BEGIN OF ty_svc_out_map,
+          prv_name   TYPE c LENGTH 30,
+          type_name  TYPE c LENGTH 80,
+          edm_type   TYPE c LENGTH 30,
+
+          is_table   TYPE abap_bool,
+          name_match TYPE abap_bool,
+          selected   TYPE abap_bool,
+
+          map_state  TYPE ty_svc_map_state,
+          reason     TYPE string,
+        END OF ty_svc_out_map,
+
+        tt_svc_out_map TYPE STANDARD TABLE OF ty_svc_out_map
+          WITH EMPTY KEY.
+
+
+      TYPES:
+        BEGIN OF ty_svc_map_result,
+          analysis_id    TYPE ty_analysis_id,
+
+          status         TYPE ty_svc_map_status,
+          manual_review  TYPE abap_bool,
+          decision_reason TYPE string,
+
+          mapped_inputs  TYPE i,
+          issue_count    TYPE i,
+
+          input_maps     TYPE tt_svc_in_map,
+          output_maps    TYPE tt_svc_out_map,
+          selected_out   TYPE ty_sig_par,
+        END OF ty_svc_map_result.
+
+       "============================================================
+      " Row Type Resolution
+      "============================================================
+      TYPES:
+        ty_row_status TYPE c LENGTH 20,
+        ty_row_state  TYPE c LENGTH 20.
+
+
+      CONSTANTS:
+        gc_row_ready TYPE ty_row_status
+          VALUE 'READY',
+
+        gc_row_review TYPE ty_row_status
+          VALUE 'MANUAL_REVIEW',
+
+        gc_row_not_found TYPE ty_row_status
+          VALUE 'NOT_FOUND',
+
+        gc_row_unsup TYPE ty_row_status
+          VALUE 'UNSUPPORTED'.
+
+
+      CONSTANTS:
+        gc_row_auto TYPE ty_row_state
+          VALUE 'AUTO',
+
+        gc_row_missing TYPE ty_row_state
+          VALUE 'MISSING',
+
+        gc_row_ambig TYPE ty_row_state
+          VALUE 'AMBIGUOUS',
+
+        gc_row_type TYPE ty_row_state
+          VALUE 'TYPE_CONFLICT',
+
+        gc_row_unused TYPE ty_row_state
+          VALUE 'UNUSED'.
+
+
+      TYPES:
+        BEGIN OF ty_row_comp,
+          comp_name TYPE c LENGTH 30,
+          position  TYPE i,
+
+          abap_type TYPE c LENGTH 30,
+          type_name TYPE c LENGTH 80,
+          edm_type  TYPE c LENGTH 30,
+
+          is_table  TYPE abap_bool,
+          is_ref    TYPE abap_bool,
+          is_deep   TYPE abap_bool,
+        END OF ty_row_comp,
+
+        tt_row_comp TYPE STANDARD TABLE OF ty_row_comp
+          WITH EMPTY KEY.
+
+
+      TYPES:
+        BEGIN OF ty_row_def,
+          type_name  TYPE ty_sig_name,
+          line_name  TYPE ty_sig_name,
+
+          exists     TYPE abap_bool,
+          structured TYPE abap_bool,
+
+          components TYPE tt_row_comp,
+        END OF ty_row_def.
+
+
+      TYPES:
+        BEGIN OF ty_row_map,
+          svc_item_id TYPE ty_item_id,
+
+          svc_name    TYPE c LENGTH 40,
+          comp_name   TYPE c LENGTH 30,
+
+          svc_edm     TYPE c LENGTH 30,
+          comp_edm    TYPE c LENGTH 30,
+
+          position    TYPE i,
+          map_state   TYPE ty_row_state,
+
+          exact_name  TYPE abap_bool,
+          type_match  TYPE abap_bool,
+
+          reason      TYPE string,
+        END OF ty_row_map,
+
+        tt_row_map TYPE STANDARD TABLE OF ty_row_map
+          WITH EMPTY KEY.
+
+
+      TYPES:
+        BEGIN OF ty_row_result,
+          analysis_id     TYPE ty_analysis_id,
+
+          status          TYPE ty_row_status,
+          manual_review   TYPE abap_bool,
+          decision_reason TYPE string,
+
+          output_name     TYPE c LENGTH 30,
+          row_type        TYPE ty_sig_name,
+
+          mapped_fields   TYPE i,
+          issue_count     TYPE i,
+
+          field_maps      TYPE tt_row_map,
+          components      TYPE tt_row_comp,
+          unused_comps    TYPE tt_row_comp,
+        END OF ty_row_result.
+
+
+        "============================================================
+      " Artifact Manifest
+      "============================================================
+      TYPES:
+        ty_art_type   TYPE c LENGTH 4,
+        ty_art_role   TYPE c LENGTH 20,
+        ty_art_name   TYPE c LENGTH 30,
+        ty_art_cap    TYPE c LENGTH 15,
+        ty_art_gen    TYPE c LENGTH 15,
+        ty_art_status TYPE c LENGTH 20.
+
+
+      CONSTANTS:
+        gc_art_ddls TYPE ty_art_type
+          VALUE 'DDLS',
+
+        gc_art_ddlx TYPE ty_art_type
+          VALUE 'DDLX',
+
+        gc_art_clas TYPE ty_art_type
+          VALUE 'CLAS',
+
+        gc_art_bdef TYPE ty_art_type
+          VALUE 'BDEF',
+
+        gc_art_srvd TYPE ty_art_type
+          VALUE 'SRVD',
+
+        gc_art_srvb TYPE ty_art_type
+          VALUE 'SRVB'.
+
+
+      CONSTANTS:
+        gc_art_entity TYPE ty_art_role
+          VALUE 'ENTITY',
+
+        gc_art_projection TYPE ty_art_role
+          VALUE 'PROJECTION',
+
+        gc_art_query_prv TYPE ty_art_role
+          VALUE 'QUERY_PROVIDER',
+
+        gc_art_adapter TYPE ty_art_role
+          VALUE 'ADAPTER',
+
+        gc_art_bdef_root TYPE ty_art_role
+          VALUE 'BDEF_ROOT',
+
+        gc_art_bdef_proj TYPE ty_art_role
+          VALUE 'BDEF_PROJ',
+
+        gc_art_bpool TYPE ty_art_role
+          VALUE 'BEHAVIOR_POOL',
+
+        gc_art_annot TYPE ty_art_role
+          VALUE 'ANNOTATION',
+
+        gc_art_srv_def TYPE ty_art_role
+          VALUE 'SERVICE_DEF',
+
+        gc_art_srv_bind TYPE ty_art_role
+          VALUE 'SERVICE_BIND'.
+
+
+      CONSTANTS:
+        gc_art_cap_unknown TYPE ty_art_cap
+          VALUE 'UNKNOWN',
+
+        gc_art_cap_yes TYPE ty_art_cap
+          VALUE 'SUPPORTED',
+
+        gc_art_cap_no TYPE ty_art_cap
+          VALUE 'UNSUPPORTED'.
+
+
+      CONSTANTS:
+        gc_art_planned TYPE ty_art_gen
+          VALUE 'PLANNED',
+
+        gc_art_blocked TYPE ty_art_gen
+          VALUE 'BLOCKED',
+
+        gc_art_created TYPE ty_art_gen
+          VALUE 'CREATED',
+
+        gc_art_failed TYPE ty_art_gen
+          VALUE 'FAILED'.
+
+
+      CONSTANTS:
+        gc_art_ready TYPE ty_art_status
+          VALUE 'READY',
+
+        gc_art_review TYPE ty_art_status
+          VALUE 'MANUAL_REVIEW'.
+
+
+      TYPES:
+        BEGIN OF ty_art_item,
+          seq         TYPE i,
+          art_type    TYPE ty_art_type,
+          art_role    TYPE ty_art_role,
+          object_name TYPE ty_art_name,
+          package     TYPE devclass,
+
+          description TYPE c LENGTH 120,
+          gen_order   TYPE i,
+
+          required    TYPE abap_bool,
+          cap_state   TYPE ty_art_cap,
+          gen_state   TYPE ty_art_gen,
+
+          reason      TYPE string,
+        END OF ty_art_item,
+
+        tt_art_item TYPE STANDARD TABLE OF ty_art_item
+          WITH EMPTY KEY.
+
+
+      TYPES:
+        BEGIN OF ty_art_dep,
+          art_seq TYPE i,
+          req_seq TYPE i,
+        END OF ty_art_dep,
+
+        tt_art_dep TYPE STANDARD TABLE OF ty_art_dep
+          WITH EMPTY KEY.
+
+
+      TYPES:
+        BEGIN OF ty_art_mfst,
+          analysis_id     TYPE ty_analysis_id,
+          strategy        TYPE ty_service_strategy,
+          source_program  TYPE ty_program_name,
+          package         TYPE devclass,
+          base_name       TYPE c LENGTH 40,
+
+          status          TYPE ty_art_status,
+          manual_review   TYPE abap_bool,
+          decision_reason TYPE string,
+
+          item_count      TYPE i,
+          dep_count       TYPE i,
+
+          items           TYPE tt_art_item,
+          dependencies    TYPE tt_art_dep,
+        END OF ty_art_mfst.
+
   "============================================================
   " Complete analysis result
   "============================================================
