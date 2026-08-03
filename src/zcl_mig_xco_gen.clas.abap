@@ -752,6 +752,60 @@ METHOD build_select_src.
   ENDIF.
 
 
+  "============================================================
+  " Xác định field sort mặc định:
+  " 1. Key
+  " 2. Field sortable đầu tiên
+  " 3. Field đầu tiên
+  "============================================================
+  DATA lv_def_sort
+    TYPE string.
+
+
+  READ TABLE lt_fields
+    WITH KEY key_field = abap_true
+    INTO DATA(ls_def_sort).
+
+
+  IF sy-subrc <> 0.
+
+    READ TABLE lt_fields
+      WITH KEY sortable = abap_true
+      INTO ls_def_sort.
+
+  ENDIF.
+
+
+  IF sy-subrc <> 0.
+
+    READ TABLE lt_fields
+      INDEX 1
+      INTO ls_def_sort.
+
+  ENDIF.
+
+
+  lv_def_sort =
+    CONV string(
+      ls_def_sort-field_name
+    ).
+
+  CONDENSE lv_def_sort NO-GAPS.
+
+
+  IF lv_def_sort IS INITIAL.
+
+    RAISE EXCEPTION NEW zcx_mig_analysis(
+      textid =
+        zcx_mig_analysis=>analysis_failed
+    ).
+
+  ENDIF.
+
+
+  "============================================================
+  " Sinh local result type
+  "============================================================
   APPEND
     |TYPES:|
     TO rt_source.
@@ -868,67 +922,289 @@ METHOD build_select_src.
     |DATA lt_result TYPE STANDARD TABLE OF ty_result WITH EMPTY KEY.|
     TO rt_source.
 
+
+  "============================================================
+  " Chuẩn hóa tên class và static method provider
+  "============================================================
   DATA(lv_class_name) =
-      to_upper(
-        CONV string(
-          is_prv-source_container_name
-        )
-      ).
+    to_upper(
+      CONV string(
+        is_prv-source_container_name
+      )
+    ).
 
-    CONDENSE lv_class_name NO-GAPS.
-
-
-    DATA(lv_method_name) =
-      to_upper(
-        CONV string(
-          is_prv-source_object_name
-        )
-      ).
-
-    CONDENSE lv_method_name NO-GAPS.
+  CONDENSE lv_class_name NO-GAPS.
 
 
-    IF lv_class_name IS INITIAL
-       OR lv_method_name IS INITIAL.
+  DATA(lv_method_name) =
+    to_upper(
+      CONV string(
+        is_prv-source_object_name
+      )
+    ).
 
-      RAISE EXCEPTION NEW zcx_mig_analysis(
-        textid =
-          zcx_mig_analysis=>analysis_failed
-      ).
-
-    ENDIF.
-
-
-    APPEND
-      |DATA(lt_provider) = { lv_class_name }=>{ lv_method_name }( ).|
-      TO rt_source.
+  CONDENSE lv_method_name NO-GAPS.
 
 
-    APPEND
-      |lt_result = CORRESPONDING #( lt_provider ).|
-      TO rt_source.
+  IF lv_class_name IS INITIAL
+     OR lv_method_name IS INITIAL.
+
+    RAISE EXCEPTION NEW zcx_mig_analysis(
+      textid =
+        zcx_mig_analysis=>analysis_failed
+    ).
+
+  ENDIF.
 
 
+  "============================================================
+  " Gọi static provider và map output
+  "============================================================
+  APPEND
+    |DATA(lt_provider) = { lv_class_name }=>{ lv_method_name }( ).|
+    TO rt_source.
+
+
+  APPEND
+    |lt_result = CORRESPONDING #( lt_provider ).|
+    TO rt_source.
+
+
+  "============================================================
+  " Count trước sorting và paging
+  "============================================================
   APPEND
     |IF io_request->is_total_numb_of_rec_requested( ).|
     TO rt_source.
 
+
   APPEND
     |  io_response->set_total_number_of_records( lines( lt_result ) ).|
     TO rt_source.
+
 
   APPEND
     |ENDIF.|
     TO rt_source.
 
 
+  "============================================================
+  " Chỉ sort và paging khi request cần data
+  "============================================================
   APPEND
     |IF io_request->is_data_requested( ).|
     TO rt_source.
 
+
+  "============================================================
+  " Default sort để paging ổn định
+  "============================================================
   APPEND
-    |  io_response->set_data( lt_result ).|
+    |  SORT lt_result STABLE BY { lv_def_sort } ASCENDING.|
     TO rt_source.
+
+
+  "============================================================
+  " Đọc $orderby từ RAP request
+  "============================================================
+  APPEND
+    |  DATA(lt_sort) = io_request->get_sort_elements( ).|
+    TO rt_source.
+
+
+  APPEND
+    |  DATA(lv_sort_idx) = lines( lt_sort ).|
+    TO rt_source.
+
+
+  "Duyệt ngược để giữ đúng độ ưu tiên của nhiều sort fields
+  APPEND
+    |  WHILE lv_sort_idx > 0.|
+    TO rt_source.
+
+
+  APPEND
+    |    READ TABLE lt_sort INDEX lv_sort_idx INTO DATA(ls_sort).|
+    TO rt_source.
+
+
+  APPEND
+    |    IF sy-subrc = 0.|
+    TO rt_source.
+
+
+  APPEND
+    |      DATA(lv_sort_name) = to_upper( ls_sort-element_name ).|
+    TO rt_source.
+
+
+  APPEND
+    |      CASE lv_sort_name.|
+    TO rt_source.
+
+
+  "============================================================
+  " Sinh CASE branch cho từng field được phép sort
+  "============================================================
+  LOOP AT lt_fields
+    INTO DATA(ls_sort_field)
+    WHERE sortable = abap_true.
+
+    DATA(lv_sort_field) =
+      CONV string(
+        ls_sort_field-field_name
+      ).
+
+    CONDENSE lv_sort_field NO-GAPS.
+
+    IF lv_sort_field IS INITIAL.
+      CONTINUE.
+    ENDIF.
+
+
+    DATA(lv_sort_key) =
+      to_upper(
+        val = lv_sort_field
+      ).
+
+
+    APPEND
+      |        WHEN '{ lv_sort_key }'.|
+      TO rt_source.
+
+
+    APPEND
+      |          IF ls_sort-descending = abap_true.|
+      TO rt_source.
+
+
+    APPEND
+      |            SORT lt_result STABLE BY { lv_sort_field } DESCENDING.|
+      TO rt_source.
+
+
+    APPEND
+      |          ELSE.|
+      TO rt_source.
+
+
+    APPEND
+      |            SORT lt_result STABLE BY { lv_sort_field } ASCENDING.|
+      TO rt_source.
+
+
+    APPEND
+      |          ENDIF.|
+      TO rt_source.
+
+  ENDLOOP.
+
+
+  APPEND
+    |        WHEN OTHERS.|
+    TO rt_source.
+
+
+  APPEND
+    |          CLEAR lv_sort_name.|
+    TO rt_source.
+
+
+  APPEND
+    |      ENDCASE.|
+    TO rt_source.
+
+
+  APPEND
+    |    ENDIF.|
+    TO rt_source.
+
+
+  APPEND
+    |    lv_sort_idx -= 1.|
+    TO rt_source.
+
+
+  APPEND
+    |  ENDWHILE.|
+    TO rt_source.
+
+
+  "============================================================
+  " Paging sau sorting
+  "============================================================
+  APPEND
+    |  DATA lt_page TYPE STANDARD TABLE OF ty_result WITH EMPTY KEY.|
+    TO rt_source.
+
+
+  APPEND
+    |  DATA(lo_paging) = io_request->get_paging( ).|
+    TO rt_source.
+
+
+  APPEND
+    |  DATA(lv_offset) = lo_paging->get_offset( ).|
+    TO rt_source.
+
+
+  APPEND
+    |  DATA(lv_page_size) = lo_paging->get_page_size( ).|
+    TO rt_source.
+
+
+  APPEND
+    |  IF lv_page_size = if_rap_query_paging=>page_size_unlimited.|
+    TO rt_source.
+
+
+  APPEND
+    |    lt_page = lt_result.|
+    TO rt_source.
+
+
+  APPEND
+    |  ELSEIF lv_page_size > 0.|
+    TO rt_source.
+
+
+  APPEND
+    |    DATA(lv_from) = CONV i( lv_offset + 1 ).|
+    TO rt_source.
+
+
+  APPEND
+    |    DATA(lv_to) = CONV i( lv_offset + lv_page_size ).|
+    TO rt_source.
+
+
+  APPEND
+    |    LOOP AT lt_result INTO DATA(ls_result) FROM lv_from TO lv_to.|
+    TO rt_source.
+
+
+  APPEND
+    |      APPEND ls_result TO lt_page.|
+    TO rt_source.
+
+
+  APPEND
+    |    ENDLOOP.|
+    TO rt_source.
+
+
+  APPEND
+    |  ENDIF.|
+    TO rt_source.
+
+
+  "============================================================
+  " Trả dữ liệu sau sort và paging
+  "============================================================
+  APPEND
+    |  io_response->set_data( lt_page ).|
+    TO rt_source.
+
 
   APPEND
     |ENDIF.|
