@@ -14,19 +14,25 @@ CLASS zcl_mig_export_engine DEFINITION
       gc_excel_name   TYPE string VALUE 'migration_report.xlsx',
       gc_csv_name     TYPE string VALUE 'migration_report.csv',
       gc_pdf_name     TYPE string VALUE 'migration_report.pdf'.
+    TYPES: BEGIN OF ty_fiori_col,
+             fieldname   TYPE string,
+             column_name TYPE string,
+           END OF ty_fiori_col,
+           tt_fiori_col TYPE STANDARD TABLE OF ty_fiori_col WITH DEFAULT KEY.
+
+    METHODS get_fiori_columns
+      IMPORTING
+        iv_section_code TYPE zif_mig_export_provider=>ty_export_section
+      RETURNING
+        VALUE(rt_cols)  TYPE tt_fiori_col.
 
     TYPES: BEGIN OF ty_section_registry,
              section_code TYPE zif_mig_export_provider=>ty_export_section,
              view_name    TYPE tabname,
              sheet_title  TYPE string,
            END OF ty_section_registry,
-           tt_section_registry TYPE STANDARD TABLE OF ty_section_registry WITH NON-UNIQUE DEFAULT KEY.
-
-    TYPES: BEGIN OF ty_evidence_map,
-             evidence_id   TYPE sysuuid_x16,
-             readable_text TYPE string,
-           END OF ty_evidence_map,
-           tt_evidence_map TYPE HASHED TABLE OF ty_evidence_map WITH UNIQUE KEY evidence_id.
+           tt_section_registry TYPE STANDARD TABLE OF ty_section_registry
+             WITH NON-UNIQUE DEFAULT KEY.
 
     METHODS get_section_registry
       RETURNING VALUE(rt_registry) TYPE tt_section_registry.
@@ -39,26 +45,6 @@ CLASS zcl_mig_export_engine DEFINITION
         VALUE(rv_analysis_id) TYPE sysuuid_x16
       RAISING
         cx_root.
-
-    METHODS load_evidence_lookup
-      IMPORTING
-        iv_analysis_id  TYPE sysuuid_x16
-      RETURNING
-        VALUE(rt_lookup) TYPE tt_evidence_map.
-
-    METHODS format_cell_value
-      IMPORTING
-        iv_fieldname    TYPE string
-        iv_raw_value    TYPE any
-        it_evidence_map TYPE tt_evidence_map
-      RETURNING
-        VALUE(rv_text)  TYPE string.
-
-    METHODS is_technical_key_field
-      IMPORTING
-        iv_fieldname    TYPE string
-      RETURNING
-        VALUE(rv_is_key) TYPE abap_bool.
 
     METHODS escape_csv_value
       IMPORTING
@@ -155,11 +141,21 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     ENDTRY.
 
   ENDMETHOD.
+  METHOD get_fiori_columns.
+    CLEAR rt_cols.
 
+    " Đọc danh sách cột động từ bảng cấu hình ZTB_EXP_COL
+    SELECT fieldname, column_title AS column_name
+      FROM ztb_exp_col
+      WHERE section_code = @iv_section_code
+      ORDER BY seq_no
+      INTO CORRESPONDING FIELDS OF TABLE @rt_cols.
+  ENDMETHOD.
 
   METHOD get_section_registry.
     rt_registry = VALUE #(
       ( section_code = 'OVERVIEW'    view_name = 'ZMIG_ANL_H'   sheet_title = 'Overview' )
+      ( section_code = 'SRC_STRUCT'  view_name = 'ZMIG_ANL_SRC' sheet_title = 'Source Structure' )
       ( section_code = 'UI_FILTER'   view_name = 'ZMIG_ANL_UI'  sheet_title = 'UI Filters' )
       ( section_code = 'DB_OBJ'      view_name = 'ZMIG_ANL_DB'  sheet_title = 'Database Objects' )
       ( section_code = 'BUS_LOGIC'   view_name = 'ZMIG_ANL_LOG' sheet_title = 'Business Logic' )
@@ -169,7 +165,6 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       ( section_code = 'MESSAGE'     view_name = 'ZMIG_ANL_MSG' sheet_title = 'Messages' )
     ).
   ENDMETHOD.
-
 
   METHOD get_analysis_id.
     IF iv_analysis_id IS NOT INITIAL.
@@ -185,88 +180,6 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     IF sy-subrc <> 0.
       RAISE EXCEPTION TYPE cx_sy_itab_line_not_found.
     ENDIF.
-  ENDMETHOD.
-
-
-  METHOD is_technical_key_field.
-    IF iv_fieldname = 'CLIENT' OR iv_fieldname = 'MANDT'
-       OR iv_fieldname = 'ANALYSIS_ID' OR iv_fieldname = 'ITEM_ID'.
-      rv_is_key = abap_true.
-    ELSE.
-      rv_is_key = abap_false.
-    ENDIF.
-  ENDMETHOD.
-
-
-  METHOD load_evidence_lookup.
-    IF iv_analysis_id IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    TRY.
-        DATA(lo_struct) = CAST cl_abap_structdescr(
-          cl_abap_typedescr=>describe_by_name( 'ZMIG_ANL_EVD' ) ).
-        DATA(lo_table) = cl_abap_tabledescr=>create( lo_struct ).
-
-        DATA lr_data TYPE REF TO data.
-        CREATE DATA lr_data TYPE HANDLE lo_table.
-        ASSIGN lr_data->* TO FIELD-SYMBOL(<lt_evd>).
-
-        SELECT * FROM zmig_anl_evd
-          WHERE analysis_id = @iv_analysis_id
-          INTO TABLE @<lt_evd>.
-
-        LOOP AT <lt_evd> ASSIGNING FIELD-SYMBOL(<ls_evd>).
-          DATA lv_evd_id TYPE sysuuid_x16.
-          DATA lv_text   TYPE string.
-
-          ASSIGN COMPONENT 'EVIDENCE_ID' OF STRUCTURE <ls_evd> TO FIELD-SYMBOL(<lv_id>).
-          IF sy-subrc = 0.
-            lv_evd_id = <lv_id>.
-          ELSE.
-            CONTINUE.
-          ENDIF.
-
-          ASSIGN COMPONENT 'PROGRAM_NAME' OF STRUCTURE <ls_evd> TO FIELD-SYMBOL(<lv_prog>).
-          ASSIGN COMPONENT 'LINE_NUMBER' OF STRUCTURE <ls_evd> TO FIELD-SYMBOL(<lv_line>).
-          ASSIGN COMPONENT 'CODE_SNIPPET' OF STRUCTURE <ls_evd> TO FIELD-SYMBOL(<lv_code>).
-
-          IF <lv_prog> IS ASSIGNED AND <lv_prog> IS NOT INITIAL.
-            lv_text = |{ <lv_prog> }|.
-          ENDIF.
-
-          IF <lv_line> IS ASSIGNED AND <lv_line> IS NOT INITIAL.
-            lv_text = COND #( WHEN lv_text IS INITIAL THEN |Line { <lv_line> }| ELSE |{ lv_text } (Line { <lv_line> })| ).
-          ENDIF.
-
-          IF <lv_code> IS ASSIGNED AND <lv_code> IS NOT INITIAL.
-            lv_text = COND #( WHEN lv_text IS INITIAL THEN |{ <lv_code> }| ELSE |{ lv_text }: { <lv_code> }| ).
-          ENDIF.
-
-          IF lv_text IS INITIAL.
-            lv_text = CONV string( lv_evd_id ).
-          ENDIF.
-
-          INSERT VALUE #( evidence_id = lv_evd_id readable_text = lv_text ) INTO TABLE rt_lookup.
-        ENDLOOP.
-
-      CATCH cx_root.
-        CLEAR rt_lookup.
-    ENDTRY.
-  ENDMETHOD.
-
-
-  METHOD format_cell_value.
-    IF iv_fieldname = 'EVIDENCE_ID'.
-      DATA(lv_guid) = CONV sysuuid_x16( iv_raw_value ).
-      READ TABLE it_evidence_map INTO DATA(ls_map) WITH KEY evidence_id = lv_guid.
-      IF sy-subrc = 0.
-        rv_text = ls_map-readable_text.
-        RETURN.
-      ENDIF.
-    ENDIF.
-
-    rv_text = CONV string( iv_raw_value ).
   ENDMETHOD.
 
 
@@ -287,11 +200,10 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
         lv_analysis_id = VALUE #( ).
     ENDTRY.
 
-    DATA(lt_evidence_map) = load_evidence_lookup( lv_analysis_id ).
-
     DATA(lo_excel) = NEW zcl_excel( ).
     DATA(lv_sheet_count) = 0.
 
+    " Tạo trước 1 Style Bold dùng chung cho Header
     DATA(lo_style_bold) = lo_excel->add_new_style( ).
     lo_style_bold->font->bold = abap_true.
 
@@ -302,6 +214,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
             CONTINUE.
           ENDIF.
 
+          " 1. Tạo cấu trúc dữ liệu động từ CDS View
           TRY.
               DATA(lo_struct) = CAST cl_abap_structdescr(
                 cl_abap_typedescr=>describe_by_name( ls_section-view_name ) ).
@@ -314,12 +227,14 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
           CREATE DATA lr_data TYPE HANDLE lo_table_type.
           ASSIGN lr_data->* TO FIELD-SYMBOL(<lt_data>).
 
+          " 2. Query dữ liệu
           IF lv_analysis_id IS NOT INITIAL.
             SELECT * FROM (ls_section-view_name)
               WHERE analysis_id = @lv_analysis_id
               INTO TABLE @<lt_data>.
           ENDIF.
 
+          " 3. Quản lý Sheet Excel
           DATA(lo_sheet) = COND #(
             WHEN lv_sheet_count = 0
             THEN lo_excel->get_active_worksheet( )
@@ -327,100 +242,102 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
 
           lo_sheet->set_title( ip_title = CONV #( ls_section-sheet_title ) ).
 
+          " 4. Đổ dữ liệu
           IF <lt_data> IS INITIAL.
             lo_sheet->set_cell( ip_column = 1 ip_row = 1 ip_value = |No data available for section { ls_section-sheet_title }.| ).
           ELSE.
-            DATA lt_dfies TYPE STANDARD TABLE OF dfies.
-            CLEAR lt_dfies.
-            CALL FUNCTION 'DDIF_FIELDINFO_GET'
-              EXPORTING
-                tabname   = ls_section-view_name
-              TABLES
-                dfies_tab = lt_dfies
-              EXCEPTIONS
-                OTHERS    = 1.
 
-            DATA lt_export_components TYPE cl_abap_structdescr=>component_table.
-            CLEAR lt_export_components.
+            " 4a. Đọc cấu hình cột động từ bảng ZTB_EXP_COL đã tạo
+            SELECT seq_no, fieldname, column_title
+              FROM ztb_exp_col
+              WHERE section_code = @ls_section-section_code
+              ORDER BY seq_no ASCENDING
+              INTO TABLE @DATA(lt_columns).
 
-            LOOP AT lo_struct->get_components( ) INTO DATA(ls_comp_chk).
-              IF is_technical_key_field( CONV string( ls_comp_chk-name ) ) = abap_true.
-                CONTINUE.
-              ENDIF.
-              APPEND ls_comp_chk TO lt_export_components.
-            ENDLOOP.
+            " Fallback: Nếu bảng ZTB_EXP_COL chưa có cấu hình cho section này, tự lấy toàn bộ từ View Structure
+            IF lt_columns IS INITIAL.
+              DATA(lt_components) = lo_struct->get_components( ).
+              LOOP AT lt_components INTO DATA(ls_comp).
+                APPEND VALUE #( fieldname    = ls_comp-name
+                                column_title = ls_comp-name ) TO lt_columns.
+              ENDLOOP.
+            ENDIF.
 
-            " Header
+            " 4b. Ghi dòng Header (Dòng 1) dựa trên lt_columns
             DATA(lv_col) = 1.
-            LOOP AT lt_export_components INTO DATA(ls_comp).
-              DATA(lv_header_text) = COND string( WHEN ls_comp-name = 'EVIDENCE_ID' THEN 'SOURCE LOCATION / EVIDENCE' ELSE CONV string( ls_comp-name ) ).
+            LOOP AT lt_columns INTO DATA(ls_col).
+              DATA(lv_header_text) = CONV string( COND #( WHEN ls_col-column_title IS NOT INITIAL
+                                                          THEN ls_col-column_title
+                                                          ELSE ls_col-fieldname ) ).
 
-              READ TABLE lt_dfies INTO DATA(ls_dfie) WITH KEY fieldname = ls_comp-name.
-              IF sy-subrc = 0 AND ls_comp-name <> 'EVIDENCE_ID'.
-                DATA(lv_ddic_text) = COND string(
-                  WHEN ls_dfie-fieldtext IS NOT INITIAL THEN CONV string( ls_dfie-fieldtext )
-                  WHEN ls_dfie-scrtext_l IS NOT INITIAL THEN CONV string( ls_dfie-scrtext_l )
-                  WHEN ls_dfie-scrtext_m IS NOT INITIAL THEN CONV string( ls_dfie-scrtext_m )
-                  WHEN ls_dfie-scrtext_s IS NOT INITIAL THEN CONV string( ls_dfie-scrtext_s )
-                  ELSE CONV string( ls_dfie-fieldname ) ).
+              " Ghi ô Header Dòng 1
+              lo_sheet->set_cell(
+                ip_column = lv_col
+                ip_row    = 1
+                ip_value  = lv_header_text ).
 
-                IF lv_ddic_text NS '16 Byte UUID' AND lv_ddic_text NS 'UUID in 16 B'.
-                  lv_header_text = lv_ddic_text.
-                ENDIF.
-              ENDIF.
+              " Format In Đậm cho Dòng Header
+              lo_sheet->set_cell_style(
+                ip_column = lv_col
+                ip_row    = 1
+                ip_style  = lo_style_bold->get_guid( ) ).
 
-              lo_sheet->set_cell( ip_column = lv_col ip_row = 1 ip_value = lv_header_text ).
-              lo_sheet->set_cell_style( ip_column = lv_col ip_row = 1 ip_style = lo_style_bold->get_guid( ) ).
-
+              " Set độ rộng ban đầu theo tên tiêu đề Header
+              DATA(lv_init_len) = strlen( lv_header_text ) + 4.
               DATA(lo_col_obj) = lo_sheet->get_column( ip_column = lv_col ).
               IF lo_col_obj IS BOUND.
-                " FIX: Dùng kiểu float (f) chuẩn của ABAP
-                DATA lv_hdr_width TYPE f.
-                lv_hdr_width = strlen( lv_header_text ) + 4.
-                lo_col_obj->set_width( ip_width = lv_hdr_width ).
+                lo_col_obj->set_width( ip_width = CONV #( lv_init_len ) ).
               ENDIF.
 
               lv_col = lv_col + 1.
             ENDLOOP.
 
-            " Data Row
+            " 4c. Đổ từng dòng Data thủ công (Từ dòng 2) theo danh sách cột lt_columns
             DATA(lv_row) = 2.
             LOOP AT <lt_data> ASSIGNING FIELD-SYMBOL(<ls_row>).
               lv_col = 1.
-              LOOP AT lt_export_components INTO ls_comp.
-                ASSIGN COMPONENT ls_comp-name OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_val>).
+              LOOP AT lt_columns INTO ls_col.
+                ASSIGN COMPONENT ls_col-fieldname OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_val>).
                 IF sy-subrc = 0.
-                  DATA(lv_display_val) = format_cell_value(
-                    iv_fieldname    = CONV string( ls_comp-name )
-                    iv_raw_value    = <lv_val>
-                    it_evidence_map = lt_evidence_map ).
+                  DATA(lv_val_str) = CONV string( <lv_val> ).
 
-                  lo_sheet->set_cell( ip_column = lv_col ip_row = lv_row ip_value = lv_display_val ).
+                  lo_sheet->set_cell(
+                    ip_column = lv_col
+                    ip_row    = lv_row
+                    ip_value  = <lv_val> ).
 
-                  DATA(lv_val_len) = strlen( lv_display_val ) + 3.
+                  " Tự động giãn cột nếu dữ liệu dài hơn tiêu đề
+                  DATA(lv_val_len) = strlen( lv_val_str ) + 3.
                   DATA(lo_column)  = lo_sheet->get_column( ip_column = lv_col ).
-                  IF lo_column IS BOUND AND lv_val_len > lo_column->get_width( ).
-                    " FIX: Dùng kiểu float (f) chuẩn của ABAP
-                    DATA lv_cell_width TYPE f.
-                    lv_cell_width = COND i( WHEN lv_val_len > 60 THEN 60 ELSE lv_val_len ).
-                    lo_column->set_width( ip_width = lv_cell_width ).
-                  ENDIF.
 
+                  IF lo_column IS BOUND.
+                    IF lv_val_len > lo_column->get_width( ).
+                      DATA(lv_new_width) = COND i(
+                        WHEN lv_val_len > 50 THEN 50
+                        ELSE lv_val_len ).
+
+                      lo_column->set_width( ip_width = CONV #( lv_new_width ) ).
+                    ENDIF.
+                  ENDIF.
                 ENDIF.
                 lv_col = lv_col + 1.
               ENDLOOP.
               lv_row = lv_row + 1.
             ENDLOOP.
 
-            lo_sheet->set_cell( ip_column = 1 ip_row = lv_row + 1 ip_value = 'TOTAL ROWS' ).
-            lo_sheet->set_cell( ip_column = 2 ip_row = lv_row + 1 ip_value = lines( <lt_data> ) ).
+            " 4d. Ghi dòng tổng kết
+            DATA(lv_total_row) = lv_row + 1.
+            lo_sheet->set_cell( ip_column = 1 ip_row = lv_total_row ip_value = 'TOTAL ROWS' ).
+            lo_sheet->set_cell( ip_column = 2 ip_row = lv_total_row ip_value = lines( <lt_data> ) ).
+
+            " 4e. Cập nhật hoàn tất độ rộng cột
             lo_sheet->calculate_column_widths( ).
 
-          ENDIF.
+          ENDIF. " <--- Đóng khối IF <lt_data> IS INITIAL
 
           lv_sheet_count = lv_sheet_count + 1.
 
-        ENDLOOP.
+        ENDLOOP. " <--- Đóng khối LOOP AT lt_registry
 
       CATCH zcx_excel INTO DATA(lx_excel_build).
         rs_result-success = abap_false.
@@ -428,12 +345,14 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
         RETURN.
     ENDTRY.
 
+    " Nếu không tạo được Sheet nào
     IF lv_sheet_count = 0.
       DATA(lo_empty_sheet) = lo_excel->get_active_worksheet( ).
       lo_empty_sheet->set_title( ip_title = 'Report' ).
       lo_empty_sheet->set_cell( ip_column = 1 ip_row = 1 ip_value = |No data available for program { iv_report_type }.| ).
     ENDIF.
 
+    " 5. Build Binary File Excel
     DATA(lo_writer) = CAST zif_excel_writer( NEW zcl_excel_writer_2007( ) ).
 
     TRY.
@@ -466,7 +385,6 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
         lv_analysis_id = VALUE #( ).
     ENDTRY.
 
-    DATA(lt_evidence_map) = load_evidence_lookup( lv_analysis_id ).
     DATA lv_csv_text TYPE string.
     DATA(lv_processed_count) = 0.
 
@@ -497,44 +415,34 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       lv_processed_count = lv_processed_count + 1.
       lv_csv_text = lv_csv_text && |=== { ls_section-sheet_title } ===| && cl_abap_char_utilities=>cr_lf.
 
+      " KHI SECTION RỖNG
       IF <lt_data> IS INITIAL.
         lv_csv_text = lv_csv_text && |"No data available for section { ls_section-sheet_title }."| && cl_abap_char_utilities=>cr_lf.
       ELSE.
-        DATA lt_export_fields TYPE cl_abap_structdescr=>component_table.
-        CLEAR lt_export_fields.
-        LOOP AT lo_struct->get_components( ) INTO DATA(ls_f_comp).
-          IF is_technical_key_field( CONV string( ls_f_comp-name ) ) = abap_true.
-            CONTINUE.
-          ENDIF.
-          APPEND ls_f_comp TO lt_export_fields.
-        ENDLOOP.
-
-        " Header Line
+        DATA(lt_fields) = lo_struct->get_components( ).
         DATA lv_header_line TYPE string.
         CLEAR lv_header_line.
-        LOOP AT lt_export_fields INTO DATA(ls_field).
-          DATA(lv_h_name) = COND string( WHEN ls_field-name = 'EVIDENCE_ID' THEN 'SOURCE_LOCATION' ELSE CONV string( ls_field-name ) ).
-          DATA(lv_header_cell) = escape_csv_value( lv_h_name ).
-          lv_header_line = COND #( WHEN lv_header_line IS INITIAL THEN lv_header_cell ELSE lv_header_line && ',' && lv_header_cell ).
+        LOOP AT lt_fields INTO DATA(ls_field).
+          DATA(lv_header_cell) = escape_csv_value( ls_field-name ).
+          lv_header_line = COND #(
+            WHEN lv_header_line IS INITIAL THEN lv_header_cell
+            ELSE lv_header_line && ',' && lv_header_cell ).
         ENDLOOP.
         lv_csv_text = lv_csv_text && lv_header_line && cl_abap_char_utilities=>cr_lf.
 
-        " Data Rows
         LOOP AT <lt_data> ASSIGNING FIELD-SYMBOL(<ls_row>).
           DATA lv_row_line TYPE string.
           CLEAR lv_row_line.
-          LOOP AT lt_export_fields INTO ls_field.
-            ASSIGN COMPONENT ls_field-name OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_cell>).
+          DO lines( lt_fields ) TIMES.
+            DATA(lv_idx) = sy-index.
+            ASSIGN COMPONENT lv_idx OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_cell>).
             IF sy-subrc = 0.
-              DATA(lv_display) = format_cell_value(
-                iv_fieldname    = CONV string( ls_field-name )
-                iv_raw_value    = <lv_cell>
-                it_evidence_map = lt_evidence_map ).
-
-              DATA(lv_escaped_cell) = escape_csv_value( lv_display ).
-              lv_row_line = COND #( WHEN lv_row_line IS INITIAL THEN lv_escaped_cell ELSE lv_row_line && ',' && lv_escaped_cell ).
+              DATA(lv_escaped_cell) = escape_csv_value( |{ <lv_cell> }| ).
+              lv_row_line = COND #(
+                WHEN lv_row_line IS INITIAL THEN lv_escaped_cell
+                ELSE lv_row_line && ',' && lv_escaped_cell ).
             ENDIF.
-          ENDLOOP.
+          ENDDO.
           lv_csv_text = lv_csv_text && lv_row_line && cl_abap_char_utilities=>cr_lf.
         ENDLOOP.
       ENDIF.
@@ -579,7 +487,6 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
         lv_analysis_id = VALUE #( ).
     ENDTRY.
 
-    DATA(lt_evidence_map) = load_evidence_lookup( lv_analysis_id ).
     DATA lt_lines TYPE string_table.
 
     APPEND |Migration Analysis Report| TO lt_lines.
@@ -616,48 +523,23 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       lv_processed_count = lv_processed_count + 1.
       APPEND |=== { ls_section-sheet_title } ===| TO lt_lines.
 
+      " KHI SECTION RỖNG
       IF <lt_data> IS INITIAL.
         APPEND |No data available for section { ls_section-sheet_title }. | TO lt_lines.
       ELSE.
-        DATA lt_export_fields TYPE cl_abap_structdescr=>component_table.
-        CLEAR lt_export_fields.
-        LOOP AT lo_struct->get_components( ) INTO DATA(ls_f_comp).
-          IF is_technical_key_field( CONV string( ls_f_comp-name ) ) = abap_true.
-            CONTINUE.
-          ENDIF.
-          APPEND ls_f_comp TO lt_export_fields.
-        ENDLOOP.
-
-        " Ghi Header cho PDF
-        DATA lv_pdf_header TYPE string.
-        CLEAR lv_pdf_header.
-        LOOP AT lt_export_fields INTO DATA(ls_hdr_field).
-          DATA(lv_hdr_name) = COND string( WHEN ls_hdr_field-name = 'EVIDENCE_ID' THEN 'EVIDENCE' ELSE CONV string( ls_hdr_field-name ) ).
-          lv_pdf_header = COND #( WHEN lv_pdf_header IS INITIAL THEN lv_hdr_name ELSE lv_pdf_header && ` | ` && lv_hdr_name ).
-        ENDLOOP.
-        APPEND lv_pdf_header TO lt_lines.
-        APPEND |---------------------------------------------------------------------------------------------------| TO lt_lines.
-
-        " Ghi Data dòng PDF
+        DATA(lt_fields) = lo_struct->get_components( ).
         LOOP AT <lt_data> ASSIGNING FIELD-SYMBOL(<ls_row>).
           DATA lv_line TYPE string.
           CLEAR lv_line.
-          LOOP AT lt_export_fields INTO DATA(ls_field).
-            ASSIGN COMPONENT ls_field-name OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_cell>).
+          DO lines( lt_fields ) TIMES.
+            DATA(lv_col_idx) = sy-index.
+            ASSIGN COMPONENT lv_col_idx OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_cell>).
             IF sy-subrc = 0.
-              DATA(lv_display_val) = format_cell_value(
-                iv_fieldname    = CONV string( ls_field-name )
-                iv_raw_value    = <lv_cell>
-                it_evidence_map = lt_evidence_map ).
-
-              lv_line = COND #( WHEN lv_line IS INITIAL THEN lv_display_val ELSE lv_line && ` | ` && lv_display_val ).
+              lv_line = COND #(
+                WHEN lv_line IS INITIAL THEN |{ <lv_cell> }|
+                ELSE lv_line && ` | ` && |{ <lv_cell> }| ).
             ENDIF.
-          ENDLOOP.
-
-          IF strlen( lv_line ) > 110.
-            lv_line = substring( val = lv_line off = 0 len = 107 ) && '...'.
-          ENDIF.
-
+          ENDDO.
           APPEND lv_line TO lt_lines.
         ENDLOOP.
       ENDIF.

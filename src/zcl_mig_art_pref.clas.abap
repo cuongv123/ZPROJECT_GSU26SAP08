@@ -16,12 +16,23 @@ CLASS zcl_mig_art_pref DEFINITION
     DATA mo_repo
       TYPE REF TO zif_mig_art_repo.
 
+    TYPES:
+      tt_info_hash TYPE HASHED TABLE OF zif_mig_types=>ty_art_repo_info
+        WITH UNIQUE KEY
+          art_type
+          object_name.
+
 
     METHODS check_items
       IMPORTING
         iv_allow_update TYPE abap_bool
+
+        it_info
+          TYPE zif_mig_types=>tt_art_repo_info
+
       CHANGING
-        cs_mfst TYPE zif_mig_types=>ty_art_mfst.
+        cs_mfst
+          TYPE zif_mig_types=>ty_art_mfst.
 
 
     METHODS check_deps
@@ -50,44 +61,70 @@ CLASS zcl_mig_art_pref IMPLEMENTATION.
 
   ENDMETHOD.
 
-
   METHOD zif_mig_art_pref~apply.
 
-    rs_mfst = is_mfst.
+  rs_mfst = is_mfst.
 
 
-    IF rs_mfst-status <>
-         zif_mig_types=>gc_art_ready.
+  IF rs_mfst-status <>
+       zif_mig_types=>gc_art_ready.
 
-      DATA(lv_reason) =
-        rs_mfst-decision_reason.
+    DATA(lv_reason) =
+      rs_mfst-decision_reason.
 
-      IF lv_reason IS INITIAL.
+    IF lv_reason IS INITIAL.
 
-        lv_reason =
-          'Artifact manifest is not ready for preflight.'.
-
-      ENDIF.
-
-
-      block_all(
-        EXPORTING
-          iv_reason = lv_reason
-        CHANGING
-          cs_mfst   = rs_mfst
-      ).
-
-      RETURN.
+      lv_reason =
+        'Artifact manifest is not ready for preflight.'.
 
     ENDIF.
 
 
-    IF mo_repo IS NOT BOUND.
+    block_all(
+      EXPORTING
+        iv_reason = lv_reason
+      CHANGING
+        cs_mfst   = rs_mfst
+    ).
+
+    RETURN.
+
+  ENDIF.
+
+
+  IF mo_repo IS NOT BOUND.
+
+    block_all(
+      EXPORTING
+        iv_reason =
+          'Artifact repository adapter is not available.'
+      CHANGING
+        cs_mfst =
+          rs_mfst
+    ).
+
+    RETURN.
+
+  ENDIF.
+
+
+  DATA lt_info
+    TYPE zif_mig_types=>tt_art_repo_info.
+
+
+  TRY.
+
+      lt_info =
+        mo_repo->read_many(
+          it_items = rs_mfst-items
+        ).
+
+    CATCH zcx_mig_analysis INTO DATA(lx_repo).
 
       block_all(
         EXPORTING
           iv_reason =
-            'Artifact repository adapter is not available.'
+            lx_repo->get_text( )
         CHANGING
           cs_mfst =
             rs_mfst
@@ -95,220 +132,232 @@ CLASS zcl_mig_art_pref IMPLEMENTATION.
 
       RETURN.
 
-    ENDIF.
+  ENDTRY.
 
 
-    check_items(
-      EXPORTING
-        iv_allow_update = iv_allow_update
-      CHANGING
-        cs_mfst         = rs_mfst
-    ).
+  check_items(
+    EXPORTING
+      iv_allow_update = iv_allow_update
+      it_info         = lt_info
+    CHANGING
+      cs_mfst         = rs_mfst
+  ).
 
 
-    check_deps(
-      CHANGING
-        cs_mfst = rs_mfst
-    ).
+  check_deps(
+    CHANGING
+      cs_mfst = rs_mfst
+  ).
 
 
-    set_status(
-      CHANGING
-        cs_mfst = rs_mfst
-    ).
+  set_status(
+    CHANGING
+      cs_mfst = rs_mfst
+  ).
 
-  ENDMETHOD.
+ENDMETHOD.
 
 
   METHOD check_items.
 
-    LOOP AT cs_mfst-items
-      ASSIGNING FIELD-SYMBOL(<item>).
+  DATA lt_info_hash
+    TYPE tt_info_hash.
 
-      CLEAR:
-        <item>-object_exists,
-        <item>-current_package.
+
+  INSERT LINES OF it_info
+    INTO TABLE lt_info_hash.
+
+
+  LOOP AT cs_mfst-items
+    ASSIGNING FIELD-SYMBOL(<item>).
+
+    CLEAR:
+      <item>-object_exists,
+      <item>-current_package.
+
+    <item>-pref_state =
+      zif_mig_types=>gc_pref_unknown.
+
+    <item>-gen_mode =
+      zif_mig_types=>gc_art_no_mode.
+
+
+    "==========================================================
+    " XCO capability
+    "==========================================================
+    IF <item>-cap_state <>
+         zif_mig_types=>gc_art_cap_yes.
 
       <item>-pref_state =
-        zif_mig_types=>gc_pref_unknown.
+        zif_mig_types=>gc_pref_unsup.
+
+      <item>-gen_state =
+        zif_mig_types=>gc_art_blocked.
+
+      <item>-reason =
+        'XCO generation API is unsupported.'.
+
+      CONTINUE.
+
+    ENDIF.
+
+
+    "==========================================================
+    " Lấy thông tin đã được đọc hàng loạt
+    "==========================================================
+    READ TABLE lt_info_hash
+      WITH TABLE KEY
+        art_type =
+          <item>-art_type
+
+        object_name =
+          <item>-object_name
+
+      INTO DATA(ls_info).
+
+
+    IF sy-subrc <> 0.
+
+      <item>-pref_state =
+        zif_mig_types=>gc_pref_repo_err.
+
+      <item>-gen_state =
+        zif_mig_types=>gc_art_blocked.
+
+      <item>-reason =
+        'Repository adapter returned no object state.'.
+
+      CONTINUE.
+
+    ENDIF.
+
+
+    IF ls_info-read_ok = abap_false.
+
+      <item>-pref_state =
+        zif_mig_types=>gc_pref_repo_err.
+
+      <item>-gen_state =
+        zif_mig_types=>gc_art_blocked.
+
+      IF ls_info-reason IS INITIAL.
+
+        <item>-reason =
+          'Repository object state could not be read.'.
+
+      ELSE.
+
+        <item>-reason =
+          ls_info-reason.
+
+      ENDIF.
+
+      CONTINUE.
+
+    ENDIF.
+
+
+    <item>-object_exists =
+      ls_info-exists.
+
+    <item>-current_package =
+      ls_info-package.
+
+
+    "==========================================================
+    " Object chưa tồn tại
+    "==========================================================
+    IF ls_info-exists = abap_false.
+
+      <item>-pref_state =
+        zif_mig_types=>gc_pref_new.
+
+      <item>-gen_mode =
+        zif_mig_types=>gc_art_create.
+
+      <item>-gen_state =
+        zif_mig_types=>gc_art_planned.
+
+      <item>-reason =
+        'Repository object will be created.'.
+
+      CONTINUE.
+
+    ENDIF.
+
+
+    "==========================================================
+    " Object tồn tại nhưng package không xác định
+    "==========================================================
+    IF ls_info-package IS INITIAL.
+
+      <item>-pref_state =
+        zif_mig_types=>gc_pref_repo_err.
+
+      <item>-gen_state =
+        zif_mig_types=>gc_art_blocked.
+
+      <item>-reason =
+        'Existing object package could not be resolved.'.
+
+      CONTINUE.
+
+    ENDIF.
+
+
+    "==========================================================
+    " Object tồn tại ở package khác
+    "==========================================================
+    IF ls_info-package <> <item>-package.
+
+      <item>-pref_state =
+        zif_mig_types=>gc_pref_pkg_conf.
+
+      <item>-gen_state =
+        zif_mig_types=>gc_art_blocked.
+
+      <item>-reason =
+        'Repository object exists in another package.'.
+
+      CONTINUE.
+
+    ENDIF.
+
+
+    "==========================================================
+    " Object tồn tại trong cùng package
+    "==========================================================
+    <item>-pref_state =
+      zif_mig_types=>gc_pref_exists.
+
+
+    IF iv_allow_update = abap_true.
+
+      <item>-gen_mode =
+        zif_mig_types=>gc_art_update.
+
+      <item>-gen_state =
+        zif_mig_types=>gc_art_planned.
+
+      <item>-reason =
+        'Existing object will be updated.'.
+
+    ELSE.
 
       <item>-gen_mode =
         zif_mig_types=>gc_art_no_mode.
 
+      <item>-gen_state =
+        zif_mig_types=>gc_art_blocked.
 
-      "========================================================
-      " XCO capability chưa được hỗ trợ
-      "========================================================
-      IF <item>-cap_state <>
-           zif_mig_types=>gc_art_cap_yes.
+      <item>-reason =
+        'Existing object update was not allowed.'.
 
-        <item>-pref_state =
-          zif_mig_types=>gc_pref_unsup.
+    ENDIF.
 
-        <item>-gen_state =
-          zif_mig_types=>gc_art_blocked.
+  ENDLOOP.
 
-        <item>-reason =
-          'XCO generation API is unsupported.'.
-
-        CONTINUE.
-
-      ENDIF.
-
-
-      "========================================================
-      " Đọc trạng thái object trong repository
-      "========================================================
-      TRY.
-
-          DATA(ls_info) =
-            mo_repo->read_info(
-              iv_type = <item>-art_type
-              iv_name = <item>-object_name
-            ).
-
-        CATCH zcx_mig_analysis INTO DATA(lx_repo).
-
-          <item>-pref_state =
-            zif_mig_types=>gc_pref_repo_err.
-
-          <item>-gen_state =
-            zif_mig_types=>gc_art_blocked.
-
-          <item>-reason =
-            lx_repo->get_text( ).
-
-          CONTINUE.
-
-      ENDTRY.
-
-
-      IF ls_info-read_ok = abap_false.
-
-        <item>-pref_state =
-          zif_mig_types=>gc_pref_repo_err.
-
-        <item>-gen_state =
-          zif_mig_types=>gc_art_blocked.
-
-        IF ls_info-reason IS INITIAL.
-
-          <item>-reason =
-            'Repository object state could not be read.'.
-
-        ELSE.
-
-          <item>-reason =
-            ls_info-reason.
-
-        ENDIF.
-
-        CONTINUE.
-
-      ENDIF.
-
-
-      <item>-object_exists =
-        ls_info-exists.
-
-      <item>-current_package =
-        ls_info-package.
-
-
-      "========================================================
-      " Object chưa tồn tại
-      "========================================================
-      IF ls_info-exists = abap_false.
-
-        <item>-pref_state =
-          zif_mig_types=>gc_pref_new.
-
-        <item>-gen_mode =
-          zif_mig_types=>gc_art_create.
-
-        <item>-gen_state =
-          zif_mig_types=>gc_art_planned.
-
-        <item>-reason =
-          'Repository object will be created.'.
-
-        CONTINUE.
-
-      ENDIF.
-
-
-      "========================================================
-      " Object tồn tại nhưng không đọc được package
-      "========================================================
-      IF ls_info-package IS INITIAL.
-
-        <item>-pref_state =
-          zif_mig_types=>gc_pref_repo_err.
-
-        <item>-gen_state =
-          zif_mig_types=>gc_art_blocked.
-
-        <item>-reason =
-          'Existing object package could not be resolved.'.
-
-        CONTINUE.
-
-      ENDIF.
-
-
-      "========================================================
-      " Object tồn tại trong package khác
-      "========================================================
-      IF ls_info-package <> <item>-package.
-
-        <item>-pref_state =
-          zif_mig_types=>gc_pref_pkg_conf.
-
-        <item>-gen_state =
-          zif_mig_types=>gc_art_blocked.
-
-        <item>-reason =
-          'Repository object exists in another package.'.
-
-        CONTINUE.
-
-      ENDIF.
-
-
-      "========================================================
-      " Object tồn tại cùng package
-      "========================================================
-      <item>-pref_state =
-        zif_mig_types=>gc_pref_exists.
-
-
-      IF iv_allow_update = abap_true.
-
-        <item>-gen_mode =
-          zif_mig_types=>gc_art_update.
-
-        <item>-gen_state =
-          zif_mig_types=>gc_art_planned.
-
-        <item>-reason =
-          'Existing object will be updated.'.
-
-      ELSE.
-
-        <item>-gen_mode =
-          zif_mig_types=>gc_art_no_mode.
-
-        <item>-gen_state =
-          zif_mig_types=>gc_art_blocked.
-
-        <item>-reason =
-          'Existing object update was not allowed.'.
-
-      ENDIF.
-
-    ENDLOOP.
-
-  ENDMETHOD.
+ENDMETHOD.
 
 
   METHOD check_deps.

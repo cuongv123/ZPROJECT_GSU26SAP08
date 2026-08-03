@@ -5,22 +5,33 @@ CLASS lcl_art_repo DEFINITION
 
     INTERFACES zif_mig_art_repo.
 
+
+    TYPES:
+      tt_info_hash
+        TYPE HASHED TABLE OF
+          zif_mig_types=>ty_art_repo_info
+        WITH UNIQUE KEY
+          art_type
+          object_name.
+
+
     DATA mt_info
-      TYPE zif_mig_types=>tt_art_repo_info.
+      TYPE tt_info_hash.
+
 
     METHODS add_info
       IMPORTING
-        is_info TYPE zif_mig_types=>ty_art_repo_info.
+        is_info
+          TYPE zif_mig_types=>ty_art_repo_info.
 
 ENDCLASS.
-
 
 CLASS lcl_art_repo IMPLEMENTATION.
 
   METHOD add_info.
 
-    APPEND is_info
-      TO mt_info.
+    INSERT is_info
+      INTO TABLE mt_info.
 
   ENDMETHOD.
 
@@ -40,9 +51,13 @@ CLASS lcl_art_repo IMPLEMENTATION.
 
 
     READ TABLE mt_info
-      WITH KEY
-        art_type    = iv_type
-        object_name = iv_name
+      WITH TABLE KEY
+        art_type =
+          iv_type
+
+        object_name =
+          iv_name
+
       INTO DATA(ls_info).
 
 
@@ -58,6 +73,25 @@ CLASS lcl_art_repo IMPLEMENTATION.
 
     rs_info-exists =
       abap_false.
+
+  ENDMETHOD.
+
+
+  METHOD zif_mig_art_repo~read_many.
+
+    LOOP AT it_items
+      INTO DATA(ls_item).
+
+      DATA(ls_info) =
+        zif_mig_art_repo~read_info(
+          iv_type = ls_item-art_type
+          iv_name = ls_item-object_name
+        ).
+
+      APPEND ls_info
+        TO rt_info.
+
+    ENDLOOP.
 
   ENDMETHOD.
 
