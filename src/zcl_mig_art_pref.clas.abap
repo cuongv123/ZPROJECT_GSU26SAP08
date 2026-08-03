@@ -25,8 +25,6 @@ CLASS zcl_mig_art_pref DEFINITION
 
     METHODS check_items
       IMPORTING
-        iv_allow_update TYPE abap_bool
-
         it_info
           TYPE zif_mig_types=>tt_art_repo_info
 
@@ -136,12 +134,11 @@ CLASS zcl_mig_art_pref IMPLEMENTATION.
 
 
   check_items(
-    EXPORTING
-      iv_allow_update = iv_allow_update
-      it_info         = lt_info
-    CHANGING
-      cs_mfst         = rs_mfst
-  ).
+      EXPORTING
+        it_info = lt_info
+      CHANGING
+        cs_mfst = rs_mfst
+    ).
 
 
   check_deps(
@@ -323,37 +320,17 @@ ENDMETHOD.
 
     ENDIF.
 
-
-    "==========================================================
-    " Object tồn tại trong cùng package
-    "==========================================================
-    <item>-pref_state =
+   <item>-pref_state =
       zif_mig_types=>gc_pref_exists.
 
+    <item>-gen_mode =
+      zif_mig_types=>gc_art_no_mode.
 
-    IF iv_allow_update = abap_true.
+    <item>-gen_state =
+      zif_mig_types=>gc_art_blocked.
 
-      <item>-gen_mode =
-        zif_mig_types=>gc_art_update.
-
-      <item>-gen_state =
-        zif_mig_types=>gc_art_planned.
-
-      <item>-reason =
-        'Existing object will be updated.'.
-
-    ELSE.
-
-      <item>-gen_mode =
-        zif_mig_types=>gc_art_no_mode.
-
-      <item>-gen_state =
-        zif_mig_types=>gc_art_blocked.
-
-      <item>-reason =
-        'Existing object update was not allowed.'.
-
-    ENDIF.
+    <item>-reason =
+      'Repository object already exists.'.
 
   ENDLOOP.
 
@@ -430,7 +407,6 @@ ENDMETHOD.
 
     CLEAR:
       cs_mfst-create_count,
-      cs_mfst-update_count,
       cs_mfst-block_count.
 
 
@@ -448,10 +424,6 @@ ENDMETHOD.
 
           cs_mfst-create_count += 1.
 
-
-        WHEN zif_mig_types=>gc_art_update.
-
-          cs_mfst-update_count += 1.
 
       ENDCASE.
 
@@ -545,8 +517,6 @@ ENDMETHOD.
     cs_mfst-create_count =
       0.
 
-    cs_mfst-update_count =
-      0.
 
     cs_mfst-block_count =
       lines( cs_mfst-items ).

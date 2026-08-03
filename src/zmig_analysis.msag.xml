@@ -176,6 +176,60 @@
      <MSGNR>028</MSGNR>
      <TEXT>Mail send failed: &amp;1</TEXT>
     </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>029</MSGNR>
+     <TEXT>Mail job &amp;1 was not found</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>030</MSGNR>
+     <TEXT>Attachment file name or file type is missing</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>031</MSGNR>
+     <TEXT>Export engine returned empty file content</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>032</MSGNR>
+     <TEXT>Next run timestamp could not be calculated</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>033</MSGNR>
+     <TEXT>Next run timestamp could not be updated</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>034</MSGNR>
+     <TEXT>Execution log could not be started: &amp;1</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>035</MSGNR>
+     <TEXT>Execution log could not be updated: &amp;1</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>036</MSGNR>
+     <TEXT>BCS request created, but not all recipients were accepted</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>037</MSGNR>
+     <TEXT> Mail body is required</TEXT>
+    </T100>
    </T100>
   </asx:values>
  </asx:abap>

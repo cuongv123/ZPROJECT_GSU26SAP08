@@ -120,10 +120,6 @@ CLASS ltc_art_pref DEFINITION
         FOR TESTING
         RAISING zcx_mig_analysis,
 
-      allow_same_update
-        FOR TESTING
-        RAISING zcx_mig_analysis,
-
       block_pkg_mismatch
         FOR TESTING
         RAISING zcx_mig_analysis,
@@ -319,54 +315,6 @@ CLASS ltc_art_pref IMPLEMENTATION.
   ENDMETHOD.
 
 
-  METHOD allow_same_update.
-
-    DATA(lo_repo) =
-      NEW lcl_art_repo( ).
-
-    lo_repo->add_info(
-      VALUE #(
-        art_type    = zif_mig_types=>gc_art_clas
-        object_name = 'ZCL_MIG_Q_TEST'
-        read_ok     = abap_true
-        exists      = abap_true
-        package     = '$TMP'
-      )
-    ).
-
-
-    DATA(ls_result) =
-      NEW zcl_mig_art_pref(
-        io_repo = lo_repo
-      )->zif_mig_art_pref~apply(
-        is_mfst         = make_mfst( )
-        iv_allow_update = abap_true
-      ).
-
-
-    cl_abap_unit_assert=>assert_equals(
-      exp = zif_mig_types=>gc_art_ready
-      act = ls_result-status
-    ).
-
-    cl_abap_unit_assert=>assert_equals(
-      exp = 1
-      act = ls_result-update_count
-    ).
-
-
-    READ TABLE ls_result-items
-      WITH KEY seq = 10
-      INTO DATA(ls_item).
-
-    cl_abap_unit_assert=>assert_equals(
-      exp = zif_mig_types=>gc_art_update
-      act = ls_item-gen_mode
-    ).
-
-  ENDMETHOD.
-
-
   METHOD block_pkg_mismatch.
 
     DATA(lo_repo) =
@@ -388,7 +336,6 @@ CLASS ltc_art_pref IMPLEMENTATION.
         io_repo = lo_repo
       )->zif_mig_art_pref~apply(
         is_mfst         = make_mfst( )
-        iv_allow_update = abap_true
       ).
 
 

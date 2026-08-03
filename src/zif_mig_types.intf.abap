@@ -1188,9 +1188,6 @@
         gc_art_create TYPE ty_art_mode
           VALUE 'CREATE',
 
-        gc_art_update TYPE ty_art_mode
-          VALUE 'UPDATE',
-
         gc_art_no_mode TYPE ty_art_mode
           VALUE 'NONE'.
 
@@ -1247,9 +1244,8 @@
           item_count      TYPE i,
           dep_count       TYPE i,
 
-          create_count    TYPE i,
-          update_count    TYPE i,
-          block_count     TYPE i,
+          create_count TYPE i,
+          block_count  TYPE i,
 
           items           TYPE tt_art_item,
           dependencies    TYPE tt_art_dep,
@@ -1270,6 +1266,7 @@
         tt_art_repo_info
           TYPE STANDARD TABLE OF ty_art_repo_info
           WITH EMPTY KEY.
+
 
   "============================================================
   " Complete analysis result
