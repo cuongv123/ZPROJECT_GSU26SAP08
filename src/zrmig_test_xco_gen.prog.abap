@@ -3,10 +3,10 @@ REPORT zrmig_test_xco_gen.
 
 PARAMETERS:
   p_class TYPE zif_mig_types=>ty_art_name
-    DEFAULT 'ZCL_MIG_Q_TEST07',
+    DEFAULT 'ZCL_MIG_Q_TEST09',
 
   p_ddls TYPE zif_mig_types=>ty_art_name
-    DEFAULT 'ZC_MIG_Q_TEST07',
+    DEFAULT 'ZC_MIG_Q_TEST09',
 
   p_pack TYPE devclass
     DEFAULT 'ZMIG_GEN_TEST',
@@ -20,6 +20,15 @@ PARAMETERS:
 
 START-OF-SELECTION.
 
+  CONSTANTS gc_anl_id
+    TYPE zif_mig_types=>ty_analysis_id
+    VALUE '00000000000000000000000000000088'.
+
+
+  DATA:
+    ls_prv TYPE zif_mig_types=>ty_provider_contract,
+    ls_sig TYPE zif_mig_types=>ty_sig_result.
+
   DATA ls_mfst
     TYPE zif_mig_types=>ty_art_mfst.
 
@@ -32,6 +41,87 @@ START-OF-SELECTION.
 
       ls_bp-blueprint-manual_review =
         abap_false.
+
+      ls_mfst-analysis_id =
+         gc_anl_id.
+
+       ls_bp-blueprint-analysis_id =
+             gc_anl_id.
+
+       ls_prv-analysis_id =
+        gc_anl_id.
+
+      ls_prv-service_strategy =
+        zif_mig_types=>gc_svc_query.
+
+      ls_prv-provider_kind =
+        zif_mig_types=>gc_provider_class_method.
+
+      ls_prv-provider_status =
+        zif_mig_types=>gc_provider_ready.
+
+      ls_prv-source_container_name =
+        'ZCL_MIG_TEST_PROVIDER'.
+
+      ls_prv-source_object_name =
+        'GET_DATA'.
+
+      ls_prv-manual_review =
+        abap_false.
+
+      ls_sig-analysis_id =
+  gc_anl_id.
+
+      ls_sig-service_strategy =
+        zif_mig_types=>gc_svc_query.
+
+      ls_sig-provider_kind =
+        zif_mig_types=>gc_provider_class_method.
+
+      ls_sig-container_name =
+        'ZCL_MIG_TEST_PROVIDER'.
+
+      ls_sig-object_name =
+        'GET_DATA'.
+
+      ls_sig-status =
+        zif_mig_types=>gc_sig_ready.
+
+      ls_sig-manual_review =
+        abap_false.
+
+
+DATA ls_ret
+  TYPE zif_mig_types=>ty_sig_par.
+
+
+        ls_ret-par_name =
+          'RT_DATA'.
+
+        ls_ret-direction =
+          zif_mig_types=>gc_sig_ret.
+
+        ls_ret-abap_type =
+          'TABLE'.
+
+        ls_ret-type_name =
+          'ZCL_MIG_TEST_PROVIDER=>TT_DATA'.
+
+        ls_ret-edm_type =
+          'Collection'.
+
+        ls_ret-odata_role =
+          zif_mig_types=>gc_sig_out.
+
+        ls_ret-is_table =
+          abap_true.
+
+
+        APPEND ls_ret
+          TO ls_sig-output_params.
+
+        APPEND ls_ret
+          TO ls_sig-all_params.
 
 
       APPEND VALUE #(
@@ -280,18 +370,24 @@ START-OF-SELECTION.
 
 
       lo_gen->generate_query(
-       is_mfst =
-         ls_pref
+           is_mfst =
+             ls_pref
 
-       is_bp =
-         ls_bp
+           is_bp =
+             ls_bp
 
-       iv_request =
-         p_req
+           is_prv =
+             ls_prv
 
-       iv_execute =
-         p_exec
-     ).
+           is_sig =
+             ls_sig
+
+           iv_request =
+             p_req
+
+           iv_execute =
+             p_exec
+         ).
 
 
       IF p_exec = abap_true.

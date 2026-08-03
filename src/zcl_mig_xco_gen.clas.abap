@@ -13,6 +13,12 @@ CLASS zcl_mig_xco_gen DEFINITION
         is_bp
           TYPE zif_mig_types=>ty_service_blueprint_result
 
+        is_prv
+          TYPE zif_mig_types=>ty_provider_contract
+
+        is_sig
+          TYPE zif_mig_types=>ty_sig_result
+
         iv_request
           TYPE trkorr
 
@@ -53,6 +59,12 @@ CLASS zcl_mig_xco_gen DEFINITION
         it_fields
           TYPE zif_mig_types=>tt_service_field
 
+        is_prv
+          TYPE zif_mig_types=>ty_provider_contract
+
+        is_sig
+          TYPE zif_mig_types=>ty_sig_result
+
       RAISING
         zcx_mig_analysis.
 
@@ -80,6 +92,12 @@ CLASS zcl_mig_xco_gen DEFINITION
           IMPORTING
             it_fields
               TYPE zif_mig_types=>tt_service_field
+
+            is_prv
+              TYPE zif_mig_types=>ty_provider_contract
+
+            is_sig
+              TYPE zif_mig_types=>ty_sig_result
 
           RETURNING
             VALUE(rt_source)
@@ -155,9 +173,92 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
 
     ENDIF.
 
+    IF is_prv-service_strategy <>
+         zif_mig_types=>gc_svc_query
+       OR is_prv-provider_kind <>
+            zif_mig_types=>gc_provider_class_method
+       OR is_prv-provider_status <>
+            zif_mig_types=>gc_provider_ready
+       OR is_prv-manual_review =
+            abap_true
+       OR is_prv-source_container_name IS INITIAL
+       OR is_prv-source_object_name IS INITIAL.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid =
+          zcx_mig_analysis=>analysis_failed
+
+        program_name =
+          is_mfst-source_program
+      ).
+
+    ENDIF.
+
+
+    IF is_sig-status <>
+         zif_mig_types=>gc_sig_ready
+       OR is_sig-manual_review =
+            abap_true
+       OR is_sig-provider_kind <>
+            zif_mig_types=>gc_provider_class_method.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid =
+          zcx_mig_analysis=>analysis_failed
+
+        program_name =
+          is_mfst-source_program
+      ).
+
+    ENDIF.
+
     IF is_mfst-analysis_id IS NOT INITIAL
        AND is_bp-blueprint-analysis_id <>
              is_mfst-analysis_id.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid =
+          zcx_mig_analysis=>analysis_failed
+
+        program_name =
+          is_mfst-source_program
+      ).
+
+    ENDIF.
+
+    LOOP AT is_sig-input_params
+      TRANSPORTING NO FIELDS
+      WHERE optional = abap_false.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid =
+          zcx_mig_analysis=>analysis_failed
+
+        program_name =
+          is_mfst-source_program
+      ).
+
+    ENDLOOP.
+
+    DATA lv_ret_count
+      TYPE i.
+
+    CLEAR lv_ret_count.
+
+
+    LOOP AT is_sig-output_params
+      TRANSPORTING NO FIELDS
+      WHERE direction =
+              zif_mig_types=>gc_sig_ret
+        AND is_table =
+              abap_true.
+
+      lv_ret_count += 1.
+
+    ENDLOOP.
+
+
+    IF lv_ret_count <> 1.
 
       RAISE EXCEPTION NEW zcx_mig_analysis(
         textid =
@@ -192,6 +293,12 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
 
       it_fields =
         is_bp-fields
+
+      is_prv =
+        is_prv
+
+      is_sig =
+        is_sig
     ).
 
     add_ddls(
@@ -328,9 +435,16 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
 
 
   DATA(lt_select_source) =
-    build_select_src(
-      it_fields = it_fields
-    ).
+     build_select_src(
+        it_fields =
+          it_fields
+
+        is_prv =
+          is_prv
+
+        is_sig =
+          is_sig
+      ).
 
 
   lo_spec->implementation->add_method(
@@ -754,13 +868,53 @@ METHOD build_select_src.
     |DATA lt_result TYPE STANDARD TABLE OF ty_result WITH EMPTY KEY.|
     TO rt_source.
 
+  DATA(lv_class_name) =
+      to_upper(
+        CONV string(
+          is_prv-source_container_name
+        )
+      ).
+
+    CONDENSE lv_class_name NO-GAPS.
+
+
+    DATA(lv_method_name) =
+      to_upper(
+        CONV string(
+          is_prv-source_object_name
+        )
+      ).
+
+    CONDENSE lv_method_name NO-GAPS.
+
+
+    IF lv_class_name IS INITIAL
+       OR lv_method_name IS INITIAL.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid =
+          zcx_mig_analysis=>analysis_failed
+      ).
+
+    ENDIF.
+
+
+    APPEND
+      |DATA(lt_provider) = { lv_class_name }=>{ lv_method_name }( ).|
+      TO rt_source.
+
+
+    APPEND
+      |lt_result = CORRESPONDING #( lt_provider ).|
+      TO rt_source.
+
 
   APPEND
     |IF io_request->is_total_numb_of_rec_requested( ).|
     TO rt_source.
 
   APPEND
-    |  io_response->set_total_number_of_records( 0 ).|
+    |  io_response->set_total_number_of_records( lines( lt_result ) ).|
     TO rt_source.
 
   APPEND
