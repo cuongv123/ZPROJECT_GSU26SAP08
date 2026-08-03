@@ -7,14 +7,15 @@ CLASS zcl_mig_mail_runner DEFINITION
 
     TYPES:
       BEGIN OF ty_due_job,
-            job_id       TYPE sysuuid_x16,
-            analysis_id TYPE zmig_mail_job-analysis_id,
-            job_name     TYPE zmig_mail_job-job_name,
-            report_type  TYPE zmig_mail_job-report_type,
-            file_format  TYPE zmig_e_file_format,
-            frequency    TYPE zmig_e_frequency,
-            day_of_month TYPE zmig_mail_job-day_of_month,
-            next_run_at  TYPE timestampl,
+            job_id           TYPE sysuuid_x16,
+            analysis_id      TYPE zmig_mail_job-analysis_id,
+            job_name         TYPE zmig_mail_job-job_name,
+            report_type      TYPE zmig_mail_job-report_type,
+            file_format      TYPE zmig_e_file_format,
+
+            frequency        TYPE zmig_e_frequency,
+            day_of_month     TYPE zmig_mail_job-day_of_month,
+            next_run_at      TYPE timestampl,
      END OF ty_due_job,
 
       tt_due_job TYPE STANDARD TABLE OF ty_due_job
@@ -108,9 +109,7 @@ CLASS zcl_mig_mail_runner IMPLEMENTATION.
 
   DATA lo_export_provider TYPE REF TO zif_mig_export_provider.
 
-  "Temporary provider.
-  "Later replace this class with the real export engine.
-  lo_export_provider = NEW zcl_mig_export_stub( ).
+lo_export_provider = NEW zcl_mig_export_engine( ).
 
   LOOP AT lt_due_jobs INTO DATA(ls_due_job).
 
@@ -127,9 +126,11 @@ CLASS zcl_mig_mail_runner IMPLEMENTATION.
     DATA(ls_export_result) =
       lo_export_provider->generate(
         iv_job_id      = ls_due_job-job_id
-        iv_analysis_id    = ls_due_job-analysis_id
+        iv_analysis_id = ls_due_job-analysis_id
         iv_report_type = ls_due_job-report_type
         iv_file_format = ls_due_job-file_format
+        iv_export_section = 'ALL'
+
       ).
 
     IF ls_export_result-success = abap_true

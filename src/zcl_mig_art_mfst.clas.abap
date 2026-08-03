@@ -331,170 +331,184 @@ CLASS zcl_mig_art_mfst IMPLEMENTATION.
 
     METHOD build_query.
 
-    DATA:
-      lv_ddls TYPE zif_mig_types=>ty_art_name,
-      lv_clas TYPE zif_mig_types=>ty_art_name,
-      lv_srvd TYPE zif_mig_types=>ty_art_name,
-      lv_srvb TYPE zif_mig_types=>ty_art_name.
+  DATA:
+    lv_ddls TYPE zif_mig_types=>ty_art_name,
+    lv_clas TYPE zif_mig_types=>ty_art_name,
+    lv_srvd TYPE zif_mig_types=>ty_art_name,
+    lv_srvb TYPE zif_mig_types=>ty_art_name.
 
 
-    lv_ddls =
-      make_name(
-        iv_prefix = 'ZC_MIG_'
-        iv_base   = cs_mfst-base_name
-      ).
+  "============================================================
+  " Build object names
+  "============================================================
+  lv_ddls =
+    make_name(
+      iv_prefix = 'ZC_MIG_'
+      iv_base   = cs_mfst-base_name
+    ).
 
+
+  lv_clas =
+    is_prv-proposed_class_name.
+
+  IF lv_clas IS INITIAL.
 
     lv_clas =
-      is_prv-proposed_class_name.
-
-    IF lv_clas IS INITIAL.
-
-      lv_clas =
-        make_name(
-          iv_prefix = 'ZCL_MIG_Q_'
-          iv_base   = cs_mfst-base_name
-        ).
-
-    ENDIF.
-
-
-    lv_srvd =
       make_name(
-        iv_prefix = 'ZUI_MIG_'
+        iv_prefix = 'ZCL_MIG_Q_'
         iv_base   = cs_mfst-base_name
       ).
 
-
-    lv_srvb =
-      make_name(
-        iv_prefix = 'ZUI_MIG_'
-        iv_base   = cs_mfst-base_name
-        iv_suffix = '_O4'
-      ).
+  ENDIF.
 
 
-    "==========================================================
-    " 10 - Custom Entity
-    "==========================================================
-    add_art(
-      EXPORTING
-        iv_seq     = 10
-        iv_type    = zif_mig_types=>gc_art_ddls
-        iv_role    = zif_mig_types=>gc_art_entity
-        iv_name    = lv_ddls
-        iv_package = cs_mfst-package
-        iv_desc    = 'Generated RAP custom entity'
-        iv_order   = 10
-      CHANGING
-        ct_items   = cs_mfst-items
+  lv_srvd =
+    make_name(
+      iv_prefix = 'ZUI_MIG_'
+      iv_base   = cs_mfst-base_name
     ).
 
 
-    "==========================================================
-    " 20 - Query Provider
-    "==========================================================
-    add_art(
-      EXPORTING
-        iv_seq     = 20
-        iv_type    = zif_mig_types=>gc_art_clas
-        iv_role    = zif_mig_types=>gc_art_query_prv
-        iv_name    = lv_clas
-        iv_package = cs_mfst-package
-        iv_desc    = 'Generated RAP query provider'
-        iv_order   = 20
-      CHANGING
-        ct_items   = cs_mfst-items
+  lv_srvb =
+    make_name(
+      iv_prefix = 'ZUI_MIG_'
+      iv_base   = cs_mfst-base_name
+      iv_suffix = '_O4'
     ).
 
 
-    "==========================================================
-    " 30 - Metadata Extension
-    "==========================================================
-    add_art(
-      EXPORTING
-        iv_seq     = 30
-        iv_type    = zif_mig_types=>gc_art_ddlx
-        iv_role    = zif_mig_types=>gc_art_annot
-        iv_name    = lv_ddls
-        iv_package = cs_mfst-package
-        iv_desc    = 'Generated Fiori metadata extension'
-        iv_order   = 30
-      CHANGING
-        ct_items   = cs_mfst-items
-    ).
+  "============================================================
+  " 10 - Query Provider
+  "
+  " Phải tồn tại trước khi Custom Entity được activate vì
+  " DDLS sẽ tham chiếu class qua @ObjectModel.query.implementedBy
+  "============================================================
+  add_art(
+    EXPORTING
+      iv_seq     = 10
+      iv_type    = zif_mig_types=>gc_art_clas
+      iv_role    = zif_mig_types=>gc_art_query_prv
+      iv_name    = lv_clas
+      iv_package = cs_mfst-package
+      iv_desc    = 'Generated RAP query provider'
+      iv_order   = 10
+    CHANGING
+      ct_items   = cs_mfst-items
+  ).
 
 
-    "==========================================================
-    " 40 - Service Definition
-    "==========================================================
-    add_art(
-      EXPORTING
-        iv_seq     = 40
-        iv_type    = zif_mig_types=>gc_art_srvd
-        iv_role    = zif_mig_types=>gc_art_srv_def
-        iv_name    = lv_srvd
-        iv_package = cs_mfst-package
-        iv_desc    = 'Generated RAP service definition'
-        iv_order   = 40
-      CHANGING
-        ct_items   = cs_mfst-items
-    ).
+  "============================================================
+  " 20 - Custom Entity
+  "============================================================
+  add_art(
+    EXPORTING
+      iv_seq     = 20
+      iv_type    = zif_mig_types=>gc_art_ddls
+      iv_role    = zif_mig_types=>gc_art_entity
+      iv_name    = lv_ddls
+      iv_package = cs_mfst-package
+      iv_desc    = 'Generated RAP custom entity'
+      iv_order   = 20
+    CHANGING
+      ct_items   = cs_mfst-items
+  ).
 
 
-    "==========================================================
-    " 50 - Service Binding
-    "==========================================================
-    add_art(
-      EXPORTING
-        iv_seq     = 50
-        iv_type    = zif_mig_types=>gc_art_srvb
-        iv_role    = zif_mig_types=>gc_art_srv_bind
-        iv_name    = lv_srvb
-        iv_package = cs_mfst-package
-        iv_desc    = 'Generated OData V4 service binding'
-        iv_order   = 50
-      CHANGING
-        ct_items   = cs_mfst-items
-    ).
+  "============================================================
+  " 30 - Metadata Extension
+  "============================================================
+  add_art(
+    EXPORTING
+      iv_seq     = 30
+      iv_type    = zif_mig_types=>gc_art_ddlx
+      iv_role    = zif_mig_types=>gc_art_annot
+      iv_name    = lv_ddls
+      iv_package = cs_mfst-package
+      iv_desc    = 'Generated Fiori metadata extension'
+      iv_order   = 30
+    CHANGING
+      ct_items   = cs_mfst-items
+  ).
 
 
-    "==========================================================
-    " Dependencies
-    "==========================================================
-    add_dep(
-      EXPORTING
-        iv_art_seq = 20
-        iv_req_seq = 10
-      CHANGING
-        ct_deps    = cs_mfst-dependencies
-    ).
+  "============================================================
+  " 40 - Service Definition
+  "============================================================
+  add_art(
+    EXPORTING
+      iv_seq     = 40
+      iv_type    = zif_mig_types=>gc_art_srvd
+      iv_role    = zif_mig_types=>gc_art_srv_def
+      iv_name    = lv_srvd
+      iv_package = cs_mfst-package
+      iv_desc    = 'Generated RAP service definition'
+      iv_order   = 40
+    CHANGING
+      ct_items   = cs_mfst-items
+  ).
 
-    add_dep(
-      EXPORTING
-        iv_art_seq = 30
-        iv_req_seq = 10
-      CHANGING
-        ct_deps    = cs_mfst-dependencies
-    ).
 
-    add_dep(
-      EXPORTING
-        iv_art_seq = 40
-        iv_req_seq = 10
-      CHANGING
-        ct_deps    = cs_mfst-dependencies
-    ).
+  "============================================================
+  " 50 - Service Binding
+  "============================================================
+  add_art(
+    EXPORTING
+      iv_seq     = 50
+      iv_type    = zif_mig_types=>gc_art_srvb
+      iv_role    = zif_mig_types=>gc_art_srv_bind
+      iv_name    = lv_srvb
+      iv_package = cs_mfst-package
+      iv_desc    = 'Generated OData V4 service binding'
+      iv_order   = 50
+    CHANGING
+      ct_items   = cs_mfst-items
+  ).
 
-    add_dep(
-      EXPORTING
-        iv_art_seq = 50
-        iv_req_seq = 40
-      CHANGING
-        ct_deps    = cs_mfst-dependencies
-    ).
 
-  ENDMETHOD.
+  "============================================================
+  " Dependencies
+  "============================================================
+
+  "Custom Entity requires Query Provider
+  add_dep(
+    EXPORTING
+      iv_art_seq = 20
+      iv_req_seq = 10
+    CHANGING
+      ct_deps    = cs_mfst-dependencies
+  ).
+
+
+  "Metadata Extension requires Custom Entity
+  add_dep(
+    EXPORTING
+      iv_art_seq = 30
+      iv_req_seq = 20
+    CHANGING
+      ct_deps    = cs_mfst-dependencies
+  ).
+
+
+  "Service Definition exposes Custom Entity
+  add_dep(
+    EXPORTING
+      iv_art_seq = 40
+      iv_req_seq = 20
+    CHANGING
+      ct_deps    = cs_mfst-dependencies
+  ).
+
+
+  "Service Binding requires Service Definition
+  add_dep(
+    EXPORTING
+      iv_art_seq = 50
+      iv_req_seq = 40
+    CHANGING
+      ct_deps    = cs_mfst-dependencies
+  ).
+
+ENDMETHOD.
 
     METHOD build_action.
 
@@ -797,42 +811,28 @@ CLASS zcl_mig_art_mfst IMPLEMENTATION.
 
     METHOD add_art.
 
-    APPEND VALUE #(
-      seq =
-        iv_seq
+      APPEND VALUE #(
+        seq             = iv_seq
+        art_type        = iv_type
+        art_role        = iv_role
+        object_name     = iv_name
+        package         = iv_package
+        description     = iv_desc
+        gen_order       = iv_order
+        required        = iv_req
+        cap_state       = zif_mig_types=>gc_art_cap_unknown
+        gen_state       = zif_mig_types=>gc_art_planned
 
-      art_type =
-        iv_type
+        object_exists   = abap_false
+        current_package = ''
+        pref_state      = zif_mig_types=>gc_pref_unknown
+        gen_mode        = zif_mig_types=>gc_art_no_mode
 
-      art_role =
-        iv_role
+        reason =
+          'Waiting for XCO capability check.'
+      ) TO ct_items.
 
-      object_name =
-        iv_name
-
-      package =
-        iv_package
-
-      description =
-        iv_desc
-
-      gen_order =
-        iv_order
-
-      required =
-        iv_req
-
-      cap_state =
-        zif_mig_types=>gc_art_cap_unknown
-
-      gen_state =
-        zif_mig_types=>gc_art_planned
-
-      reason =
-        'Waiting for XCO capability check.'
-    ) TO ct_items.
-
-  ENDMETHOD.
+    ENDMETHOD.
 
     METHOD add_dep.
 

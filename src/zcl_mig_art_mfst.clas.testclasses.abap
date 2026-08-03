@@ -282,6 +282,35 @@ CLASS ltc_art_mfst IMPLEMENTATION.
       act = ls_class-object_name
     ).
 
+    cl_abap_unit_assert=>assert_equals(
+  exp = 0
+  act = sy-subrc
+).
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 10
+  act = ls_class-gen_order
+  msg = 'Query provider must be generated first'
+).
+
+
+READ TABLE ls_mfst-items
+  WITH KEY
+    art_type = zif_mig_types=>gc_art_ddls
+    art_role = zif_mig_types=>gc_art_entity
+  INTO DATA(ls_entity).
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 0
+  act = sy-subrc
+).
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 20
+  act = ls_entity-gen_order
+  msg = 'Custom entity must follow query provider'
+).
+
   ENDMETHOD.
 
 
@@ -399,22 +428,65 @@ CLASS ltc_art_mfst IMPLEMENTATION.
 
 
     cl_abap_unit_assert=>assert_equals(
-      exp = 4
-      act = ls_mfst-dep_count
-    ).
+  exp = 4
+  act = ls_mfst-dep_count
+).
 
 
-    READ TABLE ls_mfst-dependencies
-      WITH KEY
-        art_seq = 50
-        req_seq = 40
-      TRANSPORTING NO FIELDS.
+"DDLS depends on CLAS
+READ TABLE ls_mfst-dependencies
+  WITH KEY
+    art_seq = 20
+    req_seq = 10
+  TRANSPORTING NO FIELDS.
 
-    cl_abap_unit_assert=>assert_equals(
-      exp = 0
-      act = sy-subrc
-      msg = 'Service binding dependency is missing'
-    ).
+cl_abap_unit_assert=>assert_equals(
+  exp = 0
+  act = sy-subrc
+  msg = 'Custom entity must depend on query provider'
+).
+
+
+"DDLX depends on DDLS
+READ TABLE ls_mfst-dependencies
+  WITH KEY
+    art_seq = 30
+    req_seq = 20
+  TRANSPORTING NO FIELDS.
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 0
+  act = sy-subrc
+  msg = 'Metadata extension must depend on custom entity'
+).
+
+
+"SRVD depends on DDLS
+READ TABLE ls_mfst-dependencies
+  WITH KEY
+    art_seq = 40
+    req_seq = 20
+  TRANSPORTING NO FIELDS.
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 0
+  act = sy-subrc
+  msg = 'Service definition must depend on custom entity'
+).
+
+
+"SRVB depends on SRVD
+READ TABLE ls_mfst-dependencies
+  WITH KEY
+    art_seq = 50
+    req_seq = 40
+  TRANSPORTING NO FIELDS.
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 0
+  act = sy-subrc
+  msg = 'Service binding must depend on service definition'
+).
 
   ENDMETHOD.
 
