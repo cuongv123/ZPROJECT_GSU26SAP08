@@ -63,17 +63,16 @@ lt_data = VALUE #(
   ( section_code = 'SRC_EVIDEN' seq_no = '0010' fieldname = 'SOURCE_OBJECT'      column_title = 'Source Object' )
   ( section_code = 'SRC_EVIDEN' seq_no = '0020' fieldname = 'START_LINE'         column_title = 'Start Line' )
   ( section_code = 'SRC_EVIDEN' seq_no = '0030' fieldname = 'END_LINE'           column_title = 'End Line' )
-  ( section_code = 'SRC_EVIDEN' seq_no = '0040' fieldname = 'STATEMENT_INDEX'    column_title = 'Statement' )
+  ( section_code = 'SRC_EVIDEN' seq_no = '0040' fieldname = 'STATEMENT_ID'       column_title = 'Statement' )
   ( section_code = 'SRC_EVIDEN' seq_no = '0050' fieldname = 'CONFIDENCE'         column_title = 'Confidence' )
 
-  " 7. RECOMMEN (ZMIG_ANL_REC)
+  " 7. RECOMMEN (ZMIG_ANL_REC) - Chuẩn 100% theo Structure & Fiori UI
   ( section_code = 'RECOMMEN'   seq_no = '0010' fieldname = 'SEVERITY'           column_title = 'Severity' )
-  ( section_code = 'RECOMMEN'   seq_no = '0020' fieldname = 'DISPLAY_TEXT'       column_title = 'Recommendation' )
+  ( section_code = 'RECOMMEN'   seq_no = '0020' fieldname = 'TITLE'              column_title = 'Recommendation' ) " <-- Đã đổi từ DISPLAY_TEXT sang TITLE
   ( section_code = 'RECOMMEN'   seq_no = '0030' fieldname = 'TARGET_LAYER'       column_title = 'Target Layer' )
   ( section_code = 'RECOMMEN'   seq_no = '0040' fieldname = 'REVIEW_STATUS'      column_title = 'Review Status' )
   ( section_code = 'RECOMMEN'   seq_no = '0050' fieldname = 'MANUAL_REVIEW'      column_title = 'Manual Refactoring' )
   ( section_code = 'RECOMMEN'   seq_no = '0060' fieldname = 'CONFIDENCE'         column_title = 'Confidence' )
-
   " 8. MESSAGE (ZMIG_ANL_MSG)
   ( section_code = 'MESSAGE'    seq_no = '0010' fieldname = 'MESSAGE_TYPE'       column_title = 'Type' )
   ( section_code = 'MESSAGE'    seq_no = '0020' fieldname = 'MESSAGE_CODE'       column_title = 'Code' )

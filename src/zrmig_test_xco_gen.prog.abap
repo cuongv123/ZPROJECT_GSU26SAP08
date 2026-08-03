@@ -3,7 +3,10 @@ REPORT zrmig_test_xco_gen.
 
 PARAMETERS:
   p_class TYPE zif_mig_types=>ty_art_name
-    DEFAULT 'ZCL_MIG_Q_TEST04',
+    DEFAULT 'ZCL_MIG_Q_TEST07',
+
+  p_ddls TYPE zif_mig_types=>ty_art_name
+    DEFAULT 'ZC_MIG_Q_TEST07',
 
   p_pack TYPE devclass
     DEFAULT 'ZMIG_GEN_TEST',
@@ -20,9 +23,101 @@ START-OF-SELECTION.
   DATA ls_mfst
     TYPE zif_mig_types=>ty_art_mfst.
 
-PARAMETERS:
-  p_ddls TYPE zif_mig_types=>ty_art_name
-    DEFAULT 'ZC_MIG_Q_TEST04'.
+  DATA ls_bp
+        TYPE zif_mig_types=>ty_service_blueprint_result.
+
+
+      ls_bp-blueprint-strategy =
+        zif_mig_types=>gc_svc_query.
+
+      ls_bp-blueprint-manual_review =
+        abap_false.
+
+
+      APPEND VALUE #(
+        field_name = 'Material'
+        label      = 'Material'
+        edm_type   = 'Edm.String'
+        position   = 10
+        key_field  = abap_true
+        visible    = abap_true
+        filterable = abap_true
+        sortable   = abap_true
+      ) TO ls_bp-fields.
+
+
+      APPEND VALUE #(
+        field_name = 'Description'
+        label      = 'Description'
+        edm_type   = 'Edm.String'
+        position   = 20
+        visible    = abap_true
+        filterable = abap_true
+        sortable   = abap_true
+      ) TO ls_bp-fields.
+
+
+      APPEND VALUE #(
+        field_name = 'Plant'
+        label      = 'Plant'
+        edm_type   = 'Edm.String'
+        position   = 30
+        visible    = abap_true
+        filterable = abap_true
+        sortable   = abap_true
+      ) TO ls_bp-fields.
+
+      APPEND VALUE #(
+      field_name = 'Quantity'
+      label      = 'Quantity'
+      edm_type   = 'Edm.Int32'
+      position   = 40
+      visible    = abap_true
+      sortable   = abap_true
+    ) TO ls_bp-fields.
+
+
+    APPEND VALUE #(
+      field_name = 'Amount'
+      label      = 'Amount'
+      edm_type   = 'Edm.Decimal'
+      position   = 50
+      visible    = abap_true
+      sortable   = abap_true
+    ) TO ls_bp-fields.
+
+
+    APPEND VALUE #(
+      field_name = 'ValidOn'
+      label      = 'Valid On'
+      edm_type   = 'Edm.Date'
+      position   = 60
+      visible    = abap_true
+      filterable = abap_true
+      sortable   = abap_true
+    ) TO ls_bp-fields.
+
+
+    APPEND VALUE #(
+      field_name = 'CreatedAt'
+      label      = 'Created At'
+      edm_type   = 'Edm.DateTimeOffset'
+      position   = 70
+      visible    = abap_true
+      sortable   = abap_true
+    ) TO ls_bp-fields.
+
+
+    APPEND VALUE #(
+      field_name = 'IsActive'
+      label      = 'Is Active'
+      edm_type   = 'Edm.Boolean'
+      position   = 80
+      visible    = abap_true
+      filterable = abap_true
+    ) TO ls_bp-fields.
+
+
 
 
   "============================================================
@@ -176,6 +271,7 @@ PARAMETERS:
       ENDIF.
 
 
+
       "==========================================================
       " 4. Gọi generator
       "==========================================================
@@ -184,15 +280,18 @@ PARAMETERS:
 
 
       lo_gen->generate_query(
-        is_mfst =
-          ls_pref
+       is_mfst =
+         ls_pref
 
-        iv_request =
-          p_req
+       is_bp =
+         ls_bp
 
-        iv_execute =
-          p_exec
-      ).
+       iv_request =
+         p_req
+
+       iv_execute =
+         p_exec
+     ).
 
 
       IF p_exec = abap_true.

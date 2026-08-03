@@ -238,7 +238,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
           DATA lr_data TYPE REF TO data.
           CREATE DATA lr_data TYPE HANDLE lo_table_type.
           ASSIGN lr_data->* TO FIELD-SYMBOL(<lt_data>).
-" ======================================================================
+          " ======================================================================
           " 2. Query dữ liệu & Sắp xếp chuẩn theo Fiori UI
           " ======================================================================
           IF lv_analysis_id IS NOT INITIAL.
@@ -260,462 +260,530 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
             ENDIF.
           ENDIF.
 
-            " 3. Quản lý Sheet Excel
-            DATA(lo_sheet) = COND #(
-              WHEN lv_sheet_count = 0
-              THEN lo_excel->get_active_worksheet( )
-              ELSE lo_excel->add_new_worksheet( ) ).
+          " 3. Quản lý Sheet Excel
+          DATA(lo_sheet) = COND #(
+            WHEN lv_sheet_count = 0
+            THEN lo_excel->get_active_worksheet( )
+            ELSE lo_excel->add_new_worksheet( ) ).
 
-            lo_sheet->set_title( ip_title = CONV #( ls_section-sheet_title ) ).
+          lo_sheet->set_title( ip_title = CONV #( ls_section-sheet_title ) ).
 
-            " 4. Đổ dữ liệu
-            IF <lt_data> IS INITIAL.
-              lo_sheet->set_cell( ip_column = 1 ip_row = 1 ip_value = |No data available for section { ls_section-sheet_title }.| ).
-            ELSE.
+          " 4. Đổ dữ liệu
+          IF <lt_data> IS INITIAL.
+            lo_sheet->set_cell( ip_column = 1 ip_row = 1 ip_value = |No data available for section { ls_section-sheet_title }.| ).
+          ELSE.
 
-              " 4a. Đọc cấu hình cột động từ bảng ZTB_EXP_COL
-              SELECT seq_no, fieldname, column_title
-                FROM ztb_exp_col
-                WHERE section_code = @ls_section-section_code
-                ORDER BY seq_no ASCENDING
-                INTO TABLE @DATA(lt_columns).
+            " 4a. Đọc cấu hình cột động từ bảng ZTB_EXP_COL
+            SELECT seq_no, fieldname, column_title
+              FROM ztb_exp_col
+              WHERE section_code = @ls_section-section_code
+              ORDER BY seq_no ASCENDING
+              INTO TABLE @DATA(lt_columns).
 
-              " Fallback: Nếu bảng ZTB_EXP_COL chưa có cấu hình cho section này, tự lấy toàn bộ từ View Structure
-              IF lt_columns IS INITIAL.
-                DATA(lt_components) = lo_struct->get_components( ).
-                LOOP AT lt_components INTO DATA(ls_comp).
-                  APPEND VALUE #( fieldname    = ls_comp-name
-                                  column_title = ls_comp-name ) TO lt_columns.
-                ENDLOOP.
-              ENDIF.
-
-              " ----------------------------------------------------------------------
-              " 4b. THIẾT LẬP HEADER VÀ ĐỘ RỘNG CỘT BAN ĐẦU
-              " ----------------------------------------------------------------------
-              DATA(lv_col) = 1.
-
-              LOOP AT lt_columns INTO DATA(ls_col).
-                DATA(lv_header_text) = CONV string( ls_col-column_title ).
-
-                " Ghi tiêu đề vào Dòng 1
-                lo_sheet->set_cell(
-                  ip_column = lv_col
-                  ip_row    = 1
-                  ip_value  = lv_header_text ).
-
-                " Format In Đậm
-                lo_sheet->set_cell_style(
-                  ip_column = lv_col
-                  ip_row    = 1
-                  ip_style  = lo_style_bold->get_guid( ) ).
-
-                " Độ rộng ban đầu
-                DATA(lv_init_len) = strlen( lv_header_text ) + 4.
-                DATA(lo_col_obj)  = lo_sheet->get_column( ip_column = lv_col ).
-                IF lo_col_obj IS BOUND.
-                  lo_col_obj->set_width( ip_width = lv_init_len ).
-                ENDIF.
-
-                lv_col = lv_col + 1.
+            " Fallback: Nếu bảng ZTB_EXP_COL chưa có cấu hình cho section này, tự lấy toàn bộ từ View Structure
+            IF lt_columns IS INITIAL.
+              DATA(lt_components) = lo_struct->get_components( ).
+              LOOP AT lt_components INTO DATA(ls_comp).
+                APPEND VALUE #( fieldname    = ls_comp-name
+                                column_title = ls_comp-name ) TO lt_columns.
               ENDLOOP.
-
-              " ----------------------------------------------------------------------
-              " 4c. ĐỔ DATA ĐỘNG 100% (KHÔNG HARDCODE)
-              " ----------------------------------------------------------------------
-              DATA(lv_row) = 2.
-              LOOP AT <lt_data> ASSIGNING FIELD-SYMBOL(<ls_row>).
-                lv_col = 1.
-                LOOP AT lt_columns INTO ls_col.
-
-                  " Lấy tên Field kỹ thuật đã lưu trong Bảng Cấu Hình
-                  DATA(lv_field_tech) = to_upper( condense( CONV string( ls_col-fieldname ) ) ).
-
-                  " Assign trực tiếp
-                  ASSIGN COMPONENT lv_field_tech OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_val>).
-
-                  " Ghi dữ liệu vào ô Excel
-                  IF sy-subrc = 0 AND <lv_val> IS ASSIGNED.
-                    DATA(lv_val_str) = CONV string( <lv_val> ).
-
-                    lo_sheet->set_cell(
-                      ip_column = lv_col
-                      ip_row    = lv_row
-                      ip_value  = <lv_val> ).
-
-                    " Tự động giãn cột nếu data dài
-                    DATA(lv_val_len) = strlen( lv_val_str ) + 3.
-                    DATA(lo_column)  = lo_sheet->get_column( ip_column = lv_col ).
-
-                    IF lo_column IS BOUND AND lv_val_len > lo_column->get_width( ).
-                      DATA(lv_new_width) = COND i( WHEN lv_val_len > 60 THEN 60 ELSE lv_val_len ).
-                      lo_column->set_width( ip_width = lv_new_width ).
-                    ENDIF.
-                  ENDIF.
-
-                  UNASSIGN <lv_val>.
-                  lv_col = lv_col + 1.
-                ENDLOOP.
-                lv_row = lv_row + 1.
-              ENDLOOP.
-
-              " 4d. Ghi dòng tổng kết
-              DATA(lv_total_row) = lv_row + 1.
-              lo_sheet->set_cell( ip_column = 1 ip_row = lv_total_row ip_value = 'TOTAL ROWS' ).
-              lo_sheet->set_cell( ip_column = 2 ip_row = lv_total_row ip_value = lines( <lt_data> ) ).
-
-              " 4e. Cập nhật hoàn tất độ rộng cột
-              lo_sheet->calculate_column_widths( ).
-
             ENDIF.
 
-            lv_sheet_count = lv_sheet_count + 1.
+            " ----------------------------------------------------------------------
+            " 4b. THIẾT LẬP HEADER VÀ ĐỘ RỘNG CỘT BAN ĐẦU
+            " ----------------------------------------------------------------------
+            DATA(lv_col) = 1.
 
-          ENDLOOP.
+            LOOP AT lt_columns INTO DATA(ls_col).
+              DATA(lv_header_text) = CONV string( ls_col-column_title ).
 
-        CATCH zcx_excel INTO DATA(lx_excel_build).
-          rs_result-success = abap_false.
-          rs_result-message = |Excel build error: { lx_excel_build->get_text( ) }.|.
-          RETURN.
-      ENDTRY.
+              " Ghi tiêu đề vào Dòng 1
+              lo_sheet->set_cell(
+                ip_column = lv_col
+                ip_row    = 1
+                ip_value  = lv_header_text ).
 
-      " Nếu không tạo được Sheet nào
-      IF lv_sheet_count = 0.
-        DATA(lo_empty_sheet) = lo_excel->get_active_worksheet( ).
-        lo_empty_sheet->set_title( ip_title = 'Report' ).
-        lo_empty_sheet->set_cell( ip_column = 1 ip_row = 1 ip_value = |No data available for program { iv_report_type }.| ).
-      ENDIF.
+              " Format In Đậm
+              lo_sheet->set_cell_style(
+                ip_column = lv_col
+                ip_row    = 1
+                ip_style  = lo_style_bold->get_guid( ) ).
 
-      " 5. Build Binary File Excel
-      DATA(lo_writer) = CAST zif_excel_writer( NEW zcl_excel_writer_2007( ) ).
+              " Độ rộng ban đầu
+              DATA(lv_init_len) = strlen( lv_header_text ) + 4.
+              DATA(lo_col_obj)  = lo_sheet->get_column( ip_column = lv_col ).
+              IF lo_col_obj IS BOUND.
+                lo_col_obj->set_width( ip_width = lv_init_len ).
+              ENDIF.
 
-      TRY.
-          DATA(lv_content) = lo_writer->write_file( io_excel = lo_excel ).
-        CATCH zcx_excel INTO DATA(lx_excel).
-          rs_result-success = abap_false.
-          rs_result-message = |Excel writer error: { lx_excel->get_text( ) }.|.
-          RETURN.
-      ENDTRY.
-
-      rs_result-success     = abap_true.
-      rs_result-content     = lv_content.
-      rs_result-file_name   = gc_excel_name.
-      rs_result-file_type   = 'BIN'.
-      rs_result-file_format = gc_format_excel.
-      rs_result-mime_type   = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'.
-      rs_result-message     = 'Excel export generated successfully.'.
-
-    ENDMETHOD.
-
-    METHOD export_csv.
-      DATA(lt_registry) = get_section_registry( ).
-
-      TRY.
-          DATA(lv_analysis_id) = get_analysis_id(
-            iv_analysis_id = iv_analysis_id
-            iv_report_type = iv_report_type ).
-        CATCH cx_root.
-          lv_analysis_id = VALUE #( ).
-      ENDTRY.
-
-      DATA lv_csv_text TYPE string.
-      DATA(lv_processed_count) = 0.
-
-      LOOP AT lt_registry INTO DATA(ls_section).
-
-        IF iv_export_section <> 'ALL' AND ls_section-section_code <> iv_export_section.
-          CONTINUE.
-        ENDIF.
-
-        TRY.
-            DATA(lo_struct) = CAST cl_abap_structdescr(
-              cl_abap_typedescr=>describe_by_name( ls_section-view_name ) ).
-          CATCH cx_root.
-            CONTINUE.
-        ENDTRY.
-
-        DATA(lo_table_type) = cl_abap_tabledescr=>create( lo_struct ).
-        DATA lr_data TYPE REF TO data.
-        CREATE DATA lr_data TYPE HANDLE lo_table_type.
-        ASSIGN lr_data->* TO FIELD-SYMBOL(<lt_data>).
-
-        IF lv_analysis_id IS NOT INITIAL.
-          SELECT * FROM (ls_section-view_name)
-            WHERE analysis_id = @lv_analysis_id
-            INTO TABLE @<lt_data>.
-          ENDIF.
-
-          lv_processed_count = lv_processed_count + 1.
-          lv_csv_text = lv_csv_text && |=== { ls_section-sheet_title } ===| && cl_abap_char_utilities=>cr_lf.
-
-          IF <lt_data> IS INITIAL.
-            lv_csv_text = lv_csv_text && |"No data available for section { ls_section-sheet_title }."| && cl_abap_char_utilities=>cr_lf.
-          ELSE.
-            DATA(lt_fields) = lo_struct->get_components( ).
-            DATA lv_header_line TYPE string.
-            CLEAR lv_header_line.
-            LOOP AT lt_fields INTO DATA(ls_field).
-              DATA(lv_header_cell) = escape_csv_value( ls_field-name ).
-              lv_header_line = COND #(
-                WHEN lv_header_line IS INITIAL THEN lv_header_cell
-                ELSE lv_header_line && ',' && lv_header_cell ).
+              lv_col = lv_col + 1.
             ENDLOOP.
-            lv_csv_text = lv_csv_text && lv_header_line && cl_abap_char_utilities=>cr_lf.
 
+            " ----------------------------------------------------------------------
+            " 4c. ĐỔ DATA ĐỘNG 100% (KHÔNG HARDCODE)
+            " ----------------------------------------------------------------------
+            DATA(lv_row) = 2.
             LOOP AT <lt_data> ASSIGNING FIELD-SYMBOL(<ls_row>).
-              DATA lv_row_line TYPE string.
-              CLEAR lv_row_line.
-              DO lines( lt_fields ) TIMES.
-                DATA(lv_idx) = sy-index.
-                ASSIGN COMPONENT lv_idx OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_cell>).
-                IF sy-subrc = 0.
-                  DATA(lv_escaped_cell) = escape_csv_value( |{ <lv_cell> }| ).
-                  lv_row_line = COND #(
-                    WHEN lv_row_line IS INITIAL THEN lv_escaped_cell
-                    ELSE lv_row_line && ',' && lv_escaped_cell ).
+              lv_col = 1.
+              LOOP AT lt_columns INTO ls_col.
+
+                " Lấy tên Field kỹ thuật đã lưu trong Bảng Cấu Hình
+                DATA(lv_field_tech) = to_upper( condense( CONV string( ls_col-fieldname ) ) ).
+
+                " Assign trực tiếp
+                ASSIGN COMPONENT lv_field_tech OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_val>).
+
+                " Ghi dữ liệu vào ô Excel
+                IF sy-subrc = 0 AND <lv_val> IS ASSIGNED.
+                  DATA(lv_val_str) = CONV string( <lv_val> ).
+
+                  lo_sheet->set_cell(
+                    ip_column = lv_col
+                    ip_row    = lv_row
+                    ip_value  = <lv_val> ).
+
+                  " Tự động giãn cột nếu data dài
+                  DATA(lv_val_len) = strlen( lv_val_str ) + 3.
+                  DATA(lo_column)  = lo_sheet->get_column( ip_column = lv_col ).
+
+                  IF lo_column IS BOUND AND lv_val_len > lo_column->get_width( ).
+                    DATA(lv_new_width) = COND i( WHEN lv_val_len > 60 THEN 60 ELSE lv_val_len ).
+                    lo_column->set_width( ip_width = lv_new_width ).
+                  ENDIF.
                 ENDIF.
-              ENDDO.
-              lv_csv_text = lv_csv_text && lv_row_line && cl_abap_char_utilities=>cr_lf.
+
+                UNASSIGN <lv_val>.
+                lv_col = lv_col + 1.
+              ENDLOOP.
+              lv_row = lv_row + 1.
             ENDLOOP.
+
+            " 4d. Ghi dòng tổng kết
+            DATA(lv_total_row) = lv_row + 1.
+            lo_sheet->set_cell( ip_column = 1 ip_row = lv_total_row ip_value = 'TOTAL ROWS' ).
+            lo_sheet->set_cell( ip_column = 2 ip_row = lv_total_row ip_value = lines( <lt_data> ) ).
+
+            " 4e. Cập nhật hoàn tất độ rộng cột
+            lo_sheet->calculate_column_widths( ).
+
           ENDIF.
 
-          lv_csv_text = lv_csv_text && cl_abap_char_utilities=>cr_lf.
+          lv_sheet_count = lv_sheet_count + 1.
 
         ENDLOOP.
 
-        IF lv_processed_count = 0.
-          lv_csv_text = |"No data available for program { iv_report_type }."|.
+      CATCH zcx_excel INTO DATA(lx_excel_build).
+        rs_result-success = abap_false.
+        rs_result-message = |Excel build error: { lx_excel_build->get_text( ) }.|.
+        RETURN.
+    ENDTRY.
+
+    " Nếu không tạo được Sheet nào
+    IF lv_sheet_count = 0.
+      DATA(lo_empty_sheet) = lo_excel->get_active_worksheet( ).
+      lo_empty_sheet->set_title( ip_title = 'Report' ).
+      lo_empty_sheet->set_cell( ip_column = 1 ip_row = 1 ip_value = |No data available for program { iv_report_type }.| ).
+    ENDIF.
+
+    " 5. Build Binary File Excel
+    DATA(lo_writer) = CAST zif_excel_writer( NEW zcl_excel_writer_2007( ) ).
+
+    TRY.
+        DATA(lv_content) = lo_writer->write_file( io_excel = lo_excel ).
+      CATCH zcx_excel INTO DATA(lx_excel).
+        rs_result-success = abap_false.
+        rs_result-message = |Excel writer error: { lx_excel->get_text( ) }.|.
+        RETURN.
+    ENDTRY.
+
+    rs_result-success     = abap_true.
+    rs_result-content     = lv_content.
+    rs_result-file_name   = gc_excel_name.
+    rs_result-file_type   = 'BIN'.
+    rs_result-file_format = gc_format_excel.
+    rs_result-mime_type   = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'.
+    rs_result-message     = 'Excel export generated successfully.'.
+
+  ENDMETHOD.
+
+  METHOD export_csv.
+    DATA(lt_registry) = get_section_registry( ).
+
+    TRY.
+        DATA(lv_analysis_id) = get_analysis_id(
+          iv_analysis_id = iv_analysis_id
+          iv_report_type = iv_report_type ).
+      CATCH cx_root.
+        lv_analysis_id = VALUE #( ).
+    ENDTRY.
+
+    DATA lv_csv_text TYPE string.
+    DATA(lv_processed_count) = 0.
+
+    LOOP AT lt_registry INTO DATA(ls_section).
+
+      IF iv_export_section <> 'ALL' AND ls_section-section_code <> iv_export_section.
+        CONTINUE.
+      ENDIF.
+
+      TRY.
+          DATA(lo_struct) = CAST cl_abap_structdescr(
+            cl_abap_typedescr=>describe_by_name( ls_section-view_name ) ).
+        CATCH cx_root.
+          CONTINUE.
+      ENDTRY.
+
+      DATA(lo_table_type) = cl_abap_tabledescr=>create( lo_struct ).
+      DATA lr_data TYPE REF TO data.
+      CREATE DATA lr_data TYPE HANDLE lo_table_type.
+      ASSIGN lr_data->* TO FIELD-SYMBOL(<lt_data>).
+
+      IF lv_analysis_id IS NOT INITIAL.
+        SELECT * FROM (ls_section-view_name)
+          WHERE analysis_id = @lv_analysis_id
+          INTO TABLE @<lt_data>.
+      ENDIF.
+
+      lv_processed_count = lv_processed_count + 1.
+      lv_csv_text = lv_csv_text && |=== { ls_section-sheet_title } ===| && cl_abap_char_utilities=>cr_lf.
+
+      IF <lt_data> IS INITIAL.
+        lv_csv_text = lv_csv_text
+          && |"No data available for section { ls_section-sheet_title }."|
+          && cl_abap_char_utilities=>cr_lf.
+      ELSE.
+
+        " Dùng đúng nguồn cấu hình cột dùng chung với Excel (ZTB_EXP_COL)
+        " để tên cột + thứ tự cột giống Fiori, không hard-code.
+        DATA(lt_fiori_cols) = get_fiori_columns( ls_section-section_code ).
+
+        IF lt_fiori_cols IS INITIAL.
+          " Fallback: chưa có cấu hình cho section này -> lấy toàn bộ field
+          " (trừ MANDT/CLIENT/GUID/khóa kỹ thuật).
+          DATA(lt_fields) = lo_struct->get_components( ).
+          LOOP AT lt_fields INTO DATA(ls_field_chk).
+            DATA(lv_name_upper) = to_upper( ls_field_chk-name ).
+            IF lv_name_upper = 'MANDT' OR lv_name_upper = 'CLIENT'
+                OR ls_field_chk-type->type_kind = cl_abap_typedescr=>typekind_hex
+                OR ls_field_chk-type->type_kind = cl_abap_typedescr=>typekind_xstring
+                OR ( lv_name_upper CP '*_ID' AND lv_name_upper <> 'ANALYSIS_ID' )
+                OR lv_name_upper = 'ANALYSIS_ID'.
+              CONTINUE.
+            ENDIF.
+            APPEND VALUE #( fieldname   = ls_field_chk-name
+                             column_name = ls_field_chk-name ) TO lt_fiori_cols.
+          ENDLOOP.
         ENDIF.
 
-        TRY.
-            DATA(lv_xstring) = cl_bcs_convert=>string_to_xstring(
-              iv_string   = lv_csv_text
-              iv_codepage = '4110' ).
-          CATCH cx_bcs INTO DATA(lx_bcs).
-            rs_result-success = abap_false.
-            rs_result-message = |CSV conversion error: { lx_bcs->get_text( ) }.|.
-            RETURN.
-        ENDTRY.
+        " Dòng tiêu đề cột - dùng đúng tên cột đã cấu hình (giống Fiori)
+        DATA lv_header_line TYPE string.
+        CLEAR lv_header_line.
+        LOOP AT lt_fiori_cols INTO DATA(ls_fiori_col).
+          DATA(lv_header_cell) = escape_csv_value( ls_fiori_col-column_name ).
+          lv_header_line = COND #(
+            WHEN lv_header_line IS INITIAL THEN lv_header_cell
+            ELSE lv_header_line && ',' && lv_header_cell ).
+        ENDLOOP.
+        lv_csv_text = lv_csv_text && lv_header_line && cl_abap_char_utilities=>cr_lf.
 
-        rs_result-success     = abap_true.
-        rs_result-content     = lv_xstring.
-        rs_result-file_name   = gc_csv_name.
-        rs_result-file_type   = 'CSV'.
-        rs_result-file_format = gc_format_csv.
-        rs_result-mime_type   = 'text/csv'.
-        rs_result-message     = 'CSV export generated successfully.'.
+        LOOP AT <lt_data> ASSIGNING FIELD-SYMBOL(<ls_row>).
+          DATA lv_row_line TYPE string.
+          CLEAR lv_row_line.
+          LOOP AT lt_fiori_cols INTO ls_fiori_col.
+            DATA(lv_field_tech) = to_upper( condense( CONV string( ls_fiori_col-fieldname ) ) ).
+            ASSIGN COMPONENT lv_field_tech OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_cell>).
 
-      ENDMETHOD.
+            DATA(lv_cell_val) = COND string( WHEN sy-subrc = 0 THEN |{ <lv_cell> }| ELSE `` ).
+            DATA(lv_escaped_cell) = escape_csv_value( lv_cell_val ).
 
-      METHOD export_pdf.
+            lv_row_line = COND #(
+              WHEN lv_row_line IS INITIAL THEN lv_escaped_cell
+              ELSE lv_row_line && ',' && lv_escaped_cell ).
+          ENDLOOP.
+          lv_csv_text = lv_csv_text && lv_row_line && cl_abap_char_utilities=>cr_lf.
+        ENDLOOP.
+      ENDIF.
 
-        DATA(lt_registry) = get_section_registry( ).
+      lv_csv_text = lv_csv_text && cl_abap_char_utilities=>cr_lf.
 
-        TRY.
-            DATA(lv_analysis_id) = get_analysis_id(
-              iv_analysis_id = iv_analysis_id
-              iv_report_type = iv_report_type ).
-          CATCH cx_root.
-            lv_analysis_id = VALUE #( ).
-        ENDTRY.
+    ENDLOOP.
 
-        DATA lt_lines TYPE string_table.
+    IF lv_processed_count = 0.
+      lv_csv_text = |"No data available for program { iv_report_type }."|.
+    ENDIF.
 
-        APPEND |Migration Analysis Report| TO lt_lines.
-        APPEND |Program: { iv_report_type }| TO lt_lines.
-        APPEND |Generated: { sy-datum } { sy-uzeit }| TO lt_lines.
-        APPEND `` TO lt_lines.
+    TRY.
+        DATA(lv_xstring) = cl_bcs_convert=>string_to_xstring(
+          iv_string   = lv_csv_text
+          iv_codepage = '4110' ).
+      CATCH cx_bcs INTO DATA(lx_bcs).
+        rs_result-success = abap_false.
+        rs_result-message = |CSV conversion error: { lx_bcs->get_text( ) }.|.
+        RETURN.
+    ENDTRY.
 
-        DATA(lv_processed_count) = 0.
+    rs_result-success     = abap_true.
+    rs_result-content     = lv_xstring.
+    rs_result-file_name   = gc_csv_name.
+    rs_result-file_type   = 'CSV'.
+    rs_result-file_format = gc_format_csv.
+    rs_result-mime_type   = 'text/csv'.
+    rs_result-message     = 'CSV export generated successfully.'.
 
-        LOOP AT lt_registry INTO DATA(ls_section).
+  ENDMETHOD.
 
-          IF iv_export_section <> 'ALL' AND ls_section-section_code <> iv_export_section.
-            CONTINUE.
-          ENDIF.
 
-          TRY.
-              DATA(lo_struct) = CAST cl_abap_structdescr(
-                cl_abap_typedescr=>describe_by_name( ls_section-view_name ) ).
-            CATCH cx_root.
+  METHOD export_pdf.
+    DATA(lt_registry) = get_section_registry( ).
+
+    TRY.
+        DATA(lv_analysis_id) = get_analysis_id(
+          iv_analysis_id = iv_analysis_id
+          iv_report_type = iv_report_type ).
+      CATCH cx_root.
+        lv_analysis_id = VALUE #( ).
+    ENDTRY.
+
+    DATA lt_lines TYPE string_table.
+
+    APPEND |Migration Analysis Report| TO lt_lines.
+    APPEND |Program: { iv_report_type }| TO lt_lines.
+    APPEND |Generated: { sy-datum } { sy-uzeit }| TO lt_lines.
+    APPEND `` TO lt_lines.
+
+    DATA(lv_processed_count) = 0.
+
+    LOOP AT lt_registry INTO DATA(ls_section).
+
+      IF iv_export_section <> 'ALL' AND ls_section-section_code <> iv_export_section.
+        CONTINUE.
+      ENDIF.
+
+      TRY.
+          DATA(lo_struct) = CAST cl_abap_structdescr(
+            cl_abap_typedescr=>describe_by_name( ls_section-view_name ) ).
+        CATCH cx_root.
+          CONTINUE.
+      ENDTRY.
+
+      DATA(lo_table_type) = cl_abap_tabledescr=>create( lo_struct ).
+      DATA lr_data TYPE REF TO data.
+      CREATE DATA lr_data TYPE HANDLE lo_table_type.
+      ASSIGN lr_data->* TO FIELD-SYMBOL(<lt_data>).
+
+      IF lv_analysis_id IS NOT INITIAL.
+        SELECT * FROM (ls_section-view_name)
+          WHERE analysis_id = @lv_analysis_id
+          INTO TABLE @<lt_data>.
+      ENDIF.
+
+      lv_processed_count = lv_processed_count + 1.
+      APPEND |=== { ls_section-sheet_title } ===| TO lt_lines.
+
+      IF <lt_data> IS INITIAL.
+        APPEND |No data available for section { ls_section-sheet_title }.| TO lt_lines.
+      ELSE.
+
+        " Dùng đúng nguồn cấu hình cột dùng chung với Excel (ZTB_EXP_COL)
+        " để tên cột + thứ tự cột giống Fiori, không hard-code.
+        DATA(lt_fiori_cols) = get_fiori_columns( ls_section-section_code ).
+
+        IF lt_fiori_cols IS INITIAL.
+          " Fallback: chưa có cấu hình cho section này -> lấy toàn bộ field
+          " (trừ MANDT/CLIENT/GUID/khóa kỹ thuật).
+          DATA(lt_fields) = lo_struct->get_components( ).
+          LOOP AT lt_fields INTO DATA(ls_field_chk).
+            DATA(lv_name_upper) = to_upper( ls_field_chk-name ).
+            IF lv_name_upper = 'MANDT' OR lv_name_upper = 'CLIENT'
+                OR ls_field_chk-type->type_kind = cl_abap_typedescr=>typekind_hex
+                OR ls_field_chk-type->type_kind = cl_abap_typedescr=>typekind_xstring
+                OR ( lv_name_upper CP '*_ID' AND lv_name_upper <> 'ANALYSIS_ID' )
+                OR lv_name_upper = 'ANALYSIS_ID'.
               CONTINUE.
-          ENDTRY.
+            ENDIF.
+            APPEND VALUE #( fieldname   = ls_field_chk-name
+                             column_name = ls_field_chk-name ) TO lt_fiori_cols.
+          ENDLOOP.
+        ENDIF.
 
-          DATA(lo_table_type) = cl_abap_tabledescr=>create( lo_struct ).
-          DATA lr_data TYPE REF TO data.
-          CREATE DATA lr_data TYPE HANDLE lo_table_type.
-          ASSIGN lr_data->* TO FIELD-SYMBOL(<lt_data>).
+        " Dòng tiêu đề cột - dùng đúng tên cột đã cấu hình (giống Fiori)
+        DATA lv_header_line TYPE string.
+        CLEAR lv_header_line.
+        LOOP AT lt_fiori_cols INTO DATA(ls_fiori_col).
+          lv_header_line = COND #(
+            WHEN lv_header_line IS INITIAL THEN ls_fiori_col-column_name
+            ELSE lv_header_line && ` | ` && ls_fiori_col-column_name ).
+        ENDLOOP.
+        APPEND lv_header_line TO lt_lines.
+        APPEND repeat( val = `-` occ = strlen( lv_header_line ) ) TO lt_lines.
 
-          IF lv_analysis_id IS NOT INITIAL.
-            SELECT * FROM (ls_section-view_name)
-              WHERE analysis_id = @lv_analysis_id
-              INTO TABLE @<lt_data>.
+        LOOP AT <lt_data> ASSIGNING FIELD-SYMBOL(<ls_row>).
+          DATA lv_line TYPE string.
+          CLEAR lv_line.
+          LOOP AT lt_fiori_cols INTO ls_fiori_col.
+            DATA(lv_field_tech) = to_upper( condense( CONV string( ls_fiori_col-fieldname ) ) ).
+            ASSIGN COMPONENT lv_field_tech OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_cell>).
+
+            DATA(lv_cell_text) = COND string( WHEN sy-subrc = 0 THEN |{ <lv_cell> }| ELSE `` ).
+
+            " Cắt bớt nếu quá dài, tránh tràn dòng trên khổ giấy PDF
+            IF strlen( lv_cell_text ) > 25.
+              lv_cell_text = lv_cell_text(22) && `...`.
             ENDIF.
 
-            lv_processed_count = lv_processed_count + 1.
-            APPEND |=== { ls_section-sheet_title } ===| TO lt_lines.
-
-            IF <lt_data> IS INITIAL.
-              APPEND |No data available for section { ls_section-sheet_title }. | TO lt_lines.
-            ELSE.
-              DATA(lt_fields) = lo_struct->get_components( ).
-              LOOP AT <lt_data> ASSIGNING FIELD-SYMBOL(<ls_row>).
-                DATA lv_line TYPE string.
-                CLEAR lv_line.
-                DO lines( lt_fields ) TIMES.
-                  DATA(lv_col_idx) = sy-index.
-                  ASSIGN COMPONENT lv_col_idx OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_cell>).
-                  IF sy-subrc = 0.
-                    lv_line = COND #(
-                      WHEN lv_line IS INITIAL THEN |{ <lv_cell> }|
-                      ELSE lv_line && ` | ` && |{ <lv_cell> }| ).
-                  ENDIF.
-                ENDDO.
-                APPEND lv_line TO lt_lines.
-              ENDLOOP.
-            ENDIF.
-
-            APPEND `` TO lt_lines.
-
+            lv_line = COND #(
+              WHEN lv_line IS INITIAL THEN lv_cell_text
+              ELSE lv_line && ` | ` && lv_cell_text ).
           ENDLOOP.
+          APPEND lv_line TO lt_lines.
+        ENDLOOP.
+      ENDIF.
 
-          IF lv_processed_count = 0.
-            APPEND |No data available for program { iv_report_type }.| TO lt_lines.
-          ENDIF.
+      APPEND `` TO lt_lines.
 
-          TRY.
-              rs_result-content = build_pdf_document( lt_lines ).
-            CATCH cx_root INTO DATA(lx_pdf).
-              rs_result-success = abap_false.
-              rs_result-message = |PDF_BUILD_ERROR: { lx_pdf->get_text( ) }|.
-              RETURN.
-          ENDTRY.
+    ENDLOOP.
 
-          rs_result-success     = abap_true.
-          rs_result-file_name   = gc_pdf_name.
-          rs_result-file_type   = 'PDF'.
-          rs_result-file_format = gc_format_pdf.
-          rs_result-mime_type   = 'application/pdf'.
-          rs_result-message     = 'PDF export generated successfully.'.
+    IF lv_processed_count = 0.
+      APPEND |No data available for program { iv_report_type }.| TO lt_lines.
+    ENDIF.
 
-        ENDMETHOD.
+    TRY.
+        rs_result-content = build_pdf_document( lt_lines ).
+      CATCH cx_root INTO DATA(lx_pdf).
+        rs_result-success = abap_false.
+        rs_result-message = |PDF_BUILD_ERROR: { lx_pdf->get_text( ) }|.
+        RETURN.
+    ENDTRY.
 
-        METHOD escape_pdf_text.
-          DATA(lv_escaped) = replace( val = iv_text sub = '\' with = '\\' occ = 0 ).
-          lv_escaped = replace( val = lv_escaped sub = '(' with = '\(' occ = 0 ).
-          lv_escaped = replace( val = lv_escaped sub = ')' with = '\)' occ = 0 ).
+    rs_result-success     = abap_true.
+    rs_result-file_name   = gc_pdf_name.
+    rs_result-file_type   = 'PDF'.
+    rs_result-file_format = gc_format_pdf.
+    rs_result-mime_type   = 'application/pdf'.
+    rs_result-message     = 'PDF export generated successfully.'.
 
-          lv_escaped = replace(
-            regex = '[^\x20-\x7E]'
-            val   = lv_escaped
-            with  = '?'
-            occ   = 0 ).
+  ENDMETHOD.
+  METHOD escape_pdf_text.
+    DATA(lv_escaped) = replace( val = iv_text sub = '\' with = '\\' occ = 0 ).
+    lv_escaped = replace( val = lv_escaped sub = '(' with = '\(' occ = 0 ).
+    lv_escaped = replace( val = lv_escaped sub = ')' with = '\)' occ = 0 ).
 
-          rv_text = lv_escaped.
-        ENDMETHOD.
+    lv_escaped = replace(
+      regex = '[^\x20-\x7E]'
+      val   = lv_escaped
+      with  = '?'
+      occ   = 0 ).
 
-        METHOD build_pdf_document.
-          CONSTANTS: lc_lines_per_page TYPE i VALUE 50,
-                     lc_page_width     TYPE i VALUE 612,
-                     lc_page_height    TYPE i VALUE 792.
+    rv_text = lv_escaped.
+  ENDMETHOD.
 
-          DATA lt_pages TYPE string_table.
-          DATA(lv_total_lines) = lines( it_lines ).
-          DATA(lv_total_pages) = COND i(
-            WHEN lv_total_lines = 0 THEN 1
-            ELSE ( ( lv_total_lines - 1 ) DIV lc_lines_per_page ) + 1 ).
 
-          DATA lv_idx TYPE i VALUE 0.
-          DATA lv_page_num TYPE i VALUE 1.
+  METHOD build_pdf_document.
+    CONSTANTS: lc_lines_per_page TYPE i VALUE 50,
+               lc_page_width     TYPE i VALUE 612,
+               lc_page_height    TYPE i VALUE 792.
 
-          DO lv_total_pages TIMES.
-            DATA(lv_from) = lv_idx + 1.
-            DATA(lv_to)   = nmin( val1 = lv_total_lines val2 = lv_idx + lc_lines_per_page ).
+    DATA lt_pages TYPE string_table.
+    DATA(lv_total_lines) = lines( it_lines ).
+    DATA(lv_total_pages) = COND i(
+      WHEN lv_total_lines = 0 THEN 1
+      ELSE ( ( lv_total_lines - 1 ) DIV lc_lines_per_page ) + 1 ).
 
-            DATA lv_page_content TYPE string.
-            lv_page_content = |BT\n/F1 8 Tf\n|.
-            lv_page_content = lv_page_content && |1 0 0 1 40 { lc_page_height - 30 } Tm\n|.
-            lv_page_content = lv_page_content &&
-              |({ escape_pdf_text( |Migration Analysis Report - Page { lv_page_num }/{ lv_total_pages }| ) }) Tj\n|.
+    DATA lv_idx TYPE i VALUE 0.
+    DATA lv_page_num TYPE i VALUE 1.
 
-            DATA(lv_y) = lc_page_height - 55.
+    DO lv_total_pages TIMES.
+      DATA(lv_from) = lv_idx + 1.
+      DATA(lv_to)   = nmin( val1 = lv_total_lines val2 = lv_idx + lc_lines_per_page ).
 
-            IF lv_from <= lv_to.
-              LOOP AT it_lines FROM lv_from TO lv_to INTO DATA(lv_text_line).
-                lv_page_content = lv_page_content && |1 0 0 1 40 { lv_y } Tm\n|.
-                lv_page_content = lv_page_content && |({ escape_pdf_text( lv_text_line ) }) Tj\n|.
-                lv_y = lv_y - 11.
-              ENDLOOP.
-            ENDIF.
+      DATA lv_page_content TYPE string.
+      lv_page_content = |BT\n/F1 8 Tf\n|.
+      lv_page_content = lv_page_content && |1 0 0 1 40 { lc_page_height - 30 } Tm\n|.
+      lv_page_content = lv_page_content &&
+        |({ escape_pdf_text( |Migration Analysis Report - Page { lv_page_num }/{ lv_total_pages }| ) }) Tj\n|.
 
-            lv_page_content = lv_page_content && |1 0 0 1 40 30 Tm\n|.
-            lv_page_content = lv_page_content &&
-              |({ escape_pdf_text( |Generated automatically - { sy-datum } { sy-uzeit }| ) }) Tj\n|.
-            lv_page_content = lv_page_content && |ET\n|.
+      DATA(lv_y) = lc_page_height - 55.
 
-            APPEND lv_page_content TO lt_pages.
+      IF lv_from <= lv_to.
+        LOOP AT it_lines FROM lv_from TO lv_to INTO DATA(lv_text_line).
+          lv_page_content = lv_page_content && |1 0 0 1 40 { lv_y } Tm\n|.
+          lv_page_content = lv_page_content && |({ escape_pdf_text( lv_text_line ) }) Tj\n|.
+          lv_y = lv_y - 11.
+        ENDLOOP.
+      ENDIF.
 
-            lv_idx = lv_idx + lc_lines_per_page.
-            lv_page_num = lv_page_num + 1.
-          ENDDO.
+      lv_page_content = lv_page_content && |1 0 0 1 40 30 Tm\n|.
+      lv_page_content = lv_page_content &&
+        |({ escape_pdf_text( |Generated automatically - { sy-datum } { sy-uzeit }| ) }) Tj\n|.
+      lv_page_content = lv_page_content && |ET\n|.
 
-          DATA lv_pdf TYPE string.
-          DATA lt_offsets TYPE STANDARD TABLE OF i.
+      APPEND lv_page_content TO lt_pages.
 
-          lv_pdf = |%PDF-1.4\n|.
-          DATA(lv_pdf_xstring) = cl_abap_codepage=>convert_to( source = lv_pdf codepage = 'UTF-8' ).
+      lv_idx = lv_idx + lc_lines_per_page.
+      lv_page_num = lv_page_num + 1.
+    ENDDO.
 
-          APPEND xstrlen( lv_pdf_xstring ) TO lt_offsets.
-          lv_pdf = lv_pdf && |1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n|.
+    DATA lv_pdf TYPE string.
+    DATA lt_offsets TYPE STANDARD TABLE OF i.
 
-          DATA lv_kids TYPE string.
-          DATA(lv_num_pages) = lines( lt_pages ).
-          DO lv_num_pages TIMES.
-            DATA(lv_page_obj_num) = 4 + ( sy-index - 1 ) * 2.
-            lv_kids = lv_kids && |{ lv_page_obj_num } 0 R |.
-          ENDDO.
+    lv_pdf = |%PDF-1.4\n|.
+    DATA(lv_pdf_xstring) = cl_abap_codepage=>convert_to( source = lv_pdf codepage = 'UTF-8' ).
 
-          lv_pdf_xstring = cl_abap_codepage=>convert_to( source = lv_pdf codepage = 'UTF-8' ).
-          APPEND xstrlen( lv_pdf_xstring ) TO lt_offsets.
-          lv_pdf = lv_pdf && |2 0 obj\n<< /Type /Pages /Kids [ { lv_kids }] /Count { lv_num_pages } >>\nendobj\n|.
+    APPEND xstrlen( lv_pdf_xstring ) TO lt_offsets.
+    lv_pdf = lv_pdf && |1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n|.
 
-          lv_pdf_xstring = cl_abap_codepage=>convert_to( source = lv_pdf codepage = 'UTF-8' ).
-          APPEND xstrlen( lv_pdf_xstring ) TO lt_offsets.
-          lv_pdf = lv_pdf && |3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj\n|.
+    DATA lv_kids TYPE string.
+    DATA(lv_num_pages) = lines( lt_pages ).
+    DO lv_num_pages TIMES.
+      DATA(lv_page_obj_num) = 4 + ( sy-index - 1 ) * 2.
+      lv_kids = lv_kids && |{ lv_page_obj_num } 0 R |.
+    ENDDO.
 
-          LOOP AT lt_pages INTO DATA(lv_page_text).
-            DATA(lv_this_page_obj) = 4 + ( sy-tabix - 1 ) * 2.
-            DATA(lv_this_cont_obj) = lv_this_page_obj + 1.
+    lv_pdf_xstring = cl_abap_codepage=>convert_to( source = lv_pdf codepage = 'UTF-8' ).
+    APPEND xstrlen( lv_pdf_xstring ) TO lt_offsets.
+    lv_pdf = lv_pdf && |2 0 obj\n<< /Type /Pages /Kids [ { lv_kids }] /Count { lv_num_pages } >>\nendobj\n|.
 
-            lv_pdf_xstring = cl_abap_codepage=>convert_to( source = lv_pdf codepage = 'UTF-8' ).
-            APPEND xstrlen( lv_pdf_xstring ) TO lt_offsets.
-            lv_pdf = lv_pdf && |{ lv_this_page_obj } 0 obj\n|
-              && |<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 3 0 R >> >> |
-              && |/MediaBox [0 0 { lc_page_width } { lc_page_height }] /Contents { lv_this_cont_obj } 0 R >>\nendobj\n|.
+    lv_pdf_xstring = cl_abap_codepage=>convert_to( source = lv_pdf codepage = 'UTF-8' ).
+    APPEND xstrlen( lv_pdf_xstring ) TO lt_offsets.
+    lv_pdf = lv_pdf && |3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj\n|.
 
-            lv_pdf_xstring = cl_abap_codepage=>convert_to( source = lv_pdf codepage = 'UTF-8' ).
-            APPEND xstrlen( lv_pdf_xstring ) TO lt_offsets.
-            DATA(lv_stream_len) = strlen( lv_page_text ).
-            lv_pdf = lv_pdf && |{ lv_this_cont_obj } 0 obj\n<< /Length { lv_stream_len } >>\nstream\n|
-              && lv_page_text && |endstream\nendobj\n|.
-          ENDLOOP.
+    LOOP AT lt_pages INTO DATA(lv_page_text).
+      DATA(lv_this_page_obj) = 4 + ( sy-tabix - 1 ) * 2.
+      DATA(lv_this_cont_obj) = lv_this_page_obj + 1.
 
-          lv_pdf_xstring = cl_abap_codepage=>convert_to( source = lv_pdf codepage = 'UTF-8' ).
-          DATA(lv_xref_offset) = xstrlen( lv_pdf_xstring ).
-          DATA(lv_total_objects) = lines( lt_offsets ) + 1.
+      lv_pdf_xstring = cl_abap_codepage=>convert_to( source = lv_pdf codepage = 'UTF-8' ).
+      APPEND xstrlen( lv_pdf_xstring ) TO lt_offsets.
+      lv_pdf = lv_pdf && |{ lv_this_page_obj } 0 obj\n|
+        && |<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 3 0 R >> >> |
+        && |/MediaBox [0 0 { lc_page_width } { lc_page_height }] /Contents { lv_this_cont_obj } 0 R >>\nendobj\n|.
 
-          lv_pdf = lv_pdf && |xref\n0 { lv_total_objects }\n0000000000 65535 f \n|.
+      lv_pdf_xstring = cl_abap_codepage=>convert_to( source = lv_pdf codepage = 'UTF-8' ).
+      APPEND xstrlen( lv_pdf_xstring ) TO lt_offsets.
+      DATA(lv_stream_len) = strlen( lv_page_text ).
+      lv_pdf = lv_pdf && |{ lv_this_cont_obj } 0 obj\n<< /Length { lv_stream_len } >>\nstream\n|
+        && lv_page_text && |endstream\nendobj\n|.
+    ENDLOOP.
 
-          LOOP AT lt_offsets INTO DATA(lv_offset).
-            DATA(lv_offset_str) = |{ lv_offset }|.
-            WHILE strlen( lv_offset_str ) < 10.
-              lv_offset_str = |0{ lv_offset_str }|.
-            ENDWHILE.
-            lv_pdf = lv_pdf && |{ lv_offset_str } 00000 n \n|.
-          ENDLOOP.
+    lv_pdf_xstring = cl_abap_codepage=>convert_to( source = lv_pdf codepage = 'UTF-8' ).
+    DATA(lv_xref_offset) = xstrlen( lv_pdf_xstring ).
+    DATA(lv_total_objects) = lines( lt_offsets ) + 1.
 
-          lv_pdf = lv_pdf && |trailer\n<< /Size { lv_total_objects } /Root 1 0 R >>\nstartxref\n{ lv_xref_offset }\n%%EOF|.
+    lv_pdf = lv_pdf && |xref\n0 { lv_total_objects }\n0000000000 65535 f \n|.
 
-          rv_content = cl_abap_codepage=>convert_to( source = lv_pdf codepage = 'UTF-8' ).
-        ENDMETHOD.
+    LOOP AT lt_offsets INTO DATA(lv_offset).
+      DATA(lv_offset_str) = |{ lv_offset }|.
+      WHILE strlen( lv_offset_str ) < 10.
+        lv_offset_str = |0{ lv_offset_str }|.
+      ENDWHILE.
+      lv_pdf = lv_pdf && |{ lv_offset_str } 00000 n \n|.
+    ENDLOOP.
+
+    lv_pdf = lv_pdf && |trailer\n<< /Size { lv_total_objects } /Root 1 0 R >>\nstartxref\n{ lv_xref_offset }\n%%EOF|.
+
+    rv_content = cl_abap_codepage=>convert_to( source = lv_pdf codepage = 'UTF-8' ).
+  ENDMETHOD.
+
+
+
 
 ENDCLASS.
