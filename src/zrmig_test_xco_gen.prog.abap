@@ -2,16 +2,16 @@ REPORT zrmig_test_xco_gen.
 
 PARAMETERS:
   p_class TYPE zif_mig_types=>ty_art_name
-    DEFAULT 'ZCL_MIG_Q_TEST14',
+    DEFAULT 'ZCL_MIG_Q_TEST15',
 
   p_ddls TYPE zif_mig_types=>ty_art_name
-    DEFAULT 'ZC_MIG_Q_TEST14',
+    DEFAULT 'ZC_MIG_Q_TEST15',
 
   p_srvd TYPE zif_mig_types=>ty_art_name
-    DEFAULT 'ZUI_MIG_Q_TEST14',
+    DEFAULT 'ZUI_MIG_Q_TEST15',
 
   p_srvb TYPE zif_mig_types=>ty_art_name
-    DEFAULT 'ZUI_MIG_Q_TEST14_O4',
+    DEFAULT 'ZUI_MIG_Q_TEST15_O4',
 
   p_pack TYPE devclass
     DEFAULT 'ZMIG_GEN_TEST',
@@ -419,6 +419,7 @@ DATA ls_ret
   art_seq = 20
   req_seq = 10
 ) TO ls_mfst-dependencies.
+
   APPEND VALUE #(
   art_seq = 40
   req_seq = 20

@@ -4,98 +4,95 @@ CLASS zcl_ce_mig_export DEFINITION
   CREATE PUBLIC .
 
   PUBLIC SECTION.
-
     INTERFACES if_rap_query_provider .
-
   PROTECTED SECTION.
   PRIVATE SECTION.
-
 ENDCLASS.
-
-
 
 CLASS zcl_ce_mig_export IMPLEMENTATION.
 
   METHOD if_rap_query_provider~select.
-
-    DATA: lv_report_type    TYPE zmig_mail_job-report_type,
-          lv_file_format    TYPE zmig_e_file_format,
-          lv_export_section TYPE zif_mig_export_provider=>ty_export_section.
+    " 1. Khai báo biến kết quả chuẩn theo Custom Entity ZCE_MIG_EXPORT
+    DATA: ls_result TYPE zce_mig_export,
+          lt_result LIKE STANDARD TABLE OF ls_result.
 
     TRY.
-        " 1. LẤY DỮ LIỆU TỪ FILTER/KEY PARAMETERS CỦA ODATA REQUEST
+        " 2. Đọc Filter / Range từ Request
         DATA(lt_filter_cond) = io_request->get_filter( )->get_as_ranges( ).
 
-        LOOP AT lt_filter_cond INTO DATA(ls_filter).
-          CASE ls_filter-name.
-            WHEN 'REPORTTYPE' OR 'REPORT_TYPE'.
-              READ TABLE ls_filter-range INDEX 1 INTO DATA(ls_r_rep).
-              IF sy-subrc = 0. lv_report_type = ls_r_rep-low. ENDIF.
+        DATA: lv_format         TYPE string VALUE 'X',   " Default Excel
+              lv_export_section TYPE string VALUE 'ALL', " Default ALL
+              lv_fields         TYPE string.             " Sẽ động hóa theo Filter/ALL
 
-            WHEN 'FILEFORMAT' OR 'FILE_FORMAT'.
-              READ TABLE ls_filter-range INDEX 1 INTO DATA(ls_r_fmt).
-              IF sy-subrc = 0. lv_file_format = ls_r_fmt-low. ENDIF.
-
-            WHEN 'EXPORTSECTION' OR 'EXPORT_SECTION'.
-              READ TABLE ls_filter-range INDEX 1 INTO DATA(ls_r_sec).
-              IF sy-subrc = 0. lv_export_section = ls_r_sec-low. ENDIF.
-          ENDCASE.
-        ENDLOOP.
-
-        " Làm sạch giá trị nhận được
-        lv_report_type    = condense( lv_report_type ).
-        lv_file_format    = condense( lv_file_format ).
-        lv_export_section = condense( lv_export_section ).
-
-        " Nếu không truyền ExportSection thì mặc định lấy tất cả 'ALL'
-        IF lv_export_section IS INITIAL.
-          lv_export_section = 'ALL'.
+        " --- Đọc FileFormat từ URL Filter ---
+        READ TABLE lt_filter_cond WITH KEY name = 'FILEFORMAT' INTO DATA(ls_format_filter).
+        IF sy-subrc = 0 AND ls_format_filter-range IS NOT INITIAL.
+          lv_format = ls_format_filter-range[ 1 ]-low.
         ENDIF.
 
-        " 2. CHECK KIỂM TRA THAM SỐ BẮT BUỘC
-        IF lv_report_type IS INITIAL OR lv_file_format IS INITIAL.
-          " Trả về lỗi rõ ràng nếu bị khuyết tham số
-          DATA(lv_error_msg) = |Missing parameters. ReportType: '{ lv_report_type }', FileFormat: '{ lv_file_format }'.|.
-
-          " Gán dữ liệu rỗng và dừng lại
-          io_response->set_total_number_of_records( 0 ).
-          RETURN.
+        " --- Đọc ExportSection từ URL Filter (ALL hay FILTER) ---
+        READ TABLE lt_filter_cond WITH KEY name = 'EXPORTSECTION' INTO DATA(ls_section_filter).
+        IF sy-subrc = 0 AND ls_section_filter-range IS NOT INITIAL.
+          lv_export_section = ls_section_filter-range[ 1 ]-low.
         ENDIF.
 
-        " 3. GỌI ENGINE XỬ LÝ (EXPORT EXCEL / CSV / PDF)
-        DATA(lo_engine) = NEW zcl_mig_export_engine( ).
-        DATA(ls_result) = lo_engine->zif_mig_export_provider~generate(
-            iv_job_id         = VALUE #( )
-            iv_analysis_id    = VALUE #( )
-            iv_report_type    = lv_report_type
-            iv_file_format    = lv_file_format
-            iv_export_section = lv_export_section ).
-
-        " Kiểm tra xem Engine tạo file thành công không
-        IF ls_result-success = abap_false.
-          io_response->set_total_number_of_records( 0 ).
-          RETURN.
+        " --- 3. ĐỘNG HÓA danh sách Fields gửi sang Engine ---
+        IF to_upper( lv_export_section ) = 'ALL' OR lv_export_section IS INITIAL.
+          " Nếu ExportSection = 'ALL': Truyền '*' hoặc RỖNG để Engine hiểu là lấy FULL TẤT CẢ CỘT
+          lv_fields = '*'.
+        ELSE.
+          " Nếu ExportSection = 'FILTER': Lấy danh sách field mà UI đang hiển thị
+          DATA(lt_req_elements) = io_request->get_requested_elements( ).
+          IF lt_req_elements IS NOT INITIAL.
+            lv_fields = concat_lines_of( table = lt_req_elements sep = `,` ).
+          ELSE.
+            lv_fields = 'FIELDNAME,REFERENCE_TABLE,CONFIDENCE'. " Fallback
+          ENDIF.
         ENDIF.
 
-        " 4. TRẢ KẾT QUẢ CHO CUSTOM ENTITY ODATA V4
-        " Gán đúng tên các thành phần theo cấu trúc Custom Entity của bạn
-        DATA lt_output TYPE STANDARD TABLE OF zce_mig_export.
+        " 4. Gọi Export Engine core
+        DATA: lo_engine TYPE REF TO zcl_mig_export_engine.
+        lo_engine = NEW zcl_mig_export_engine( ).
 
-        APPEND VALUE #(
-          reporttype    = lv_report_type
-          fileformat    = lv_file_format
-          exportsection = lv_export_section
-          content       = ls_result-content
-          mimetype      = ls_result-mime_type
-          filename      = ls_result-file_name
-        ) TO lt_output.
+        DATA(lv_content) = lo_engine->execute_export(
+                             iv_selected_fields = lv_fields
+                             iv_export_format   = lv_format ).
 
-        " Trả response về cho SAP Gateway
-        io_response->set_data( lt_output ).
-        io_response->set_total_number_of_records( lines( lt_output ) ).
+        " 5. Mapping dữ liệu trả về cho Custom Entity
+        ls_result-reporttype    = 'MIGRATION_REPORT'.
+        ls_result-fileformat    = lv_format.
+        ls_result-exportsection = lv_export_section.
 
-      CATCH cx_root INTO DATA(lx_root).
-        io_response->set_total_number_of_records( 0 ).
+        " Mapping MimeType theo Domain Fixed Values (P, X, C)
+        ls_result-mimetype = COND #(
+          WHEN to_upper( lv_format ) = 'P' OR to_upper( lv_format ) = 'PDF'
+            THEN 'application/pdf'
+          WHEN to_upper( lv_format ) = 'X' OR to_upper( lv_format ) = 'EXCEL' OR to_upper( lv_format ) = 'XLSX'
+            THEN 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          ELSE 'text/csv' ).
+
+        " Mapping Filename động
+        ls_result-filename = COND #(
+          WHEN to_upper( lv_format ) = 'P' OR to_upper( lv_format ) = 'PDF' THEN 'migration_report.pdf'
+          WHEN to_upper( lv_format ) = 'X' OR to_upper( lv_format ) = 'EXCEL' OR to_upper( lv_format ) = 'XLSX' THEN 'migration_report.xlsx'
+          ELSE 'migration_report.csv' ).
+
+        ls_result-content = lv_content. " Binary Stream
+
+        CLEAR lt_result.
+        APPEND ls_result TO lt_result.
+
+        " 6. Set Response cho RAP Framework
+        IF io_request->is_data_requested( ).
+          io_response->set_data( lt_result ).
+        ENDIF.
+
+        IF io_request->is_total_numb_of_rec_requested( ).
+          io_response->set_total_number_of_records( lines( lt_result ) ).
+        ENDIF.
+
+      CATCH cx_root INTO DATA(lx_exc).
+        " Handling exception nếu có
     ENDTRY.
 
   ENDMETHOD.

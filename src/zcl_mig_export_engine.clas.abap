@@ -6,6 +6,14 @@ CLASS zcl_mig_export_engine DEFINITION
   PUBLIC SECTION.
     INTERFACES zif_mig_export_provider.
 
+    " Method chính tiếp nhận request export từ UI5/Controller
+    METHODS execute_export
+      IMPORTING
+        iv_selected_fields TYPE string
+        iv_export_format   TYPE string
+      RETURNING
+        VALUE(rv_content)  TYPE xstring.
+
   PRIVATE SECTION.
     CONSTANTS:
       gc_format_excel TYPE zmig_e_file_format VALUE 'X',
@@ -15,32 +23,44 @@ CLASS zcl_mig_export_engine DEFINITION
       gc_csv_name     TYPE string VALUE 'migration_report.csv',
       gc_pdf_name     TYPE string VALUE 'migration_report.pdf'.
 
+    " Bảng chứa dữ liệu UI Filters mẫu (Hoặc thay bằng cấu trúc của bạn)
+    DATA gt_ui_filters TYPE STANDARD TABLE OF zmig_anl_ui.
+
     TYPES: BEGIN OF ty_fiori_col,
              fieldname   TYPE string,
              column_name TYPE string,
            END OF ty_fiori_col,
            tt_fiori_col TYPE STANDARD TABLE OF ty_fiori_col WITH DEFAULT KEY.
-    METHODS escape_pdf_text
-      IMPORTING
-        iv_text        TYPE string
-      RETURNING
-        VALUE(rv_text) TYPE string.
-    METHODS get_fiori_columns
-      IMPORTING
-        iv_section_code TYPE zif_mig_export_provider=>ty_export_section
-      RETURNING
-        VALUE(rt_cols)  TYPE tt_fiori_col.
 
     TYPES: BEGIN OF ty_section_registry,
              section_code TYPE zif_mig_export_provider=>ty_export_section,
              view_name    TYPE tabname,
              sheet_title  TYPE string,
            END OF ty_section_registry,
-           tt_section_registry TYPE STANDARD TABLE OF ty_section_registry
-             WITH NON-UNIQUE DEFAULT KEY.
+           tt_section_registry TYPE STANDARD TABLE OF ty_section_registry WITH NON-UNIQUE DEFAULT KEY.
+
+    " Private Methods
+    METHODS escape_pdf_text
+      IMPORTING
+        iv_text        TYPE string
+      RETURNING
+        VALUE(rv_text) TYPE string.
+
+    METHODS get_fiori_columns
+      IMPORTING
+        iv_section_code TYPE zif_mig_export_provider=>ty_export_section
+      RETURNING
+        VALUE(rt_cols)  TYPE tt_fiori_col.
 
     METHODS get_section_registry
-      RETURNING VALUE(rt_registry) TYPE tt_section_registry.
+      RETURNING
+        VALUE(rt_registry) TYPE tt_section_registry.
+
+    METHODS prepare_export_lines
+      IMPORTING
+        iv_selected_fields TYPE string
+      RETURNING
+        VALUE(rt_lines)    TYPE string_table.
 
     METHODS get_analysis_id
       IMPORTING
@@ -50,6 +70,7 @@ CLASS zcl_mig_export_engine DEFINITION
         VALUE(rv_analysis_id) TYPE sysuuid_x16
       RAISING
         cx_root.
+
     METHODS build_pdf_document
       IMPORTING
         it_lines          TYPE string_table
@@ -57,6 +78,21 @@ CLASS zcl_mig_export_engine DEFINITION
         VALUE(rv_content) TYPE xstring
       RAISING
         cx_root.
+
+    METHODS build_csv_document
+      IMPORTING
+        it_lines          TYPE string_table
+      RETURNING
+        VALUE(rv_content) TYPE xstring.
+
+    METHODS build_excel_document
+      IMPORTING
+        it_lines          TYPE string_table
+      RETURNING
+        VALUE(rv_content) TYPE xstring
+      RAISING
+        zcx_excel.
+
     METHODS escape_csv_value
       IMPORTING
         iv_value        TYPE string
@@ -90,21 +126,148 @@ CLASS zcl_mig_export_engine DEFINITION
       RETURNING
         VALUE(rs_result)  TYPE zif_mig_export_provider=>ty_export_result.
 
-
-
-
-
 ENDCLASS.
 
+CLASS zcl_mig_export_engine IMPLEMENTATION.
+
+  METHOD execute_export.
+    " 1. Gom data tinh gọn
+    DATA(lt_export_lines) = me->prepare_export_lines( iv_selected_fields = iv_selected_fields ).
+
+    " 2. Điều hướng Engine theo đúng Fixed Values của Domain ZMIG_D_FILE_FORMAT
+    CASE to_upper( iv_export_format ).
+      WHEN 'P' OR 'PDF'.
+        TRY.
+            rv_content = me->build_pdf_document( it_lines = lt_export_lines ).
+          CATCH cx_root.
+            CLEAR rv_content.
+        ENDTRY.
+
+      WHEN 'X' OR 'EXCEL' OR 'XLSX'.
+        TRY.
+            rv_content = me->build_excel_document( it_lines = lt_export_lines ).
+          CATCH zcx_excel cx_root.
+            CLEAR rv_content.
+        ENDTRY.
+
+      WHEN 'C' OR 'CSV'.
+        rv_content = me->build_csv_document( it_lines = lt_export_lines ).
+    ENDCASE.
+  ENDMETHOD.
+  METHOD prepare_export_lines.
+    DATA: lt_visible_cols TYPE STANDARD TABLE OF string,
+          lv_header_row   TYPE string,
+          lv_data_row     TYPE string.
+
+    " 1. Tách chuỗi selected fields từ UI5
+    SPLIT iv_selected_fields AT ',' INTO TABLE lt_visible_cols.
+
+    " ==================================================================
+    " SECTION: UI FILTERS
+    " ==================================================================
+    APPEND '=== UI Filters ===' TO rt_lines.
+
+    " A. Dòng Field Header
+    CLEAR lv_header_row.
+    LOOP AT lt_visible_cols INTO DATA(lv_col_name).
+      CONDENSE lv_col_name.
+      IF lv_col_name IS NOT INITIAL.
+        lv_header_row = COND #( WHEN lv_header_row IS INITIAL
+                                THEN lv_col_name
+                                ELSE lv_header_row && '|' && lv_col_name ).
+      ENDIF.
+    ENDLOOP.
+
+    IF lv_header_row IS NOT INITIAL.
+      APPEND lv_header_row TO rt_lines.
+    ENDIF.
+
+    " B. Dòng Data Rows (Dùng Dynamic Assignment - Không lo lỗi tên field cứng)
+    LOOP AT gt_ui_filters INTO DATA(ls_item).
+      CLEAR lv_data_row.
+
+      LOOP AT lt_visible_cols INTO lv_col_name.
+        DATA(lv_field_upper) = to_upper( condense( lv_col_name ) ).
+
+        " Map nhanh nếu UI5 gửi tên ngắn gọn nhưng DB dùng tên đầy đủ
+        IF lv_field_upper = 'REF_TABLE'.
+          lv_field_upper = 'REFERENCE_TABLE'.
+        ENDIF.
+
+        " Gán động component từ tên field
+        ASSIGN COMPONENT lv_field_upper OF STRUCTURE ls_item TO FIELD-SYMBOL(<lv_val>).
+
+        IF sy-subrc = 0 AND <lv_val> IS ASSIGNED.
+          DATA(lv_val_str) = CONV string( <lv_val> ).
+          lv_data_row = COND #( WHEN lv_data_row IS INITIAL
+                                THEN lv_val_str
+                                ELSE lv_data_row && '|' && lv_val_str ).
+        ELSE.
+          " Trường hợp không tìm thấy field trong structure thì bỏ trống ô đó
+          lv_data_row = COND #( WHEN lv_data_row IS INITIAL
+                                THEN ''
+                                ELSE lv_data_row && '|' ).
+        ENDIF.
+
+        UNASSIGN <lv_val>.
+      ENDLOOP.
+
+      IF lv_data_row IS NOT INITIAL.
+        APPEND lv_data_row TO rt_lines.
+      ENDIF.
+    ENDLOOP.
+
+  ENDMETHOD.
 
 
-CLASS ZCL_MIG_EXPORT_ENGINE IMPLEMENTATION.
+  METHOD build_csv_document.
+    DATA lv_csv_string TYPE string.
+
+    LOOP AT it_lines INTO DATA(lv_line).
+      " Thay thế phân cách pipe | thành phẩy ,
+      DATA(lv_csv_line) = lv_line.
+      REPLACE ALL OCCURRENCES OF '|' IN lv_csv_line WITH ','.
+
+      lv_csv_string = lv_csv_string && lv_csv_line && cl_abap_char_utilities=>cr_lf.
+    ENDLOOP.
+
+    " Chuyển sang UTF-8 Binary Stream
+    rv_content = cl_abap_codepage=>convert_to(
+                   source   = lv_csv_string
+                   codepage = 'UTF-8' ).
+  ENDMETHOD.
+
+
+  METHOD build_excel_document.
+    " Render Excel đơn giản từ it_lines
+    DATA(lo_excel) = NEW zcl_excel( ).
+    DATA(lo_sheet) = lo_excel->get_active_worksheet( ).
+    lo_sheet->set_title( ip_title = 'Report' ).
+
+    DATA(lv_row_idx) = 1.
+    DATA lt_cols TYPE string_table.
+
+    LOOP AT it_lines INTO DATA(lv_line).
+      CLEAR lt_cols.
+      SPLIT lv_line AT '|' INTO TABLE lt_cols.
+
+      DATA(lv_col_idx) = 1.
+      LOOP AT lt_cols INTO DATA(lv_val).
+        lo_sheet->set_cell( ip_column = lv_col_idx ip_row = lv_row_idx ip_value = lv_val ).
+        lv_col_idx = lv_col_idx + 1.
+      ENDLOOP.
+
+      lv_row_idx = lv_row_idx + 1.
+    ENDLOOP.
+
+    DATA(lo_writer) = CAST zif_excel_writer( NEW zcl_excel_writer_2007( ) ).
+    rv_content = lo_writer->write_file( io_excel = lo_excel ).
+  ENDMETHOD.
 
 
   METHOD zif_mig_export_provider~generate.
-
     TRY.
-   DATA(lv_format) = to_upper( condense( CONV string( iv_file_format ) ) ).
+        DATA(lv_format) = to_upper( condense( CONV string( iv_file_format ) ) ).
 
         CASE lv_format.
           WHEN gc_format_excel OR 'EXCEL' OR 'E' OR 'XLSX' OR 'X'.
@@ -142,14 +305,11 @@ CLASS ZCL_MIG_EXPORT_ENGINE IMPLEMENTATION.
         rs_result-success = abap_false.
         rs_result-message = lx_error->get_text( ).
     ENDTRY.
-
   ENDMETHOD.
 
 
   METHOD get_fiori_columns.
     CLEAR rt_cols.
-
-    " Đọc danh sách cột động từ bảng cấu hình ZTB_EXP_COL
     SELECT fieldname, column_title AS column_name
       FROM ztb_exp_col
       WHERE section_code = @iv_section_code
@@ -161,14 +321,12 @@ CLASS ZCL_MIG_EXPORT_ENGINE IMPLEMENTATION.
   METHOD get_section_registry.
     CLEAR rt_registry.
 
-    " 1. Đọc danh sách Sheet động từ bảng ZTB_EXP_SECTION
     SELECT section_code, view_name, sheet_title
       FROM ztb_exp_section
       WHERE is_active = 'X'
       ORDER BY sort_order ASCENDING
       INTO CORRESPONDING FIELDS OF TABLE @rt_registry.
 
-    " 2. Fallback: Nếu chưa nạp bảng ZTB_EXP_SECTION thì tự động lấy danh sách mặc định
     IF rt_registry IS INITIAL.
       rt_registry = VALUE #(
         ( section_code = 'OVERVIEW'    view_name = 'ZMIG_ANL_H'   sheet_title = 'Overview' )
@@ -380,118 +538,19 @@ CLASS ZCL_MIG_EXPORT_ENGINE IMPLEMENTATION.
 
 
   METHOD export_csv.
-    DATA(lt_registry) = get_section_registry( ).
+    " Sử dụng chung prepare_export_lines
+    DATA(lt_lines) = prepare_export_lines( iv_selected_fields = 'FIELD,KIND,REF_TABLE,CONFIDENCE' ).
 
-    TRY.
-        DATA(lv_analysis_id) = get_analysis_id(
-          iv_analysis_id = iv_analysis_id
-          iv_report_type = iv_report_type ).
-      CATCH cx_root.
-        lv_analysis_id = VALUE #( ).
-    ENDTRY.
-
-    DATA lv_csv_text TYPE string.
-    DATA(lv_processed_count) = 0.
-
-    LOOP AT lt_registry INTO DATA(ls_section).
-
-      IF iv_export_section <> 'ALL' AND ls_section-section_code <> iv_export_section.
-        CONTINUE.
-      ENDIF.
-
-      TRY.
-          DATA(lo_struct) = CAST cl_abap_structdescr(
-            cl_abap_typedescr=>describe_by_name( ls_section-view_name ) ).
-        CATCH cx_root.
-          CONTINUE.
-      ENDTRY.
-
-      DATA(lo_table_type) = cl_abap_tabledescr=>create( lo_struct ).
-      DATA lr_data TYPE REF TO data.
-      CREATE DATA lr_data TYPE HANDLE lo_table_type.
-      ASSIGN lr_data->* TO FIELD-SYMBOL(<lt_data>).
-
-      IF lv_analysis_id IS NOT INITIAL.
-        SELECT * FROM (ls_section-view_name)
-          WHERE analysis_id = @lv_analysis_id
-          INTO TABLE @<lt_data>.
-      ENDIF.
-
-      lv_processed_count = lv_processed_count + 1.
-      lv_csv_text = lv_csv_text && |=== { ls_section-sheet_title } ===| && cl_abap_char_utilities=>cr_lf.
-
-      IF <lt_data> IS INITIAL.
-        lv_csv_text = lv_csv_text
-          && |"No data available for section { ls_section-sheet_title }."|
-          && cl_abap_char_utilities=>cr_lf.
-      ELSE.
-
-        DATA(lt_sec_cols) = get_fiori_columns( ls_section-section_code ).
-
-        IF lt_sec_cols IS INITIAL.
-          DATA(lt_fields) = lo_struct->get_components( ).
-          LOOP AT lt_fields INTO DATA(ls_field_chk).
-            DATA(lv_name_upper) = to_upper( ls_field_chk-name ).
-            IF lv_name_upper = 'MANDT' OR lv_name_upper = 'CLIENT'
-                OR ls_field_chk-type->type_kind = cl_abap_typedescr=>typekind_hex
-                OR ls_field_chk-type->type_kind = cl_abap_typedescr=>typekind_xstring
-                OR ( lv_name_upper CP '*_ID' AND lv_name_upper <> 'ANALYSIS_ID' )
-                OR lv_name_upper = 'ANALYSIS_ID'.
-              CONTINUE.
-            ENDIF.
-            APPEND VALUE #( fieldname   = ls_field_chk-name
-                             column_name = ls_field_chk-name ) TO lt_sec_cols.
-          ENDLOOP.
-        ENDIF.
-
-        DATA lv_header_line TYPE string.
-        CLEAR lv_header_line.
-        LOOP AT lt_sec_cols INTO DATA(ls_col).
-          DATA(lv_header_cell) = escape_csv_value( ls_col-column_name ).
-          lv_header_line = COND #(
-            WHEN lv_header_line IS INITIAL THEN lv_header_cell
-            ELSE lv_header_line && ',' && lv_header_cell ).
-        ENDLOOP.
-        lv_csv_text = lv_csv_text && lv_header_line && cl_abap_char_utilities=>cr_lf.
-
-        LOOP AT <lt_data> ASSIGNING FIELD-SYMBOL(<ls_row>).
-          DATA lv_row_line TYPE string.
-          CLEAR lv_row_line.
-          LOOP AT lt_sec_cols INTO ls_col.
-            DATA(lv_field_tech) = to_upper( condense( CONV string( ls_col-fieldname ) ) ).
-            ASSIGN COMPONENT lv_field_tech OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_val>).
-
-            DATA(lv_val_str) = COND string( WHEN sy-subrc = 0 THEN |{ <lv_val> }| ELSE `` ).
-            DATA(lv_escaped_cell) = escape_csv_value( lv_val_str ).
-
-            lv_row_line = COND #(
-              WHEN lv_row_line IS INITIAL THEN lv_escaped_cell
-              ELSE lv_row_line && ',' && lv_escaped_cell ).
-          ENDLOOP.
-          lv_csv_text = lv_csv_text && lv_row_line && cl_abap_char_utilities=>cr_lf.
-        ENDLOOP.
-      ENDIF.
-
-      lv_csv_text = lv_csv_text && cl_abap_char_utilities=>cr_lf.
-
-    ENDLOOP.
-
-    IF lv_processed_count = 0.
-      lv_csv_text = |"No data available for program { iv_report_type }."|.
+    IF lt_lines IS INITIAL.
+      rs_result-success = abap_false.
+      rs_result-message = 'No data available for export.'.
+      RETURN.
     ENDIF.
 
-    TRY.
-        DATA(lv_xstring) = cl_bcs_convert=>string_to_xstring(
-          iv_string   = lv_csv_text
-          iv_codepage = '4110' ).
-      CATCH cx_bcs INTO DATA(lx_bcs).
-        rs_result-success = abap_false.
-        rs_result-message = |CSV conversion error: { lx_bcs->get_text( ) }.|.
-        RETURN.
-    ENDTRY.
+    DATA(lv_content) = build_csv_document( lt_lines ).
 
     rs_result-success     = abap_true.
-    rs_result-content     = lv_xstring.
+    rs_result-content     = lv_content.
     rs_result-file_name   = gc_csv_name.
     rs_result-file_type   = 'CSV'.
     rs_result-file_format = gc_format_csv.
@@ -502,111 +561,38 @@ CLASS ZCL_MIG_EXPORT_ENGINE IMPLEMENTATION.
 
 
   METHOD export_pdf.
-    DATA(lt_registry) = get_section_registry( ).
+    " 1. Gom dữ liệu theo cột được chọn
+    DATA(lt_lines) = prepare_export_lines( iv_selected_fields = 'FIELD,KIND,REF_TABLE,CONFIDENCE' ).
 
-    TRY.
-        DATA(lv_analysis_id) = get_analysis_id(
-          iv_analysis_id = iv_analysis_id
-          iv_report_type = iv_report_type ).
-      CATCH cx_root.
-        lv_analysis_id = VALUE #( ).
-    ENDTRY.
+    IF lt_lines IS INITIAL.
+      rs_result-success = abap_false.
+      rs_result-message = 'No data available for PDF generation.'.
+      RETURN.
+    ENDIF.
 
-    DATA lt_lines TYPE string_table.
-
-    " Duyệt lấy dữ liệu nghiệp vụ
-    LOOP AT lt_registry INTO DATA(ls_section).
-      IF iv_export_section <> 'ALL' AND ls_section-section_code <> iv_export_section.
-        CONTINUE.
-      ENDIF.
-
-      TRY.
-          DATA(lo_struct) = CAST cl_abap_structdescr(
-            cl_abap_typedescr=>describe_by_name( ls_section-view_name ) ).
-        CATCH cx_root.
-          CONTINUE.
-      ENDTRY.
-
-      DATA(lo_table_type) = cl_abap_tabledescr=>create( lo_struct ).
-      DATA lr_data TYPE REF TO data.
-      CREATE DATA lr_data TYPE HANDLE lo_table_type.
-      ASSIGN lr_data->* TO FIELD-SYMBOL(<lt_data>).
-
-      IF lv_analysis_id IS NOT INITIAL.
-        SELECT * FROM (ls_section-view_name)
-          WHERE analysis_id = @lv_analysis_id
-          INTO TABLE @<lt_data>.
-      ENDIF.
-
-      IF <lt_data> IS NOT INITIAL.
-        " --- BƯỚC 1: HEADER CỘT ---
-        " Ví dụ gán tiêu đề chuẩn như hình UI5
-        DATA(lv_hdr_str) = |Object| &&
-                          |\|Type| &&
-                          |\|Container| &&
-                          |\|Calling Routine| &&
-                          |\|Side Effect| &&
-                          |\|GUI Dependency| &&
-                          |\|Reuse Feasibility|.
-        APPEND lv_hdr_str TO lt_lines.
-
-        " --- BƯỚC 2: CÁC DÒNG DỮ LIỆU ---
-        LOOP AT <lt_data> ASSIGNING FIELD-SYMBOL(<ls_row>).
-          DATA lv_row_str TYPE string.
-          CLEAR lv_row_str.
-
-          " Duyệt lấy thông tin nghiệp vụ bỏ GUID
-          DO.
-            ASSIGN COMPONENT sy-index OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_val>).
-            IF sy-subrc <> 0. EXIT. ENDIF.
-
-            " Bỏ qua cột index đầu tiên nếu là GUID
-            IF sy-index = 1 OR sy-index = 2. CONTINUE. ENDIF.
-
-            DATA(lv_val_txt) = COND string( WHEN <lv_val> IS ASSIGNED THEN |{ <lv_val> }| ELSE `` ).
-            CONDENSE lv_val_txt.
-
-            IF lv_row_str IS INITIAL.
-              lv_row_str = lv_val_txt.
-            ELSE.
-              lv_row_str = |{ lv_row_str }\|{ lv_val_txt }|.
-            ENDIF.
-          ENDDO.
-
-          IF lv_row_str IS NOT INITIAL.
-            APPEND lv_row_str TO lt_lines.
-          ENDIF.
-        ENDLOOP.
-      ENDIF.
-    ENDLOOP.
-
-    " Render PDF
+    " 2. Render PDF Document
     TRY.
         rs_result-content = build_pdf_document( lt_lines ).
+        rs_result-success     = abap_true.
+        rs_result-file_name   = gc_pdf_name.
+        rs_result-file_type   = 'PDF'.
+        rs_result-file_format = gc_format_pdf.
+        rs_result-mime_type   = 'application/pdf'.
+        rs_result-message     = 'PDF generated successfully.'.
       CATCH cx_root INTO DATA(lx_pdf).
         rs_result-success = abap_false.
         rs_result-message = |PDF_BUILD_ERROR: { lx_pdf->get_text( ) }|.
-        RETURN.
     ENDTRY.
-
-    rs_result-success     = abap_true.
-    rs_result-file_name   = gc_pdf_name.
-    rs_result-file_type   = 'PDF'.
-    rs_result-file_format = gc_format_pdf.
-    rs_result-mime_type   = 'application/pdf'.
-    rs_result-message     = 'PDF generated successfully.'.
   ENDMETHOD.
 
 
   METHOD escape_pdf_text.
     DATA(lv_escaped) = iv_text.
 
-    " Escape các ký tự bắt buộc của cấu trúc PDF
     lv_escaped = replace( val = lv_escaped sub = '\' with = '\\' occ = 0 ).
     lv_escaped = replace( val = lv_escaped sub = '(' with = '\(' occ = 0 ).
     lv_escaped = replace( val = lv_escaped sub = ')' with = '\)' occ = 0 ).
 
-    " Chuyển đổi các ký tự ngoài ASCII 32-126 thành dấu cách để tránh biến thành '?'
     lv_escaped = replace(
       regex = '[^\x20-\x7E]'
       val   = lv_escaped
@@ -617,7 +603,7 @@ CLASS ZCL_MIG_EXPORT_ENGINE IMPLEMENTATION.
   ENDMETHOD.
 
 
- METHOD build_pdf_document.
+  METHOD build_pdf_document.
     CONSTANTS: lc_lines_per_page TYPE i VALUE 18,
                lc_page_width     TYPE i VALUE 792, " Landscape
                lc_page_height    TYPE i VALUE 612.
@@ -645,7 +631,7 @@ CLASS ZCL_MIG_EXPORT_ENGINE IMPLEMENTATION.
       DATA lv_page_content TYPE string.
       CLEAR lv_page_content.
 
-      " === HEADER TRANG PDF ===
+      " Header trang
       lv_page_content = |BT\n/F1 11 Tf\n1 0 0 1 20 { lc_page_height - 25 } Tm\n|.
       lv_page_content = lv_page_content && |({ escape_pdf_text( |ABAP Migration Analysis Report| ) }) Tj\nET\n|.
 
@@ -659,20 +645,17 @@ CLASS ZCL_MIG_EXPORT_ENGINE IMPLEMENTATION.
           DATA(lv_curr_str) = it_lines[ lv_line_counter ].
           CONDENSE lv_curr_str.
 
-          " === 1. PHÁT HIỆN DÒNG TIÊU ĐỀ SECTION (SECTION TITLE) ===
-          " Ví dụ: "=== UI Filters ===" hoặc dòng bắt đầu bằng "SECTION:"
+          " Detect Section Header
           IF lv_curr_str CS '===' OR lv_curr_str CS 'Source Structure' OR lv_curr_str CS 'UI Filters' OR lv_curr_str CS 'Database Objects'.
 
-            " Vẽ thanh Nền Tiêu Đề Section (Xám Đậm UI5)
             lv_page_content = lv_page_content && |0.2 0.3 0.4 rg\n|.
             lv_page_content = lv_page_content && |{ lv_left_margin } { lv_y - 4 } { lv_table_width } { lv_row_height } re f\n|.
 
-            " In Tên Section (Chữ Trắng - Bold)
             DATA(lv_section_name) = lv_curr_str.
             REPLACE ALL OCCURRENCES OF '=' IN lv_section_name WITH ''.
             CONDENSE lv_section_name.
 
-            lv_page_content = lv_page_content && |BT\n/F1 9 Tf\n1 1 1 rg\n|. " Font to, Chữ Trắng
+            lv_page_content = lv_page_content && |BT\n/F1 9 Tf\n1 1 1 rg\n|.
             lv_page_content = lv_page_content && |1 0 0 1 { lv_left_margin + 8 } { lv_y + 4 } Tm\n|.
             lv_page_content = lv_page_content && |({ escape_pdf_text( lv_section_name ) }) Tj\nET\n0 g\n|.
 
@@ -681,19 +664,17 @@ CLASS ZCL_MIG_EXPORT_ENGINE IMPLEMENTATION.
             CONTINUE.
           ENDIF.
 
-          " === 2. TÁCH CÁC CỘT DỮ LIỆU / FIELD HEADER ===
+          " Split Data Column
           CLEAR lt_cols.
           SPLIT lv_curr_str AT '|' INTO TABLE lt_cols.
           lv_num_cols = lines( lt_cols ).
           IF lv_num_cols = 0. lv_num_cols = 1. ENDIF.
 
-          " Kiểm tra dòng có phải là Dòng Header Field của Section không
           DATA(lv_is_field_header) = COND abap_bool(
             WHEN lv_curr_str CS 'Field' OR lv_curr_str CS 'Object' OR lv_curr_str CS 'Source Object' OR lv_curr_str CS 'Type'
             THEN abap_true
             ELSE abap_false ).
 
-          " Nếu là Dòng Header của Bảng mới -> Tính toán lại Width riêng cho Bảng này
           IF lv_is_field_header = abap_true OR lt_col_widths IS INITIAL.
             CLEAR lt_col_widths.
             DATA(lv_c_idx) = 1.
@@ -701,7 +682,6 @@ CLASS ZCL_MIG_EXPORT_ENGINE IMPLEMENTATION.
               DATA(lv_fname) = COND string( WHEN lv_c_idx <= lines( lt_cols ) THEN lt_cols[ lv_c_idx ] ELSE '' ).
               CONDENSE lv_fname.
 
-              " Phân bổ độ rộng cột linh hoạt theo đặc tính Field
               IF lv_fname CS 'Object' OR lv_fname CS 'Table' OR lv_fname CS 'Routine'.
                 APPEND 120 TO lt_col_widths.
               ELSEIF lv_fname CS 'Field' OR lv_fname CS 'Element' OR lv_fname CS 'Kind'.
@@ -714,19 +694,15 @@ CLASS ZCL_MIG_EXPORT_ENGINE IMPLEMENTATION.
             ENDWHILE.
           ENDIF.
 
-          " === 3. VẼ DÒNG CỘT (HEADER BẢNG HOẶC DATA ROW) ===
           IF lv_is_field_header = abap_true.
-            " Background xám nhạt cho Field Header
             lv_page_content = lv_page_content && |0.90 0.92 0.95 rg\n|.
             lv_page_content = lv_page_content && |{ lv_left_margin } { lv_y - 4 } { lv_table_width } { lv_row_height } re f\n|.
             lv_page_content = lv_page_content && |0 g\n|.
           ENDIF.
 
-          " Đường kẻ ngang đáy dòng
           lv_page_content = lv_page_content && |0.80 0.80 0.80 RG\n0.5 w\n|.
           lv_page_content = lv_page_content && |{ lv_left_margin } { lv_y - 4 } m { lv_left_margin + lv_table_width } { lv_y - 4 } l S\n|.
 
-          " === 4. IN TỪNG CỘT TƯƠNG ỨNG ===
           DATA(lv_x) = lv_left_margin.
           DATA(lv_col_idx) = 1.
 
@@ -734,22 +710,18 @@ CLASS ZCL_MIG_EXPORT_ENGINE IMPLEMENTATION.
             DATA(lv_cell_txt) = COND string( WHEN lv_col_idx <= lines( lt_cols ) THEN lt_cols[ lv_col_idx ] ELSE '' ).
             CONDENSE lv_cell_txt.
 
-            " Khai báo lv_w duy nhất ở đây
             DATA(lv_w) = COND i( WHEN lv_col_idx <= lines( lt_col_widths ) THEN lt_col_widths[ lv_col_idx ] ELSE ( lv_table_width / lv_num_cols ) ).
 
-            " Cắt bớt văn bản nếu quá dài so với ô
             DATA(lv_max_char) = CONV i( lv_w / 5 ) - 1.
             IF lv_max_char > 0 AND strlen( lv_cell_txt ) > lv_max_char.
               lv_cell_txt = lv_cell_txt(lv_max_char) && '..'.
             ENDIF.
 
-            " Header dùng Font 7.5pt Bold, Data dùng Font 6.5pt Normal
-          DATA(lv_font_sz) = COND string( WHEN lv_is_field_header = abap_true THEN '7.5' ELSE '6.5' ).
+            DATA(lv_font_sz) = COND string( WHEN lv_is_field_header = abap_true THEN '7.5' ELSE '6.5' ).
             lv_page_content = lv_page_content && |BT\n/F1 { lv_font_sz } Tf\n|.
             lv_page_content = lv_page_content && |1 0 0 1 { lv_x + 4 } { lv_y + 3 } Tm\n|.
             lv_page_content = lv_page_content && |({ escape_pdf_text( lv_cell_txt ) }) Tj\nET\n|.
 
-            " Vạch kẻ dọc chia các ô
             lv_page_content = lv_page_content && |{ lv_x + lv_w } { lv_y - 4 } m { lv_x + lv_w } { lv_y + lv_row_height - 4 } l S\n|.
 
             lv_x = lv_x + lv_w.
@@ -761,7 +733,7 @@ CLASS ZCL_MIG_EXPORT_ENGINE IMPLEMENTATION.
         ENDWHILE.
       ENDIF.
 
-      " === FOOTER TRANG ===
+      " Footer trang
       lv_page_content = lv_page_content && |BT\n/F1 8 Tf\n1 0 0 1 { lc_page_width - 80 } 15 Tm\n|.
       lv_page_content = lv_page_content && |({ escape_pdf_text( |Page { lv_page_num } / { lv_total_pages }| ) }) Tj\nET\n|.
 
@@ -771,7 +743,7 @@ CLASS ZCL_MIG_EXPORT_ENGINE IMPLEMENTATION.
       lv_page_num = lv_page_num + 1.
     ENDDO.
 
-    " === TẠO PDF STREAM BINARY ===
+    " === RENDER BINARY STREAM ===
     DATA lv_pdf TYPE string.
     DATA lt_offsets TYPE STANDARD TABLE OF i.
 
@@ -806,9 +778,13 @@ CLASS ZCL_MIG_EXPORT_ENGINE IMPLEMENTATION.
         && |<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 3 0 R >> >> |
         && |/MediaBox [0 0 { lc_page_width } { lc_page_height }] /Contents { lv_this_cont_obj } 0 R >>\nendobj\n|.
 
+      " ĐO BẰNG XSTRLEN THAY VÌ STRLEN LÀM LỖI BYTE UTF-8
+      DATA(lv_page_xstr) = cl_abap_codepage=>convert_to( source = lv_page_text codepage = 'UTF-8' ).
+      DATA(lv_stream_len) = xstrlen( lv_page_xstr ).
+
       lv_pdf_xstring = cl_abap_codepage=>convert_to( source = lv_pdf codepage = 'UTF-8' ).
       APPEND xstrlen( lv_pdf_xstring ) TO lt_offsets.
-      DATA(lv_stream_len) = strlen( lv_page_text ).
+
       lv_pdf = lv_pdf && |{ lv_this_cont_obj } 0 obj\n<< /Length { lv_stream_len } >>\nstream\n|
         && lv_page_text && |endstream\nendobj\n|.
     ENDLOOP.
@@ -831,4 +807,7 @@ CLASS ZCL_MIG_EXPORT_ENGINE IMPLEMENTATION.
 
     rv_content = cl_abap_codepage=>convert_to( source = lv_pdf codepage = 'UTF-8' ).
   ENDMETHOD.
+
 ENDCLASS.
+
+

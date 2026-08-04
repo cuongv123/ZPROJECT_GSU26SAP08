@@ -75,25 +75,27 @@ CLASS zcl_mig_xco_gen DEFINITION
         zcx_mig_analysis.
 
     METHODS add_ddls
-      IMPORTING
-        io_put
-          TYPE REF TO if_xco_cp_gen_d_o_put
+          IMPORTING
+            io_put
+              TYPE REF TO if_xco_cp_gen_d_o_put
 
-        is_item
-          TYPE zif_mig_types=>ty_art_item
+            is_item
+              TYPE zif_mig_types=>ty_art_item
 
-        iv_class_name
-          TYPE zif_mig_types=>ty_art_name
+            iv_class_name
+              TYPE zif_mig_types=>ty_art_name
 
-        iv_package
-          TYPE devclass
+            iv_package
+              TYPE devclass
 
-        it_fields
-          TYPE zif_mig_types=>tt_service_field
+            it_fields
+              TYPE zif_mig_types=>tt_service_field
 
-      RAISING
-        zcx_mig_analysis.
+            is_smap
+              TYPE zif_mig_types=>ty_svc_map_result
 
+          RAISING
+            zcx_mig_analysis.
 
       METHODS add_srvd
           IMPORTING
@@ -206,6 +208,7 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
       ).
 
     ENDIF.
+
 
     READ TABLE is_mfst-items
       WITH KEY
@@ -449,7 +452,11 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
 
       it_fields =
         is_bp-fields
+
+      is_smap =
+        is_smap
     ).
+
 
     add_srvd(
       io_put =
@@ -869,6 +876,117 @@ METHOD add_ddls.
         lv_label
       ).
 
+      DATA(lv_position) =
+          ls_field-position.
+
+
+        IF lv_position <= 0.
+
+          lv_position =
+            sy-tabix * 10.
+
+        ENDIF.
+
+
+        lo_field->add_annotation(
+          'UI.lineItem'
+        )->value->build(
+        )->begin_array(
+        )->begin_record(
+        )->add_member(
+          'position'
+        )->add_number(
+          lv_position
+        )->add_member(
+          'label'
+        )->add_string(
+          lv_label
+        )->end_record(
+        )->end_array( ).
+
+        lo_field->add_annotation(
+          'UI.identification'
+        )->value->build(
+        )->begin_array(
+        )->begin_record(
+        )->add_member(
+          'position'
+        )->add_number(
+          lv_position
+        )->add_member(
+          'label'
+        )->add_string(
+          lv_label
+        )->end_record(
+        )->end_array( ).
+
+        IF ls_field-filterable =
+             abap_true.
+
+          DATA(lv_field_up) =
+            to_upper(
+              CONV string(
+                ls_field-field_name
+              )
+            ).
+
+          CONDENSE lv_field_up NO-GAPS.
+
+
+          DATA lv_filter_mapped
+            TYPE abap_bool.
+
+          lv_filter_mapped =
+            abap_false.
+
+
+          LOOP AT is_smap-input_maps
+            INTO DATA(ls_input_map)
+            WHERE map_state =
+              zif_mig_types=>gc_smap_auto.
+
+            DATA(lv_svc_up) =
+              to_upper(
+                CONV string(
+                  ls_input_map-svc_name
+                )
+              ).
+
+            CONDENSE lv_svc_up NO-GAPS.
+
+
+    IF lv_svc_up =
+         lv_field_up.
+
+      lv_filter_mapped =
+        abap_true.
+
+      EXIT.
+
+    ENDIF.
+
+  ENDLOOP.
+
+
+  IF lv_filter_mapped =
+       abap_true.
+
+    lo_field->add_annotation(
+      'UI.selectionField'
+    )->value->build(
+    )->begin_array(
+    )->begin_record(
+    )->add_member(
+      'position'
+    )->add_number(
+      lv_position
+    )->end_record(
+    )->end_array( ).
+
+  ENDIF.
+
+ENDIF.
+
       IF ls_field-field_name =
          lv_key_name.
 
@@ -894,6 +1012,50 @@ METHOD add_ddls.
       ENDIF.
 
     ENDIF.
+
+ENDMETHOD.
+
+
+METHOD add_srvd.
+
+  IF is_item-object_name IS INITIAL
+     OR iv_entity_name IS INITIAL
+     OR iv_alias IS INITIAL.
+
+    RAISE EXCEPTION NEW zcx_mig_analysis(
+      textid =
+        zcx_mig_analysis=>analysis_failed
+    ).
+
+  ENDIF.
+
+
+  DATA(lo_spec) =
+    io_put->for-srvd->add_object(
+      is_item-object_name
+    )->set_package(
+      iv_package
+    )->create_form_specification( ).
+
+
+  lo_spec->set_short_description(
+    'Generated MIG service definition'
+  ).
+
+
+  lo_spec->add_annotation(
+    'EndUserText.label'
+  )->value->build(
+  )->add_string(
+    'Generated MIG service definition'
+  ).
+
+
+  lo_spec->add_exposure(
+    iv_entity_name
+  )->set_alias(
+    CONV #( iv_alias )
+  ).
 
 ENDMETHOD.
 
@@ -1801,47 +1963,5 @@ APPEND
 
 ENDMETHOD.
 
-METHOD add_srvd.
-
-  IF is_item-object_name IS INITIAL
-     OR iv_entity_name IS INITIAL
-     OR iv_alias IS INITIAL.
-
-    RAISE EXCEPTION NEW zcx_mig_analysis(
-      textid =
-        zcx_mig_analysis=>analysis_failed
-    ).
-
-  ENDIF.
-
-
-  DATA(lo_spec) =
-    io_put->for-srvd->add_object(
-      is_item-object_name
-    )->set_package(
-      iv_package
-    )->create_form_specification( ).
-
-
-  lo_spec->set_short_description(
-    'Generated MIG service definition'
-  ).
-
-
-  lo_spec->add_annotation(
-    'EndUserText.label'
-  )->value->build(
-  )->add_string(
-    'Generated MIG service definition'
-  ).
-
-
-  lo_spec->add_exposure(
-    iv_entity_name
-  )->set_alias(
-    CONV #( iv_alias )
-  ).
-
-ENDMETHOD.
 
 ENDCLASS.
