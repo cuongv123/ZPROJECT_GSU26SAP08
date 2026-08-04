@@ -24,10 +24,11 @@ START-OF-SELECTION.
     TYPE zif_mig_types=>ty_analysis_id
     VALUE '00000000000000000000000000000088'.
 
-
   DATA:
-    ls_prv TYPE zif_mig_types=>ty_provider_contract,
-    ls_sig TYPE zif_mig_types=>ty_sig_result.
+  ls_prv  TYPE zif_mig_types=>ty_provider_contract,
+  ls_sig  TYPE zif_mig_types=>ty_sig_result,
+  ls_smap TYPE zif_mig_types=>ty_svc_map_result.
+
 
   DATA ls_mfst
     TYPE zif_mig_types=>ty_art_mfst.
@@ -89,7 +90,43 @@ START-OF-SELECTION.
 
       ls_sig-manual_review =
         abap_false.
+      ls_bp-blueprint-supports_filter =
+      abap_true.
 
+    ls_bp-blueprint-source_program =
+      sy-repid.
+
+DATA ls_in
+  TYPE zif_mig_types=>ty_sig_par.
+
+
+ls_in-par_name =
+  'IV_PLANT'.
+
+ls_in-direction =
+  zif_mig_types=>gc_sig_imp.
+
+ls_in-abap_type =
+  'CHAR'.
+
+ls_in-edm_type =
+  'Edm.String'.
+
+ls_in-odata_role =
+  zif_mig_types=>gc_sig_in.
+
+ls_in-optional =
+  abap_true.
+
+ls_in-is_table =
+  abap_false.
+
+
+APPEND ls_in
+  TO ls_sig-input_params.
+
+APPEND ls_in
+  TO ls_sig-all_params.
 
 DATA ls_ret
   TYPE zif_mig_types=>ty_sig_par.
@@ -207,7 +244,15 @@ DATA ls_ret
       filterable = abap_true
     ) TO ls_bp-fields.
 
-
+    APPEND VALUE #(
+      parameter_name     = 'Plant'
+      source_kind        = 'PARAMETERS'
+      odata_kind         = 'SCALAR'
+      edm_type           = 'Edm.String'
+      mandatory          = abap_false
+      multiple_selection = abap_false
+      range_supported    = abap_false
+    ) TO ls_bp-parameters.
 
 
   "============================================================
@@ -232,6 +277,8 @@ DATA ls_ret
 
   ls_mfst-manual_review =
     abap_false.
+
+
 
 
   APPEND VALUE #(
@@ -314,6 +361,37 @@ DATA ls_ret
   TRY.
 
       "==========================================================
+    " Build Service Mapping
+    "==========================================================
+    ls_smap =
+      NEW zcl_mig_svc_map(
+        )->zif_mig_svc_map~build(
+          is_bp =
+            ls_bp
+
+          is_sig =
+            ls_sig
+        ).
+
+
+    WRITE:
+      / 'Service map status :', ls_smap-status,
+      / 'Mapped inputs      :', ls_smap-mapped_inputs,
+      / 'Mapping issues     :', ls_smap-issue_count.
+
+
+    IF ls_smap-status <>
+         zif_mig_types=>gc_smap_ready.
+
+      WRITE:
+        / 'Generator stopped because service mapping is not ready.'.
+
+      RETURN.
+
+    ENDIF.
+
+
+      "==========================================================
       " 2. Repository Preflight thật
       "==========================================================
       DATA(lo_pref) =
@@ -370,24 +448,27 @@ DATA ls_ret
 
 
       lo_gen->generate_query(
-           is_mfst =
-             ls_pref
+        is_mfst =
+          ls_pref
 
-           is_bp =
-             ls_bp
+        is_bp =
+          ls_bp
 
-           is_prv =
-             ls_prv
+        is_prv =
+          ls_prv
 
-           is_sig =
-             ls_sig
+        is_sig =
+          ls_sig
 
-           iv_request =
-             p_req
+        is_smap =
+          ls_smap
 
-           iv_execute =
-             p_exec
-         ).
+        iv_request =
+          p_req
+
+        iv_execute =
+          p_exec
+      ).
 
 
       IF p_exec = abap_true.
