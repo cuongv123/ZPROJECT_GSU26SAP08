@@ -644,66 +644,90 @@ CLASS zcl_mig_svc_map IMPLEMENTATION.
 
   METHOD norm_name.
 
-    DATA lv_name TYPE string.
-
-    lv_name =
-      to_upper( iv_name ).
-
-    CONDENSE lv_name NO-GAPS.
+  DATA lv_name
+    TYPE string.
 
 
-    DO 3 TIMES.
+  lv_name =
+    to_upper(
+      iv_name
+    ).
 
-      IF lv_name CP 'IV_*'
-         OR lv_name CP 'IS_*'
-         OR lv_name CP 'IT_*'
-         OR lv_name CP 'EV_*'
-         OR lv_name CP 'ES_*'
-         OR lv_name CP 'ET_*'
-         OR lv_name CP 'CV_*'
-         OR lv_name CP 'CS_*'
-         OR lv_name CP 'CT_*'
-         OR lv_name CP 'RV_*'
-         OR lv_name CP 'RS_*'
-         OR lv_name CP 'RT_*'
-         OR lv_name CP 'GT_*'
-         OR lv_name CP 'GS_*'.
-
-        lv_name =
-          substring(
-            val = lv_name
-            off = 3
-          ).
+  CONDENSE lv_name NO-GAPS.
 
 
-      ELSEIF lv_name CP 'I_*'
-         OR lv_name CP 'E_*'
-         OR lv_name CP 'C_*'
-         OR lv_name CP 'R_*'
-         OR lv_name CP 'P_*'
-         OR lv_name CP 'S_*'
-         OR lv_name CP 'T_*'.
+  "============================================================
+  " Bỏ prefix kỹ thuật của ABAP parameter
+  " Ví dụ:
+  " IV_VALID_ON -> VALID_ON
+  " IT_MATERIAL -> MATERIAL
+  "============================================================
+  DO 3 TIMES.
 
-        lv_name =
-          substring(
-            val = lv_name
-            off = 2
-          ).
+    IF lv_name CP 'IV_*'
+       OR lv_name CP 'IS_*'
+       OR lv_name CP 'IT_*'
+       OR lv_name CP 'EV_*'
+       OR lv_name CP 'ES_*'
+       OR lv_name CP 'ET_*'
+       OR lv_name CP 'CV_*'
+       OR lv_name CP 'CS_*'
+       OR lv_name CP 'CT_*'
+       OR lv_name CP 'RV_*'
+       OR lv_name CP 'RS_*'
+       OR lv_name CP 'RT_*'
+       OR lv_name CP 'GT_*'
+       OR lv_name CP 'GS_*'.
+
+      lv_name =
+        substring(
+          val = lv_name
+          off = 3
+        ).
 
 
-      ELSE.
+    ELSEIF lv_name CP 'I_*'
+       OR lv_name CP 'E_*'
+       OR lv_name CP 'C_*'
+       OR lv_name CP 'R_*'
+       OR lv_name CP 'P_*'
+       OR lv_name CP 'S_*'
+       OR lv_name CP 'T_*'.
 
-        EXIT.
+      lv_name =
+        substring(
+          val = lv_name
+          off = 2
+        ).
 
-      ENDIF.
 
-    ENDDO.
+    ELSE.
+
+      EXIT.
+
+    ENDIF.
+
+  ENDDO.
 
 
-    rv_name =
-      lv_name.
+  "============================================================
+  " Chuẩn hóa CamelCase và ABAP snake_case về cùng dạng
+  "
+  " ValidOn  -> VALIDON
+  " VALID_ON -> VALIDON
+  "============================================================
+  REPLACE ALL OCCURRENCES OF '_'
+    IN lv_name
+    WITH ''.
 
-  ENDMETHOD.
+
+  CONDENSE lv_name NO-GAPS.
+
+
+  rv_name =
+    lv_name.
+
+ENDMETHOD.
 
 
   METHOD type_ok.

@@ -325,18 +325,20 @@ DATA ls_ret
       edm_type   = 'Edm.Int32'
       position   = 40
       visible    = abap_true
+      filterable = abap_true
       sortable   = abap_true
     ) TO ls_bp-fields.
 
 
     APPEND VALUE #(
-      field_name = 'Amount'
-      label      = 'Amount'
-      edm_type   = 'Edm.Decimal'
-      position   = 50
-      visible    = abap_true
-      sortable   = abap_true
-    ) TO ls_bp-fields.
+   field_name = 'Amount'
+   label      = 'Amount'
+   edm_type   = 'Edm.Decimal'
+   position   = 50
+   visible    = abap_true
+   filterable = abap_true
+   sortable   = abap_true
+ ) TO ls_bp-fields.
 
 
     APPEND VALUE #(
