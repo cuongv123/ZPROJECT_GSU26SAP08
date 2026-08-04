@@ -38,7 +38,9 @@ CLASS zcl_mig_mail_service DEFINITION
 ENDCLASS.
 
 
-CLASS zcl_mig_mail_service IMPLEMENTATION.
+
+CLASS ZCL_MIG_MAIL_SERVICE IMPLEMENTATION.
+
 
   METHOD send_job.
 
@@ -464,7 +466,7 @@ ENDIF.
           ).
 
         rs_result-request_created = abap_true.
-
+COMMIT WORK AND WAIT.
 
         "----------------------------------------------------------
         " All recipients accepted
@@ -567,5 +569,4 @@ ENDIF.
     ENDTRY.
 
   ENDMETHOD.
-
 ENDCLASS.
