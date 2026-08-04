@@ -20,7 +20,11 @@ CLASS zcl_mig_export_engine DEFINITION
              column_name TYPE string,
            END OF ty_fiori_col,
            tt_fiori_col TYPE STANDARD TABLE OF ty_fiori_col WITH DEFAULT KEY.
-
+    METHODS escape_pdf_text
+      IMPORTING
+        iv_text        TYPE string
+      RETURNING
+        VALUE(rv_text) TYPE string.
     METHODS get_fiori_columns
       IMPORTING
         iv_section_code TYPE zif_mig_export_provider=>ty_export_section
@@ -46,7 +50,13 @@ CLASS zcl_mig_export_engine DEFINITION
         VALUE(rv_analysis_id) TYPE sysuuid_x16
       RAISING
         cx_root.
-
+    METHODS build_pdf_document
+      IMPORTING
+        it_lines          TYPE string_table
+      RETURNING
+        VALUE(rv_content) TYPE xstring
+      RAISING
+        cx_root.
     METHODS escape_csv_value
       IMPORTING
         iv_value        TYPE string
@@ -80,29 +90,21 @@ CLASS zcl_mig_export_engine DEFINITION
       RETURNING
         VALUE(rs_result)  TYPE zif_mig_export_provider=>ty_export_result.
 
-    METHODS escape_pdf_text
-      IMPORTING
-        iv_text        TYPE string
-      RETURNING
-        VALUE(rv_text) TYPE string.
 
-    METHODS build_pdf_document
-      IMPORTING
-        it_lines          TYPE string_table
-      RETURNING
-        VALUE(rv_content) TYPE xstring
-      RAISING
-        cx_root.
+
+
 
 ENDCLASS.
 
 
-CLASS zcl_mig_export_engine IMPLEMENTATION.
+
+CLASS ZCL_MIG_EXPORT_ENGINE IMPLEMENTATION.
+
 
   METHOD zif_mig_export_provider~generate.
 
     TRY.
-        DATA(lv_format) = to_upper( condense( CONV string( iv_file_format ) ) ).
+   DATA(lv_format) = to_upper( condense( CONV string( iv_file_format ) ) ).
 
         CASE lv_format.
           WHEN gc_format_excel OR 'EXCEL' OR 'E' OR 'XLSX' OR 'X'.
@@ -143,6 +145,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
 
   ENDMETHOD.
 
+
   METHOD get_fiori_columns.
     CLEAR rt_cols.
 
@@ -153,6 +156,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       ORDER BY seq_no ASCENDING
       INTO CORRESPONDING FIELDS OF TABLE @rt_cols.
   ENDMETHOD.
+
 
   METHOD get_section_registry.
     CLEAR rt_registry.
@@ -180,6 +184,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     ENDIF.
   ENDMETHOD.
 
+
   METHOD get_analysis_id.
     IF iv_analysis_id IS NOT INITIAL.
       rv_analysis_id = iv_analysis_id.
@@ -196,10 +201,12 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     ENDIF.
   ENDMETHOD.
 
+
   METHOD escape_csv_value.
     DATA(lv_escaped) = replace( val = iv_value sub = '"' with = '""' occ = 0 ).
     rv_value = |"{ lv_escaped }"|.
   ENDMETHOD.
+
 
   METHOD export_excel.
     DATA(lt_registry) = get_section_registry( ).
@@ -215,7 +222,6 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     DATA(lo_excel) = NEW zcl_excel( ).
     DATA(lv_sheet_count) = 0.
 
-    " Style In đậm dùng chung cho Tiêu đề Cột
     DATA(lo_style_bold) = lo_excel->add_new_style( ).
     lo_style_bold->font->bold = abap_true.
 
@@ -226,7 +232,6 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
             CONTINUE.
           ENDIF.
 
-          " 1. Tạo cấu trúc dữ liệu động từ CDS View
           TRY.
               DATA(lo_struct) = CAST cl_abap_structdescr(
                 cl_abap_typedescr=>describe_by_name( ls_section-view_name ) ).
@@ -238,29 +243,17 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
           DATA lr_data TYPE REF TO data.
           CREATE DATA lr_data TYPE HANDLE lo_table_type.
           ASSIGN lr_data->* TO FIELD-SYMBOL(<lt_data>).
-          " ======================================================================
-          " 2. Query dữ liệu & Sắp xếp chuẩn theo Fiori UI
-          " ======================================================================
+
           IF lv_analysis_id IS NOT INITIAL.
             SELECT * FROM (ls_section-view_name)
               WHERE analysis_id = @lv_analysis_id
               INTO TABLE @<lt_data>.
 
-            " Sắp xếp riêng cho Sheet Recommendations giống hệt Fiori
             IF ls_section-section_code = 'RECOMMEN' AND <lt_data> IS NOT INITIAL.
-
-              " Tạo cấu trúc chứa Priority để Sort
-              TYPES: BEGIN OF ty_rec_sort,
-                       priority TYPE i,
-                     END OF ty_rec_sort.
-
-              " Hoặc sắp xếp theo Target Layer để đưa FIORI_ANNOTATION lên đầu
               SORT <lt_data> BY ('TARGET_LAYER') DESCENDING ('SEVERITY') ASCENDING.
-
             ENDIF.
           ENDIF.
 
-          " 3. Quản lý Sheet Excel
           DATA(lo_sheet) = COND #(
             WHEN lv_sheet_count = 0
             THEN lo_excel->get_active_worksheet( )
@@ -268,19 +261,16 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
 
           lo_sheet->set_title( ip_title = CONV #( ls_section-sheet_title ) ).
 
-          " 4. Đổ dữ liệu
           IF <lt_data> IS INITIAL.
             lo_sheet->set_cell( ip_column = 1 ip_row = 1 ip_value = |No data available for section { ls_section-sheet_title }.| ).
           ELSE.
 
-            " 4a. Đọc cấu hình cột động từ bảng ZTB_EXP_COL
             SELECT seq_no, fieldname, column_title
               FROM ztb_exp_col
               WHERE section_code = @ls_section-section_code
               ORDER BY seq_no ASCENDING
               INTO TABLE @DATA(lt_columns).
 
-            " Fallback: Nếu bảng ZTB_EXP_COL chưa có cấu hình cho section này, tự lấy toàn bộ từ View Structure
             IF lt_columns IS INITIAL.
               DATA(lt_components) = lo_struct->get_components( ).
               LOOP AT lt_components INTO DATA(ls_comp).
@@ -289,27 +279,21 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
               ENDLOOP.
             ENDIF.
 
-            " ----------------------------------------------------------------------
-            " 4b. THIẾT LẬP HEADER VÀ ĐỘ RỘNG CỘT BAN ĐẦU
-            " ----------------------------------------------------------------------
             DATA(lv_col) = 1.
 
             LOOP AT lt_columns INTO DATA(ls_col).
               DATA(lv_header_text) = CONV string( ls_col-column_title ).
 
-              " Ghi tiêu đề vào Dòng 1
               lo_sheet->set_cell(
                 ip_column = lv_col
                 ip_row    = 1
                 ip_value  = lv_header_text ).
 
-              " Format In Đậm
               lo_sheet->set_cell_style(
                 ip_column = lv_col
                 ip_row    = 1
                 ip_style  = lo_style_bold->get_guid( ) ).
 
-              " Độ rộng ban đầu
               DATA(lv_init_len) = strlen( lv_header_text ) + 4.
               DATA(lo_col_obj)  = lo_sheet->get_column( ip_column = lv_col ).
               IF lo_col_obj IS BOUND.
@@ -319,21 +303,14 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
               lv_col = lv_col + 1.
             ENDLOOP.
 
-            " ----------------------------------------------------------------------
-            " 4c. ĐỔ DATA ĐỘNG 100% (KHÔNG HARDCODE)
-            " ----------------------------------------------------------------------
             DATA(lv_row) = 2.
             LOOP AT <lt_data> ASSIGNING FIELD-SYMBOL(<ls_row>).
               lv_col = 1.
               LOOP AT lt_columns INTO ls_col.
 
-                " Lấy tên Field kỹ thuật đã lưu trong Bảng Cấu Hình
                 DATA(lv_field_tech) = to_upper( condense( CONV string( ls_col-fieldname ) ) ).
-
-                " Assign trực tiếp
                 ASSIGN COMPONENT lv_field_tech OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_val>).
 
-                " Ghi dữ liệu vào ô Excel
                 IF sy-subrc = 0 AND <lv_val> IS ASSIGNED.
                   DATA(lv_val_str) = CONV string( <lv_val> ).
 
@@ -342,7 +319,6 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
                     ip_row    = lv_row
                     ip_value  = <lv_val> ).
 
-                  " Tự động giãn cột nếu data dài
                   DATA(lv_val_len) = strlen( lv_val_str ) + 3.
                   DATA(lo_column)  = lo_sheet->get_column( ip_column = lv_col ).
 
@@ -358,12 +334,10 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
               lv_row = lv_row + 1.
             ENDLOOP.
 
-            " 4d. Ghi dòng tổng kết
             DATA(lv_total_row) = lv_row + 1.
             lo_sheet->set_cell( ip_column = 1 ip_row = lv_total_row ip_value = 'TOTAL ROWS' ).
             lo_sheet->set_cell( ip_column = 2 ip_row = lv_total_row ip_value = lines( <lt_data> ) ).
 
-            " 4e. Cập nhật hoàn tất độ rộng cột
             lo_sheet->calculate_column_widths( ).
 
           ENDIF.
@@ -378,14 +352,12 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
         RETURN.
     ENDTRY.
 
-    " Nếu không tạo được Sheet nào
     IF lv_sheet_count = 0.
       DATA(lo_empty_sheet) = lo_excel->get_active_worksheet( ).
       lo_empty_sheet->set_title( ip_title = 'Report' ).
       lo_empty_sheet->set_cell( ip_column = 1 ip_row = 1 ip_value = |No data available for program { iv_report_type }.| ).
     ENDIF.
 
-    " 5. Build Binary File Excel
     DATA(lo_writer) = CAST zif_excel_writer( NEW zcl_excel_writer_2007( ) ).
 
     TRY.
@@ -405,6 +377,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     rs_result-message     = 'Excel export generated successfully.'.
 
   ENDMETHOD.
+
 
   METHOD export_csv.
     DATA(lt_registry) = get_section_registry( ).
@@ -453,13 +426,9 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
           && cl_abap_char_utilities=>cr_lf.
       ELSE.
 
-        " Dùng đúng nguồn cấu hình cột dùng chung với Excel (ZTB_EXP_COL)
-        " để tên cột + thứ tự cột giống Fiori, không hard-code.
-        DATA(lt_fiori_cols) = get_fiori_columns( ls_section-section_code ).
+        DATA(lt_sec_cols) = get_fiori_columns( ls_section-section_code ).
 
-        IF lt_fiori_cols IS INITIAL.
-          " Fallback: chưa có cấu hình cho section này -> lấy toàn bộ field
-          " (trừ MANDT/CLIENT/GUID/khóa kỹ thuật).
+        IF lt_sec_cols IS INITIAL.
           DATA(lt_fields) = lo_struct->get_components( ).
           LOOP AT lt_fields INTO DATA(ls_field_chk).
             DATA(lv_name_upper) = to_upper( ls_field_chk-name ).
@@ -471,15 +440,14 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
               CONTINUE.
             ENDIF.
             APPEND VALUE #( fieldname   = ls_field_chk-name
-                             column_name = ls_field_chk-name ) TO lt_fiori_cols.
+                             column_name = ls_field_chk-name ) TO lt_sec_cols.
           ENDLOOP.
         ENDIF.
 
-        " Dòng tiêu đề cột - dùng đúng tên cột đã cấu hình (giống Fiori)
         DATA lv_header_line TYPE string.
         CLEAR lv_header_line.
-        LOOP AT lt_fiori_cols INTO DATA(ls_fiori_col).
-          DATA(lv_header_cell) = escape_csv_value( ls_fiori_col-column_name ).
+        LOOP AT lt_sec_cols INTO DATA(ls_col).
+          DATA(lv_header_cell) = escape_csv_value( ls_col-column_name ).
           lv_header_line = COND #(
             WHEN lv_header_line IS INITIAL THEN lv_header_cell
             ELSE lv_header_line && ',' && lv_header_cell ).
@@ -489,12 +457,12 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
         LOOP AT <lt_data> ASSIGNING FIELD-SYMBOL(<ls_row>).
           DATA lv_row_line TYPE string.
           CLEAR lv_row_line.
-          LOOP AT lt_fiori_cols INTO ls_fiori_col.
-            DATA(lv_field_tech) = to_upper( condense( CONV string( ls_fiori_col-fieldname ) ) ).
-            ASSIGN COMPONENT lv_field_tech OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_cell>).
+          LOOP AT lt_sec_cols INTO ls_col.
+            DATA(lv_field_tech) = to_upper( condense( CONV string( ls_col-fieldname ) ) ).
+            ASSIGN COMPONENT lv_field_tech OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_val>).
 
-            DATA(lv_cell_val) = COND string( WHEN sy-subrc = 0 THEN |{ <lv_cell> }| ELSE `` ).
-            DATA(lv_escaped_cell) = escape_csv_value( lv_cell_val ).
+            DATA(lv_val_str) = COND string( WHEN sy-subrc = 0 THEN |{ <lv_val> }| ELSE `` ).
+            DATA(lv_escaped_cell) = escape_csv_value( lv_val_str ).
 
             lv_row_line = COND #(
               WHEN lv_row_line IS INITIAL THEN lv_escaped_cell
@@ -546,15 +514,8 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
 
     DATA lt_lines TYPE string_table.
 
-    APPEND |Migration Analysis Report| TO lt_lines.
-    APPEND |Program: { iv_report_type }| TO lt_lines.
-    APPEND |Generated: { sy-datum } { sy-uzeit }| TO lt_lines.
-    APPEND `` TO lt_lines.
-
-    DATA(lv_processed_count) = 0.
-
+    " Duyệt lấy dữ liệu nghiệp vụ
     LOOP AT lt_registry INTO DATA(ls_section).
-
       IF iv_export_section <> 'ALL' AND ls_section-section_code <> iv_export_section.
         CONTINUE.
       ENDIF.
@@ -577,76 +538,49 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
           INTO TABLE @<lt_data>.
       ENDIF.
 
-      lv_processed_count = lv_processed_count + 1.
-      APPEND |=== { ls_section-sheet_title } ===| TO lt_lines.
+      IF <lt_data> IS NOT INITIAL.
+        " --- BƯỚC 1: HEADER CỘT ---
+        " Ví dụ gán tiêu đề chuẩn như hình UI5
+        DATA(lv_hdr_str) = |Object| &&
+                          |\|Type| &&
+                          |\|Container| &&
+                          |\|Calling Routine| &&
+                          |\|Side Effect| &&
+                          |\|GUI Dependency| &&
+                          |\|Reuse Feasibility|.
+        APPEND lv_hdr_str TO lt_lines.
 
-      IF <lt_data> IS INITIAL.
-        APPEND |No data available for section { ls_section-sheet_title }.| TO lt_lines.
-      ELSE.
-
-        " Dùng đúng nguồn cấu hình cột dùng chung với Excel (ZTB_EXP_COL)
-        " để tên cột + thứ tự cột giống Fiori, không hard-code.
-        DATA(lt_fiori_cols) = get_fiori_columns( ls_section-section_code ).
-
-        IF lt_fiori_cols IS INITIAL.
-          " Fallback: chưa có cấu hình cho section này -> lấy toàn bộ field
-          " (trừ MANDT/CLIENT/GUID/khóa kỹ thuật).
-          DATA(lt_fields) = lo_struct->get_components( ).
-          LOOP AT lt_fields INTO DATA(ls_field_chk).
-            DATA(lv_name_upper) = to_upper( ls_field_chk-name ).
-            IF lv_name_upper = 'MANDT' OR lv_name_upper = 'CLIENT'
-                OR ls_field_chk-type->type_kind = cl_abap_typedescr=>typekind_hex
-                OR ls_field_chk-type->type_kind = cl_abap_typedescr=>typekind_xstring
-                OR ( lv_name_upper CP '*_ID' AND lv_name_upper <> 'ANALYSIS_ID' )
-                OR lv_name_upper = 'ANALYSIS_ID'.
-              CONTINUE.
-            ENDIF.
-            APPEND VALUE #( fieldname   = ls_field_chk-name
-                             column_name = ls_field_chk-name ) TO lt_fiori_cols.
-          ENDLOOP.
-        ENDIF.
-
-        " Dòng tiêu đề cột - dùng đúng tên cột đã cấu hình (giống Fiori)
-        DATA lv_header_line TYPE string.
-        CLEAR lv_header_line.
-        LOOP AT lt_fiori_cols INTO DATA(ls_fiori_col).
-          lv_header_line = COND #(
-            WHEN lv_header_line IS INITIAL THEN ls_fiori_col-column_name
-            ELSE lv_header_line && ` | ` && ls_fiori_col-column_name ).
-        ENDLOOP.
-        APPEND lv_header_line TO lt_lines.
-        APPEND repeat( val = `-` occ = strlen( lv_header_line ) ) TO lt_lines.
-
+        " --- BƯỚC 2: CÁC DÒNG DỮ LIỆU ---
         LOOP AT <lt_data> ASSIGNING FIELD-SYMBOL(<ls_row>).
-          DATA lv_line TYPE string.
-          CLEAR lv_line.
-          LOOP AT lt_fiori_cols INTO ls_fiori_col.
-            DATA(lv_field_tech) = to_upper( condense( CONV string( ls_fiori_col-fieldname ) ) ).
-            ASSIGN COMPONENT lv_field_tech OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_cell>).
+          DATA lv_row_str TYPE string.
+          CLEAR lv_row_str.
 
-            DATA(lv_cell_text) = COND string( WHEN sy-subrc = 0 THEN |{ <lv_cell> }| ELSE `` ).
+          " Duyệt lấy thông tin nghiệp vụ bỏ GUID
+          DO.
+            ASSIGN COMPONENT sy-index OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_val>).
+            IF sy-subrc <> 0. EXIT. ENDIF.
 
-            " Cắt bớt nếu quá dài, tránh tràn dòng trên khổ giấy PDF
-            IF strlen( lv_cell_text ) > 25.
-              lv_cell_text = lv_cell_text(22) && `...`.
+            " Bỏ qua cột index đầu tiên nếu là GUID
+            IF sy-index = 1 OR sy-index = 2. CONTINUE. ENDIF.
+
+            DATA(lv_val_txt) = COND string( WHEN <lv_val> IS ASSIGNED THEN |{ <lv_val> }| ELSE `` ).
+            CONDENSE lv_val_txt.
+
+            IF lv_row_str IS INITIAL.
+              lv_row_str = lv_val_txt.
+            ELSE.
+              lv_row_str = |{ lv_row_str }\|{ lv_val_txt }|.
             ENDIF.
+          ENDDO.
 
-            lv_line = COND #(
-              WHEN lv_line IS INITIAL THEN lv_cell_text
-              ELSE lv_line && ` | ` && lv_cell_text ).
-          ENDLOOP.
-          APPEND lv_line TO lt_lines.
+          IF lv_row_str IS NOT INITIAL.
+            APPEND lv_row_str TO lt_lines.
+          ENDIF.
         ENDLOOP.
       ENDIF.
-
-      APPEND `` TO lt_lines.
-
     ENDLOOP.
 
-    IF lv_processed_count = 0.
-      APPEND |No data available for program { iv_report_type }.| TO lt_lines.
-    ENDIF.
-
+    " Render PDF
     TRY.
         rs_result-content = build_pdf_document( lt_lines ).
       CATCH cx_root INTO DATA(lx_pdf).
@@ -660,28 +594,33 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     rs_result-file_type   = 'PDF'.
     rs_result-file_format = gc_format_pdf.
     rs_result-mime_type   = 'application/pdf'.
-    rs_result-message     = 'PDF export generated successfully.'.
-
+    rs_result-message     = 'PDF generated successfully.'.
   ENDMETHOD.
+
+
   METHOD escape_pdf_text.
-    DATA(lv_escaped) = replace( val = iv_text sub = '\' with = '\\' occ = 0 ).
+    DATA(lv_escaped) = iv_text.
+
+    " Escape các ký tự bắt buộc của cấu trúc PDF
+    lv_escaped = replace( val = lv_escaped sub = '\' with = '\\' occ = 0 ).
     lv_escaped = replace( val = lv_escaped sub = '(' with = '\(' occ = 0 ).
     lv_escaped = replace( val = lv_escaped sub = ')' with = '\)' occ = 0 ).
 
+    " Chuyển đổi các ký tự ngoài ASCII 32-126 thành dấu cách để tránh biến thành '?'
     lv_escaped = replace(
       regex = '[^\x20-\x7E]'
       val   = lv_escaped
-      with  = '?'
+      with  = ' '
       occ   = 0 ).
 
     rv_text = lv_escaped.
   ENDMETHOD.
 
 
-  METHOD build_pdf_document.
-    CONSTANTS: lc_lines_per_page TYPE i VALUE 50,
-               lc_page_width     TYPE i VALUE 612,
-               lc_page_height    TYPE i VALUE 792.
+ METHOD build_pdf_document.
+    CONSTANTS: lc_lines_per_page TYPE i VALUE 18,
+               lc_page_width     TYPE i VALUE 792, " Landscape
+               lc_page_height    TYPE i VALUE 612.
 
     DATA lt_pages TYPE string_table.
     DATA(lv_total_lines) = lines( it_lines ).
@@ -692,30 +631,139 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     DATA lv_idx TYPE i VALUE 0.
     DATA lv_page_num TYPE i VALUE 1.
 
+    DATA lt_cols TYPE string_table.
+    DATA lt_col_widths TYPE STANDARD TABLE OF i.
+    DATA lv_num_cols TYPE i VALUE 0.
+
+    DATA(lv_left_margin) = 20.
+    DATA(lv_table_width) = 752.
+
     DO lv_total_pages TIMES.
       DATA(lv_from) = lv_idx + 1.
       DATA(lv_to)   = nmin( val1 = lv_total_lines val2 = lv_idx + lc_lines_per_page ).
 
       DATA lv_page_content TYPE string.
-      lv_page_content = |BT\n/F1 8 Tf\n|.
-      lv_page_content = lv_page_content && |1 0 0 1 40 { lc_page_height - 30 } Tm\n|.
-      lv_page_content = lv_page_content &&
-        |({ escape_pdf_text( |Migration Analysis Report - Page { lv_page_num }/{ lv_total_pages }| ) }) Tj\n|.
+      CLEAR lv_page_content.
 
-      DATA(lv_y) = lc_page_height - 55.
+      " === HEADER TRANG PDF ===
+      lv_page_content = |BT\n/F1 11 Tf\n1 0 0 1 20 { lc_page_height - 25 } Tm\n|.
+      lv_page_content = lv_page_content && |({ escape_pdf_text( |ABAP Migration Analysis Report| ) }) Tj\nET\n|.
+
+      DATA(lv_y) = lc_page_height - 50.
+      DATA(lv_row_height) = 22.
 
       IF lv_from <= lv_to.
-        LOOP AT it_lines FROM lv_from TO lv_to INTO DATA(lv_text_line).
-          lv_page_content = lv_page_content && |1 0 0 1 40 { lv_y } Tm\n|.
-          lv_page_content = lv_page_content && |({ escape_pdf_text( lv_text_line ) }) Tj\n|.
-          lv_y = lv_y - 11.
-        ENDLOOP.
+        DATA(lv_line_counter) = lv_from.
+
+        WHILE lv_line_counter <= lv_to.
+          DATA(lv_curr_str) = it_lines[ lv_line_counter ].
+          CONDENSE lv_curr_str.
+
+          " === 1. PHÁT HIỆN DÒNG TIÊU ĐỀ SECTION (SECTION TITLE) ===
+          " Ví dụ: "=== UI Filters ===" hoặc dòng bắt đầu bằng "SECTION:"
+          IF lv_curr_str CS '===' OR lv_curr_str CS 'Source Structure' OR lv_curr_str CS 'UI Filters' OR lv_curr_str CS 'Database Objects'.
+
+            " Vẽ thanh Nền Tiêu Đề Section (Xám Đậm UI5)
+            lv_page_content = lv_page_content && |0.2 0.3 0.4 rg\n|.
+            lv_page_content = lv_page_content && |{ lv_left_margin } { lv_y - 4 } { lv_table_width } { lv_row_height } re f\n|.
+
+            " In Tên Section (Chữ Trắng - Bold)
+            DATA(lv_section_name) = lv_curr_str.
+            REPLACE ALL OCCURRENCES OF '=' IN lv_section_name WITH ''.
+            CONDENSE lv_section_name.
+
+            lv_page_content = lv_page_content && |BT\n/F1 9 Tf\n1 1 1 rg\n|. " Font to, Chữ Trắng
+            lv_page_content = lv_page_content && |1 0 0 1 { lv_left_margin + 8 } { lv_y + 4 } Tm\n|.
+            lv_page_content = lv_page_content && |({ escape_pdf_text( lv_section_name ) }) Tj\nET\n0 g\n|.
+
+            lv_y = lv_y - lv_row_height.
+            lv_line_counter = lv_line_counter + 1.
+            CONTINUE.
+          ENDIF.
+
+          " === 2. TÁCH CÁC CỘT DỮ LIỆU / FIELD HEADER ===
+          CLEAR lt_cols.
+          SPLIT lv_curr_str AT '|' INTO TABLE lt_cols.
+          lv_num_cols = lines( lt_cols ).
+          IF lv_num_cols = 0. lv_num_cols = 1. ENDIF.
+
+          " Kiểm tra dòng có phải là Dòng Header Field của Section không
+          DATA(lv_is_field_header) = COND abap_bool(
+            WHEN lv_curr_str CS 'Field' OR lv_curr_str CS 'Object' OR lv_curr_str CS 'Source Object' OR lv_curr_str CS 'Type'
+            THEN abap_true
+            ELSE abap_false ).
+
+          " Nếu là Dòng Header của Bảng mới -> Tính toán lại Width riêng cho Bảng này
+          IF lv_is_field_header = abap_true OR lt_col_widths IS INITIAL.
+            CLEAR lt_col_widths.
+            DATA(lv_c_idx) = 1.
+            WHILE lv_c_idx <= lv_num_cols.
+              DATA(lv_fname) = COND string( WHEN lv_c_idx <= lines( lt_cols ) THEN lt_cols[ lv_c_idx ] ELSE '' ).
+              CONDENSE lv_fname.
+
+              " Phân bổ độ rộng cột linh hoạt theo đặc tính Field
+              IF lv_fname CS 'Object' OR lv_fname CS 'Table' OR lv_fname CS 'Routine'.
+                APPEND 120 TO lt_col_widths.
+              ELSEIF lv_fname CS 'Field' OR lv_fname CS 'Element' OR lv_fname CS 'Kind'.
+                APPEND 90 TO lt_col_widths.
+              ELSE.
+                APPEND ( lv_table_width / lv_num_cols ) TO lt_col_widths.
+              ENDIF.
+
+              lv_c_idx = lv_c_idx + 1.
+            ENDWHILE.
+          ENDIF.
+
+          " === 3. VẼ DÒNG CỘT (HEADER BẢNG HOẶC DATA ROW) ===
+          IF lv_is_field_header = abap_true.
+            " Background xám nhạt cho Field Header
+            lv_page_content = lv_page_content && |0.90 0.92 0.95 rg\n|.
+            lv_page_content = lv_page_content && |{ lv_left_margin } { lv_y - 4 } { lv_table_width } { lv_row_height } re f\n|.
+            lv_page_content = lv_page_content && |0 g\n|.
+          ENDIF.
+
+          " Đường kẻ ngang đáy dòng
+          lv_page_content = lv_page_content && |0.80 0.80 0.80 RG\n0.5 w\n|.
+          lv_page_content = lv_page_content && |{ lv_left_margin } { lv_y - 4 } m { lv_left_margin + lv_table_width } { lv_y - 4 } l S\n|.
+
+          " === 4. IN TỪNG CỘT TƯƠNG ỨNG ===
+          DATA(lv_x) = lv_left_margin.
+          DATA(lv_col_idx) = 1.
+
+          WHILE lv_col_idx <= lv_num_cols.
+            DATA(lv_cell_txt) = COND string( WHEN lv_col_idx <= lines( lt_cols ) THEN lt_cols[ lv_col_idx ] ELSE '' ).
+            CONDENSE lv_cell_txt.
+
+            " Khai báo lv_w duy nhất ở đây
+            DATA(lv_w) = COND i( WHEN lv_col_idx <= lines( lt_col_widths ) THEN lt_col_widths[ lv_col_idx ] ELSE ( lv_table_width / lv_num_cols ) ).
+
+            " Cắt bớt văn bản nếu quá dài so với ô
+            DATA(lv_max_char) = CONV i( lv_w / 5 ) - 1.
+            IF lv_max_char > 0 AND strlen( lv_cell_txt ) > lv_max_char.
+              lv_cell_txt = lv_cell_txt(lv_max_char) && '..'.
+            ENDIF.
+
+            " Header dùng Font 7.5pt Bold, Data dùng Font 6.5pt Normal
+          DATA(lv_font_sz) = COND string( WHEN lv_is_field_header = abap_true THEN '7.5' ELSE '6.5' ).
+            lv_page_content = lv_page_content && |BT\n/F1 { lv_font_sz } Tf\n|.
+            lv_page_content = lv_page_content && |1 0 0 1 { lv_x + 4 } { lv_y + 3 } Tm\n|.
+            lv_page_content = lv_page_content && |({ escape_pdf_text( lv_cell_txt ) }) Tj\nET\n|.
+
+            " Vạch kẻ dọc chia các ô
+            lv_page_content = lv_page_content && |{ lv_x + lv_w } { lv_y - 4 } m { lv_x + lv_w } { lv_y + lv_row_height - 4 } l S\n|.
+
+            lv_x = lv_x + lv_w.
+            lv_col_idx = lv_col_idx + 1.
+          ENDWHILE.
+
+          lv_y = lv_y - lv_row_height.
+          lv_line_counter = lv_line_counter + 1.
+        ENDWHILE.
       ENDIF.
 
-      lv_page_content = lv_page_content && |1 0 0 1 40 30 Tm\n|.
-      lv_page_content = lv_page_content &&
-        |({ escape_pdf_text( |Generated automatically - { sy-datum } { sy-uzeit }| ) }) Tj\n|.
-      lv_page_content = lv_page_content && |ET\n|.
+      " === FOOTER TRANG ===
+      lv_page_content = lv_page_content && |BT\n/F1 8 Tf\n1 0 0 1 { lc_page_width - 80 } 15 Tm\n|.
+      lv_page_content = lv_page_content && |({ escape_pdf_text( |Page { lv_page_num } / { lv_total_pages }| ) }) Tj\nET\n|.
 
       APPEND lv_page_content TO lt_pages.
 
@@ -723,6 +771,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       lv_page_num = lv_page_num + 1.
     ENDDO.
 
+    " === TẠO PDF STREAM BINARY ===
     DATA lv_pdf TYPE string.
     DATA lt_offsets TYPE STANDARD TABLE OF i.
 
@@ -782,8 +831,4 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
 
     rv_content = cl_abap_codepage=>convert_to( source = lv_pdf codepage = 'UTF-8' ).
   ENDMETHOD.
-
-
-
-
 ENDCLASS.

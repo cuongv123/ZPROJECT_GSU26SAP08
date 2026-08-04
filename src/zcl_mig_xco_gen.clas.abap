@@ -94,6 +94,47 @@ CLASS zcl_mig_xco_gen DEFINITION
       RAISING
         zcx_mig_analysis.
 
+
+      METHODS add_srvd
+          IMPORTING
+            io_put
+              TYPE REF TO if_xco_cp_gen_d_o_put
+
+            is_item
+              TYPE zif_mig_types=>ty_art_item
+
+            iv_package
+              TYPE devclass
+
+            iv_entity_name
+              TYPE zif_mig_types=>ty_art_name
+
+            iv_alias
+              TYPE string
+
+          RAISING
+            zcx_mig_analysis.
+
+      METHODS add_srvb
+          IMPORTING
+            io_put
+              TYPE REF TO if_xco_cp_gen_d_o_put
+
+            is_item
+              TYPE zif_mig_types=>ty_art_item
+
+            iv_package
+              TYPE devclass
+
+            iv_service_name
+              TYPE zif_mig_types=>ty_art_name
+
+            iv_srvd_name
+              TYPE zif_mig_types=>ty_art_name
+
+          RAISING
+            zcx_mig_analysis.
+
       METHODS build_select_src
           IMPORTING
             it_fields
@@ -155,6 +196,84 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
 
     IF sy-subrc <> 0
        OR ls_ddls-object_name IS INITIAL.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid =
+          zcx_mig_analysis=>analysis_failed
+
+        program_name =
+          is_mfst-source_program
+      ).
+
+    ENDIF.
+
+    READ TABLE is_mfst-items
+      WITH KEY
+        art_type = zif_mig_types=>gc_art_srvd
+        art_role = zif_mig_types=>gc_art_srv_def
+      INTO DATA(ls_srvd).
+
+
+    IF sy-subrc <> 0
+       OR ls_srvd-object_name IS INITIAL.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid =
+          zcx_mig_analysis=>analysis_failed
+
+        program_name =
+          is_mfst-source_program
+      ).
+
+    ENDIF.
+
+    READ TABLE is_mfst-items
+      WITH KEY
+        art_type = zif_mig_types=>gc_art_srvb
+        art_role = zif_mig_types=>gc_art_srv_bind
+      INTO DATA(ls_srvb).
+
+
+    IF sy-subrc <> 0
+       OR ls_srvb-object_name IS INITIAL.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid =
+          zcx_mig_analysis=>analysis_failed
+
+        program_name =
+          is_mfst-source_program
+      ).
+
+    ENDIF.
+
+
+    IF strlen(
+         CONV string(
+           ls_srvb-object_name
+         )
+       ) > 26.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid =
+          zcx_mig_analysis=>analysis_failed
+
+        program_name =
+          is_mfst-source_program
+      ).
+
+    ENDIF.
+
+    DATA(lv_srv_alias) =
+      CONV string(
+        is_bp-blueprint-entity_name
+      ).
+
+    CONDENSE lv_srv_alias NO-GAPS.
+
+
+    IF lv_srv_alias IS INITIAL
+       OR strlen( lv_srv_alias ) > 30.
 
       RAISE EXCEPTION NEW zcx_mig_analysis(
         textid =
@@ -289,6 +408,8 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
     DATA(lo_put) =
       lo_env->create_put_operation( ).
 
+    DATA(lo_srvb_put) =
+      lo_env->create_put_operation( ).
 
     add_clas(
       io_put =
@@ -330,9 +451,47 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
         is_bp-fields
     ).
 
+    add_srvd(
+      io_put =
+        lo_put
+
+      is_item =
+        ls_srvd
+
+      iv_package =
+        is_mfst-package
+
+      iv_entity_name =
+        ls_ddls-object_name
+
+      iv_alias =
+        lv_srv_alias
+    ).
+
+    add_srvb(
+      io_put =
+        lo_srvb_put
+
+      is_item =
+        ls_srvb
+
+      iv_package =
+        is_mfst-package
+
+      iv_service_name =
+        ls_srvd-object_name
+
+      iv_srvd_name =
+        ls_srvd-object_name
+    ).
+
     IF iv_execute = abap_true.
 
+      "Tạo và activate CLAS, DDLS, SRVD trước
       lo_put->execute( ).
+
+      "Sau khi SRVD đã active mới tạo SRVB
+      lo_srvb_put->execute( ).
 
     ENDIF.
 
@@ -735,6 +894,55 @@ METHOD add_ddls.
       ENDIF.
 
     ENDIF.
+
+ENDMETHOD.
+
+METHOD add_srvb.
+
+  IF is_item-object_name IS INITIAL
+     OR iv_package IS INITIAL
+     OR iv_service_name IS INITIAL
+     OR iv_srvd_name IS INITIAL.
+
+    RAISE EXCEPTION NEW zcx_mig_analysis(
+      textid =
+        zcx_mig_analysis=>analysis_failed
+    ).
+
+  ENDIF.
+
+
+  DATA(lo_spec) =
+    io_put->for-srvb->add_object(
+      CONV #( is_item-object_name )
+    )->set_package(
+      iv_package
+    )->create_form_specification( ).
+
+
+  lo_spec->set_short_description(
+    'Generated MIG OData V4 binding'
+  ).
+
+
+  lo_spec->set_binding_type(
+    xco_cp_service_binding=>binding_type->odata_v4_ui
+  ).
+
+
+  DATA(lo_service) =
+    lo_spec->add_service(
+      CONV #( iv_service_name )
+    ).
+
+
+  DATA(lo_version) =
+    lo_service->add_version(
+      0001
+    ).
+
+
+  lo_version->set_service_definition( iv_srvd_name ).
 
 ENDMETHOD.
 
@@ -1590,6 +1798,49 @@ APPEND
   APPEND
     |ENDIF.|
     TO rt_source.
+
+ENDMETHOD.
+
+METHOD add_srvd.
+
+  IF is_item-object_name IS INITIAL
+     OR iv_entity_name IS INITIAL
+     OR iv_alias IS INITIAL.
+
+    RAISE EXCEPTION NEW zcx_mig_analysis(
+      textid =
+        zcx_mig_analysis=>analysis_failed
+    ).
+
+  ENDIF.
+
+
+  DATA(lo_spec) =
+    io_put->for-srvd->add_object(
+      is_item-object_name
+    )->set_package(
+      iv_package
+    )->create_form_specification( ).
+
+
+  lo_spec->set_short_description(
+    'Generated MIG service definition'
+  ).
+
+
+  lo_spec->add_annotation(
+    'EndUserText.label'
+  )->value->build(
+  )->add_string(
+    'Generated MIG service definition'
+  ).
+
+
+  lo_spec->add_exposure(
+    iv_entity_name
+  )->set_alias(
+    CONV #( iv_alias )
+  ).
 
 ENDMETHOD.
 

@@ -1,12 +1,17 @@
 REPORT zrmig_test_xco_gen.
 
-
 PARAMETERS:
   p_class TYPE zif_mig_types=>ty_art_name
-    DEFAULT 'ZCL_MIG_Q_TEST09',
+    DEFAULT 'ZCL_MIG_Q_TEST14',
 
   p_ddls TYPE zif_mig_types=>ty_art_name
-    DEFAULT 'ZC_MIG_Q_TEST09',
+    DEFAULT 'ZC_MIG_Q_TEST14',
+
+  p_srvd TYPE zif_mig_types=>ty_art_name
+    DEFAULT 'ZUI_MIG_Q_TEST14',
+
+  p_srvb TYPE zif_mig_types=>ty_art_name
+    DEFAULT 'ZUI_MIG_Q_TEST14_O4',
 
   p_pack TYPE devclass
     DEFAULT 'ZMIG_GEN_TEST',
@@ -16,7 +21,6 @@ PARAMETERS:
 
   p_exec AS CHECKBOX
     DEFAULT abap_false.
-
 
 START-OF-SELECTION.
 
@@ -42,6 +46,8 @@ START-OF-SELECTION.
 
       ls_bp-blueprint-manual_review =
         abap_false.
+      ls_bp-blueprint-entity_name =
+        'MigrationResult'.
 
       ls_mfst-analysis_id =
          gc_anl_id.
@@ -346,10 +352,81 @@ DATA ls_ret
 ) TO ls_mfst-items.
 
   APPEND VALUE #(
+  seq =
+    40
+
+  art_type =
+    zif_mig_types=>gc_art_srvd
+
+  art_role =
+    zif_mig_types=>gc_art_srv_def
+
+  object_name =
+    p_srvd
+
+  package =
+    p_pack
+
+  description =
+    'Generated MIG service definition test'
+
+  gen_order =
+    40
+
+  required =
+    abap_true
+
+  cap_state =
+    zif_mig_types=>gc_art_cap_yes
+
+  gen_state =
+    zif_mig_types=>gc_art_planned
+) TO ls_mfst-items.
+
+  APPEND VALUE #(
+  seq =
+    50
+
+  art_type =
+    zif_mig_types=>gc_art_srvb
+
+  art_role =
+    zif_mig_types=>gc_art_srv_bind
+
+  object_name =
+    p_srvb
+
+  package =
+    p_pack
+
+  description =
+    'Generated MIG OData V4 binding test'
+
+  gen_order =
+    50
+
+  required =
+    abap_true
+
+  cap_state =
+    zif_mig_types=>gc_art_cap_yes
+
+  gen_state =
+    zif_mig_types=>gc_art_planned
+) TO ls_mfst-items.
+
+  APPEND VALUE #(
   art_seq = 20
   req_seq = 10
 ) TO ls_mfst-dependencies.
-
+  APPEND VALUE #(
+  art_seq = 40
+  req_seq = 20
+) TO ls_mfst-dependencies.
+  APPEND VALUE #(
+    art_seq = 50
+    req_seq = 40
+  ) TO ls_mfst-dependencies.
 
 
   ls_mfst-item_count =
