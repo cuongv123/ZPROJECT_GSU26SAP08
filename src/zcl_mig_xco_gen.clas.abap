@@ -1187,133 +1187,177 @@ METHOD build_select_src.
 
   ENDIF.
 
+
   "============================================================
-" Checkpoint input:
-" - không input, hoặc
-" - đúng một scalar optional Edm.String
-"============================================================
-DATA:
-  lv_has_filter TYPE abap_bool,
-  ls_input_map  TYPE zif_mig_types=>ty_svc_in_map.
+  " Checkpoint input:
+  " - 0..N scalar optional inputs
+  " - Edm.String / Int32 / Int64 / Decimal / Double / Date
+  " - Service Mapping = AUTO
+  " - Filter runtime chỉ hỗ trợ I/EQ
+  "============================================================
+  DATA lt_input_maps
+    TYPE zif_mig_types=>tt_svc_in_map.
 
 
-lv_has_filter =
-  abap_false.
+  lt_input_maps =
+    is_smap-input_maps.
 
 
-IF is_smap-input_maps IS NOT INITIAL.
-
-  IF lines( is_smap-input_maps ) <> 1.
-
-    RAISE EXCEPTION NEW zcx_mig_analysis(
-      textid =
-        zcx_mig_analysis=>analysis_failed
-    ).
-
-  ENDIF.
+  "Sinh source ổn định, không phụ thuộc thứ tự parser trả về
+  SORT lt_input_maps
+    BY svc_name
+       prv_name.
 
 
-  READ TABLE is_smap-input_maps
-    INDEX 1
-    INTO ls_input_map.
+  LOOP AT lt_input_maps
+    INTO DATA(ls_input_map).
 
-  IF sy-subrc <> 0.
-
-    RAISE EXCEPTION NEW zcx_mig_analysis(
-      textid =
-        zcx_mig_analysis=>analysis_failed
-    ).
-
-  ENDIF.
-
-
-  DATA(lv_svc_kind) =
-    to_upper(
-      CONV string(
-        ls_input_map-svc_kind
-      )
-    ).
-
-  DATA(lv_svc_edm) =
-    to_upper(
-      CONV string(
-        ls_input_map-svc_edm
-      )
-    ).
-
-  DATA(lv_prv_edm) =
-    to_upper(
-      CONV string(
-        ls_input_map-prv_edm
-      )
-    ).
-
-
-  IF ls_input_map-map_state <>
-       zif_mig_types=>gc_smap_auto
-     OR lv_svc_kind = 'RANGE'
-     OR lv_svc_edm <> 'EDM.STRING'
-     OR lv_prv_edm <> 'EDM.STRING'
-     OR ls_input_map-prv_optional <>
-          abap_true
-     OR ls_input_map-svc_name IS INITIAL
-     OR ls_input_map-prv_name IS INITIAL.
-
-    RAISE EXCEPTION NEW zcx_mig_analysis(
-      textid =
-        zcx_mig_analysis=>analysis_failed
-    ).
-
-  ENDIF.
-
-
-  "Filter phải tương ứng với một output field filterable
-  DATA lv_filter_field_ok
-    TYPE abap_bool.
-
-  lv_filter_field_ok =
-    abap_false.
-
-
-  DATA(lv_svc_name_up) =
-    to_upper(
-      CONV string(
-        ls_input_map-svc_name
-      )
-    ).
-
-  CONDENSE lv_svc_name_up NO-GAPS.
-
-
-  LOOP AT lt_fields
-    INTO DATA(ls_filter_field)
-    WHERE filterable = abap_true.
-
-    DATA(lv_field_name_up) =
+    DATA(lv_svc_kind) =
       to_upper(
         CONV string(
-          ls_filter_field-field_name
+          ls_input_map-svc_kind
         )
       ).
 
-    CONDENSE lv_field_name_up NO-GAPS.
+    DATA(lv_svc_edm) =
+      to_upper(
+        CONV string(
+          ls_input_map-svc_edm
+        )
+      ).
+
+    DATA(lv_prv_edm) =
+      to_upper(
+        CONV string(
+          ls_input_map-prv_edm
+        )
+      ).
 
 
-    IF lv_field_name_up =
-         lv_svc_name_up.
+    IF ls_input_map-map_state <>
+         zif_mig_types=>gc_smap_auto
+       OR lv_svc_kind <> 'SCALAR'
+       OR lv_svc_edm <> lv_prv_edm
+       OR ls_input_map-mandatory =
+            abap_true
+       OR ls_input_map-prv_optional <>
+            abap_true
+       OR ls_input_map-svc_name IS INITIAL
+       OR ls_input_map-prv_name IS INITIAL.
 
-      lv_filter_field_ok =
-        abap_true.
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid =
+          zcx_mig_analysis=>analysis_failed
+      ).
 
-      EXIT.
+    ENDIF.
+
+
+    CASE lv_svc_edm.
+
+      WHEN 'EDM.STRING'
+        OR 'EDM.INT32'
+        OR 'EDM.INT64'
+        OR 'EDM.DECIMAL'
+        OR 'EDM.DOUBLE'
+        OR 'EDM.DATE'.
+
+        "Supported in this checkpoint
+
+
+      WHEN OTHERS.
+
+        RAISE EXCEPTION NEW zcx_mig_analysis(
+          textid =
+            zcx_mig_analysis=>analysis_failed
+        ).
+
+    ENDCASE.
+
+
+    "==========================================================
+    " Service parameter phải có output field filterable tương ứng
+    "==========================================================
+    DATA(lv_svc_name_up) =
+      to_upper(
+        CONV string(
+          ls_input_map-svc_name
+        )
+      ).
+
+    CONDENSE lv_svc_name_up NO-GAPS.
+
+
+    DATA lv_filter_field_ok
+      TYPE abap_bool.
+
+    lv_filter_field_ok =
+      abap_false.
+
+
+    LOOP AT lt_fields
+      INTO DATA(ls_filter_field)
+      WHERE filterable = abap_true.
+
+      DATA(lv_field_name_up) =
+        to_upper(
+          CONV string(
+            ls_filter_field-field_name
+          )
+        ).
+
+      CONDENSE lv_field_name_up NO-GAPS.
+
+
+      IF lv_field_name_up =
+           lv_svc_name_up.
+
+        lv_filter_field_ok =
+          abap_true.
+
+        EXIT.
+
+      ENDIF.
+
+    ENDLOOP.
+
+
+    IF lv_filter_field_ok =
+         abap_false.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid =
+          zcx_mig_analysis=>analysis_failed
+      ).
 
     ENDIF.
 
   ENDLOOP.
 
 
-  IF lv_filter_field_ok =
-       abap_false.
+  "============================================================
+  " Output table của provider dùng cho dynamic method call
+  "============================================================
+  DATA(lv_output_type) =
+    CONV string(
+      is_smap-selected_out-type_name
+    ).
+
+  CONDENSE lv_output_type NO-GAPS.
+
+
+  DATA(lv_output_param) =
+    to_upper(
+      CONV string(
+        is_smap-selected_out-par_name
+      )
+    ).
+
+  CONDENSE lv_output_param NO-GAPS.
+
+
+  IF lv_output_type IS INITIAL
+     OR lv_output_param IS INITIAL.
 
     RAISE EXCEPTION NEW zcx_mig_analysis(
       textid =
@@ -1322,11 +1366,6 @@ IF is_smap-input_maps IS NOT INITIAL.
 
   ENDIF.
 
-
-  lv_has_filter =
-    abap_true.
-
-ENDIF.
 
   "============================================================
   " Sinh local result type
@@ -1357,7 +1396,7 @@ ENDIF.
 
     DATA(lv_edm_type) =
       to_upper(
-        val = CONV string(
+        CONV string(
           ls_field-edm_type
         )
       ).
@@ -1482,35 +1521,17 @@ ENDIF.
   ENDIF.
 
 
-  IF lv_has_filter =
-     abap_true.
-
-  DATA(lv_filter_name) =
-    to_upper(
-      CONV string(
-        ls_input_map-svc_name
-      )
-    ).
-
-  CONDENSE lv_filter_name NO-GAPS.
-
-
-  DATA(lv_prv_param) =
-    to_upper(
-      CONV string(
-        ls_input_map-prv_name
-      )
-    ).
-
-  CONDENSE lv_prv_param NO-GAPS.
-
-
-  "==========================================================
-  " Đọc filter request
-  "==========================================================
-  APPEND
-    |DATA lv_filter_value TYPE c LENGTH 120.|
-    TO rt_source.
+  "============================================================
+  " Biến hỗ trợ sinh source cho N typed scalar filters
+  "============================================================
+  DATA:
+    lv_filter_idx  TYPE i,
+    lv_filter_var  TYPE string,
+    lv_filter_set  TYPE string,
+    lv_filter_decl TYPE string,
+    lv_filter_edm  TYPE string,
+    lv_filter_name TYPE string,
+    lv_prv_param   TYPE string.
 
 
   APPEND
@@ -1518,6 +1539,94 @@ ENDIF.
     TO rt_source.
 
 
+  "============================================================
+  " Khai báo typed variable và presence flag cho từng input
+  "============================================================
+  CLEAR lv_filter_idx.
+
+
+  LOOP AT lt_input_maps
+    INTO ls_input_map.
+
+    lv_filter_idx += 1.
+
+    lv_filter_var =
+      |lv_f{ lv_filter_idx }|.
+
+    lv_filter_set =
+      |lv_f{ lv_filter_idx }_set|.
+
+    lv_filter_edm =
+      to_upper(
+        CONV string(
+          ls_input_map-svc_edm
+        )
+      ).
+
+
+    CASE lv_filter_edm.
+
+      WHEN 'EDM.STRING'.
+
+        lv_filter_decl =
+          'TYPE c LENGTH 120'.
+
+
+      WHEN 'EDM.INT32'.
+
+        lv_filter_decl =
+          'TYPE i'.
+
+
+      WHEN 'EDM.INT64'.
+
+        lv_filter_decl =
+          'TYPE int8'.
+
+
+      WHEN 'EDM.DECIMAL'.
+
+        lv_filter_decl =
+          'TYPE decfloat16'.
+
+
+      WHEN 'EDM.DOUBLE'.
+
+        lv_filter_decl =
+          'TYPE decfloat34'.
+
+
+      WHEN 'EDM.DATE'.
+
+        lv_filter_decl =
+          'TYPE d'.
+
+
+      WHEN OTHERS.
+
+        RAISE EXCEPTION NEW zcx_mig_analysis(
+          textid =
+            zcx_mig_analysis=>analysis_failed
+        ).
+
+    ENDCASE.
+
+
+    APPEND
+      |DATA { lv_filter_var } { lv_filter_decl }.|
+      TO rt_source.
+
+
+    APPEND
+      |DATA { lv_filter_set } TYPE abap_bool.|
+      TO rt_source.
+
+  ENDLOOP.
+
+
+  "============================================================
+  " Đọc request filters; chỉ chấp nhận mapped scalar I/EQ
+  "============================================================
   APPEND
     |TRY.|
     TO rt_source.
@@ -1538,28 +1647,6 @@ ENDIF.
     TO rt_source.
 
 
-  "Checkpoint chỉ chấp nhận đúng filter được map
-  APPEND
-    |      IF lv_req_filter_name <> '{ lv_filter_name }'.|
-    TO rt_source.
-
-
-  APPEND
-    |        lv_filter_valid = abap_false.|
-    TO rt_source.
-
-
-  APPEND
-    |        EXIT.|
-    TO rt_source.
-
-
-  APPEND
-    |      ENDIF.|
-    TO rt_source.
-
-
-  "Checkpoint chỉ chấp nhận một điều kiện
   APPEND
     |      IF lines( ls_filter_pair-range ) <> 1.|
     TO rt_source.
@@ -1581,25 +1668,27 @@ ENDIF.
 
 
   APPEND
-    |      READ TABLE ls_filter_pair-range INDEX 1 INTO DATA(ls_filter_option).|
+    |      READ TABLE ls_filter_pair-range INDEX 1 ASSIGNING FIELD-SYMBOL(<ls_filter_option>).|
     TO rt_source.
 
 
-  "Chỉ hỗ trợ Include + Equal
   APPEND
     |      IF sy-subrc <> 0|
     TO rt_source.
 
-  APPEND
-    |         OR ls_filter_option-sign <> 'I'|
-    TO rt_source.
 
   APPEND
-    |         OR ls_filter_option-option <> 'EQ'|
+    |         OR <ls_filter_option>-sign <> 'I'|
     TO rt_source.
 
+
   APPEND
-    |         OR ls_filter_option-high IS NOT INITIAL.|
+    |         OR <ls_filter_option>-option <> 'EQ'|
+    TO rt_source.
+
+
+  APPEND
+    |         OR <ls_filter_option>-high IS NOT INITIAL.|
     TO rt_source.
 
 
@@ -1619,7 +1708,252 @@ ENDIF.
 
 
   APPEND
-    |      lv_filter_value = ls_filter_option-low.|
+    |      CASE lv_req_filter_name.|
+    TO rt_source.
+
+
+  CLEAR lv_filter_idx.
+
+
+  LOOP AT lt_input_maps
+    INTO ls_input_map.
+
+    lv_filter_idx += 1.
+
+    lv_filter_var =
+      |lv_f{ lv_filter_idx }|.
+
+    lv_filter_set =
+      |lv_f{ lv_filter_idx }_set|.
+
+    lv_filter_name =
+      to_upper(
+        CONV string(
+          ls_input_map-svc_name
+        )
+      ).
+
+    CONDENSE lv_filter_name NO-GAPS.
+
+
+    lv_filter_edm =
+      to_upper(
+        CONV string(
+          ls_input_map-svc_edm
+        )
+      ).
+
+
+    APPEND
+      |        WHEN '{ lv_filter_name }'.|
+      TO rt_source.
+
+
+    CASE lv_filter_edm.
+
+      WHEN 'EDM.STRING'.
+
+        APPEND
+          |          { lv_filter_var } = <ls_filter_option>-low.|
+          TO rt_source.
+
+
+        APPEND
+          |          { lv_filter_set } = abap_true.|
+          TO rt_source.
+
+
+      WHEN 'EDM.INT32'.
+
+        APPEND
+          |          TRY.|
+          TO rt_source.
+
+
+        APPEND
+          |              { lv_filter_var } = CONV i( <ls_filter_option>-low ).|
+          TO rt_source.
+
+
+        APPEND
+          |              { lv_filter_set } = abap_true.|
+          TO rt_source.
+
+
+        APPEND
+          |            CATCH cx_sy_conversion_error.|
+          TO rt_source.
+
+
+        APPEND
+          |              lv_filter_valid = abap_false.|
+          TO rt_source.
+
+
+        APPEND
+          |          ENDTRY.|
+          TO rt_source.
+
+
+      WHEN 'EDM.INT64'.
+
+        APPEND
+          |          TRY.|
+          TO rt_source.
+
+
+        APPEND
+          |              { lv_filter_var } = CONV int8( <ls_filter_option>-low ).|
+          TO rt_source.
+
+
+        APPEND
+          |              { lv_filter_set } = abap_true.|
+          TO rt_source.
+
+
+        APPEND
+          |            CATCH cx_sy_conversion_error.|
+          TO rt_source.
+
+
+        APPEND
+          |              lv_filter_valid = abap_false.|
+          TO rt_source.
+
+
+        APPEND
+          |          ENDTRY.|
+          TO rt_source.
+
+
+      WHEN 'EDM.DECIMAL'.
+
+        APPEND
+          |          TRY.|
+          TO rt_source.
+
+
+        APPEND
+          |              { lv_filter_var } = CONV decfloat16( <ls_filter_option>-low ).|
+          TO rt_source.
+
+
+        APPEND
+          |              { lv_filter_set } = abap_true.|
+          TO rt_source.
+
+
+        APPEND
+          |            CATCH cx_sy_conversion_error.|
+          TO rt_source.
+
+
+        APPEND
+          |              lv_filter_valid = abap_false.|
+          TO rt_source.
+
+
+        APPEND
+          |          ENDTRY.|
+          TO rt_source.
+
+
+      WHEN 'EDM.DOUBLE'.
+
+        APPEND
+          |          TRY.|
+          TO rt_source.
+
+
+        APPEND
+          |              { lv_filter_var } = CONV decfloat34( <ls_filter_option>-low ).|
+          TO rt_source.
+
+
+        APPEND
+          |              { lv_filter_set } = abap_true.|
+          TO rt_source.
+
+
+        APPEND
+          |            CATCH cx_sy_conversion_error.|
+          TO rt_source.
+
+
+        APPEND
+          |              lv_filter_valid = abap_false.|
+          TO rt_source.
+
+
+        APPEND
+          |          ENDTRY.|
+          TO rt_source.
+
+
+      WHEN 'EDM.DATE'.
+
+        APPEND
+          |          TRY.|
+          TO rt_source.
+
+
+        APPEND
+          |              { lv_filter_var } = CONV d( replace( val = <ls_filter_option>-low sub = '-' with = '' occ = 0 ) ).|
+          TO rt_source.
+
+
+        APPEND
+          |              { lv_filter_set } = abap_true.|
+          TO rt_source.
+
+
+        APPEND
+          |            CATCH cx_sy_conversion_error.|
+          TO rt_source.
+
+
+        APPEND
+          |              lv_filter_valid = abap_false.|
+          TO rt_source.
+
+
+        APPEND
+          |          ENDTRY.|
+          TO rt_source.
+
+    ENDCASE.
+
+  ENDLOOP.
+
+
+  APPEND
+    |        WHEN OTHERS.|
+    TO rt_source.
+
+
+  APPEND
+    |          lv_filter_valid = abap_false.|
+    TO rt_source.
+
+
+  APPEND
+    |      ENDCASE.|
+    TO rt_source.
+
+
+  APPEND
+    |      IF lv_filter_valid = abap_false.|
+    TO rt_source.
+
+
+  APPEND
+    |        EXIT.|
+    TO rt_source.
+
+
+  APPEND
+    |      ENDIF.|
     TO rt_source.
 
 
@@ -1643,7 +1977,9 @@ ENDIF.
     TO rt_source.
 
 
-  "Không được trả dữ liệu unfiltered khi filter không hỗ trợ
+  "============================================================
+  " Không trả toàn bộ dữ liệu khi request filter không hỗ trợ
+  "============================================================
   APPEND
     |IF lv_filter_valid = abap_false.|
     TO rt_source.
@@ -1689,36 +2025,180 @@ ENDIF.
     TO rt_source.
 
 
-  "==========================================================
-  " Gọi provider bằng named optional parameter
-  "==========================================================
+  "============================================================
+  " Dynamic provider call:
+  " - chỉ bind optional parameter thực sự có trong request
+  " - giữ đúng IS SUPPLIED kể cả giá trị 0 hoặc initial date
+  "============================================================
   APPEND
-    |DATA(lt_provider) = { lv_class_name }=>{ lv_method_name }(|
+    |DATA lt_provider TYPE { lv_output_type }.|
     TO rt_source.
 
 
   APPEND
-    |  { lv_prv_param } = lv_filter_value|
+    |DATA lt_bind TYPE abap_parmbind_tab.|
+    TO rt_source.
+
+
+  CLEAR lv_filter_idx.
+
+
+  LOOP AT lt_input_maps
+    INTO ls_input_map.
+
+    lv_filter_idx += 1.
+
+    lv_filter_var =
+      |lv_f{ lv_filter_idx }|.
+
+    lv_filter_set =
+      |lv_f{ lv_filter_idx }_set|.
+
+    lv_prv_param =
+      to_upper(
+        CONV string(
+          ls_input_map-prv_name
+        )
+      ).
+
+    CONDENSE lv_prv_param NO-GAPS.
+
+
+    APPEND
+      |IF { lv_filter_set } = abap_true.|
+      TO rt_source.
+
+
+    APPEND
+      |  INSERT VALUE #(|
+      TO rt_source.
+
+
+    APPEND
+      |    name = '{ lv_prv_param }'|
+      TO rt_source.
+
+
+    APPEND
+      |    kind = cl_abap_objectdescr=>exporting|
+      TO rt_source.
+
+
+    APPEND
+      |    value = REF #( { lv_filter_var } )|
+      TO rt_source.
+
+
+    APPEND
+      |  ) INTO TABLE lt_bind.|
+      TO rt_source.
+
+
+    APPEND
+      |ENDIF.|
+      TO rt_source.
+
+  ENDLOOP.
+
+
+  APPEND
+    |INSERT VALUE #(|
     TO rt_source.
 
 
   APPEND
-    |).|
+    |  name = '{ lv_output_param }'|
     TO rt_source.
 
-ELSE.
 
-  "Provider không có input
   APPEND
-    |DATA(lt_provider) = { lv_class_name }=>{ lv_method_name }( ).|
+    |  kind = cl_abap_objectdescr=>receiving|
     TO rt_source.
 
-ENDIF.
+
+  APPEND
+    |  value = REF #( lt_provider )|
+    TO rt_source.
 
 
-APPEND
-  |lt_result = CORRESPONDING #( lt_provider ).|
-  TO rt_source.
+  APPEND
+    |) INTO TABLE lt_bind.|
+    TO rt_source.
+
+
+  APPEND
+    |DATA(lv_provider_class) = '{ lv_class_name }'.|
+    TO rt_source.
+
+
+  APPEND
+    |DATA(lv_provider_method) = '{ lv_method_name }'.|
+    TO rt_source.
+
+
+  APPEND
+    |TRY.|
+    TO rt_source.
+
+
+  APPEND
+    |    CALL METHOD (lv_provider_class)=>(lv_provider_method)|
+    TO rt_source.
+
+
+  APPEND
+    |      PARAMETER-TABLE lt_bind.|
+    TO rt_source.
+
+
+  APPEND
+    |  CATCH cx_sy_dyn_call_error.|
+    TO rt_source.
+
+
+  APPEND
+    |    IF io_request->is_total_numb_of_rec_requested( ).|
+    TO rt_source.
+
+
+  APPEND
+    |      io_response->set_total_number_of_records( 0 ).|
+    TO rt_source.
+
+
+  APPEND
+    |    ENDIF.|
+    TO rt_source.
+
+
+  APPEND
+    |    IF io_request->is_data_requested( ).|
+    TO rt_source.
+
+
+  APPEND
+    |      io_response->set_data( lt_result ).|
+    TO rt_source.
+
+
+  APPEND
+    |    ENDIF.|
+    TO rt_source.
+
+
+  APPEND
+    |    RETURN.|
+    TO rt_source.
+
+
+  APPEND
+    |ENDTRY.|
+    TO rt_source.
+
+
+  APPEND
+    |lt_result = CORRESPONDING #( lt_provider ).|
+    TO rt_source.
 
 
   "============================================================
@@ -1815,7 +2295,7 @@ APPEND
 
     DATA(lv_sort_key) =
       to_upper(
-        val = lv_sort_field
+        lv_sort_field
       ).
 
 
@@ -1962,6 +2442,5 @@ APPEND
     TO rt_source.
 
 ENDMETHOD.
-
 
 ENDCLASS.

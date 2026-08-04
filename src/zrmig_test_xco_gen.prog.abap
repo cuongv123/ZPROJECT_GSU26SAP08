@@ -106,6 +106,11 @@ DATA ls_in
   TYPE zif_mig_types=>ty_sig_par.
 
 
+"============================================================
+" Input 1 — Plant
+"============================================================
+CLEAR ls_in.
+
 ls_in-par_name =
   'IV_PLANT'.
 
@@ -133,6 +138,118 @@ APPEND ls_in
 
 APPEND ls_in
   TO ls_sig-all_params.
+
+
+"============================================================
+" Input 2 — Material
+"============================================================
+CLEAR ls_in.
+
+ls_in-par_name =
+  'IV_MATERIAL'.
+
+ls_in-direction =
+  zif_mig_types=>gc_sig_imp.
+
+ls_in-abap_type =
+  'CHAR'.
+
+ls_in-edm_type =
+  'Edm.String'.
+
+ls_in-odata_role =
+  zif_mig_types=>gc_sig_in.
+
+ls_in-optional =
+  abap_true.
+
+ls_in-is_table =
+  abap_false.
+
+
+APPEND ls_in
+  TO ls_sig-input_params.
+
+APPEND ls_in
+  TO ls_sig-all_params.
+
+CLEAR ls_in.
+
+ls_in-par_name =
+  'IV_QUANTITY'.
+
+ls_in-direction =
+  zif_mig_types=>gc_sig_imp.
+
+ls_in-abap_type =
+  'INT4'.
+
+ls_in-edm_type =
+  'Edm.Int32'.
+
+ls_in-odata_role =
+  zif_mig_types=>gc_sig_in.
+
+ls_in-optional =
+  abap_true.
+
+ls_in-is_table =
+  abap_false.
+
+APPEND ls_in TO ls_sig-input_params.
+APPEND ls_in TO ls_sig-all_params.
+
+CLEAR ls_in.
+
+ls_in-par_name =
+  'IV_AMOUNT'.
+
+ls_in-direction =
+  zif_mig_types=>gc_sig_imp.
+
+ls_in-abap_type =
+  'DECFLOAT16'.
+
+ls_in-edm_type =
+  'Edm.Decimal'.
+
+ls_in-odata_role =
+  zif_mig_types=>gc_sig_in.
+
+ls_in-optional =
+  abap_true.
+
+ls_in-is_table =
+  abap_false.
+
+APPEND ls_in TO ls_sig-input_params.
+APPEND ls_in TO ls_sig-all_params.
+
+CLEAR ls_in.
+
+ls_in-par_name =
+  'IV_VALID_ON'.
+
+ls_in-direction =
+  zif_mig_types=>gc_sig_imp.
+
+ls_in-abap_type =
+  'DATS'.
+
+ls_in-edm_type =
+  'Edm.Date'.
+
+ls_in-odata_role =
+  zif_mig_types=>gc_sig_in.
+
+ls_in-optional =
+  abap_true.
+
+ls_in-is_table =
+  abap_false.
+
+APPEND ls_in TO ls_sig-input_params.
+APPEND ls_in TO ls_sig-all_params.
 
 DATA ls_ret
   TYPE zif_mig_types=>ty_sig_par.
@@ -200,6 +317,8 @@ DATA ls_ret
         sortable   = abap_true
       ) TO ls_bp-fields.
 
+
+
       APPEND VALUE #(
       field_name = 'Quantity'
       label      = 'Quantity'
@@ -260,6 +379,47 @@ DATA ls_ret
       range_supported    = abap_false
     ) TO ls_bp-parameters.
 
+    APPEND VALUE #(
+    parameter_name     = 'Material'
+    source_kind        = 'PARAMETERS'
+    odata_kind         = 'SCALAR'
+    edm_type           = 'Edm.String'
+    mandatory          = abap_false
+    multiple_selection = abap_false
+    range_supported    = abap_false
+  ) TO ls_bp-parameters.
+
+    APPEND VALUE #(
+  parameter_name     = 'Quantity'
+  source_kind        = 'PARAMETERS'
+  odata_kind         = 'SCALAR'
+  edm_type           = 'Edm.Int32'
+  mandatory          = abap_false
+  multiple_selection = abap_false
+  range_supported    = abap_false
+) TO ls_bp-parameters.
+
+
+APPEND VALUE #(
+  parameter_name     = 'Amount'
+  source_kind        = 'PARAMETERS'
+  odata_kind         = 'SCALAR'
+  edm_type           = 'Edm.Decimal'
+  mandatory          = abap_false
+  multiple_selection = abap_false
+  range_supported    = abap_false
+) TO ls_bp-parameters.
+
+
+APPEND VALUE #(
+  parameter_name     = 'ValidOn'
+  source_kind        = 'PARAMETERS'
+  odata_kind         = 'SCALAR'
+  edm_type           = 'Edm.Date'
+  mandatory          = abap_false
+  multiple_selection = abap_false
+  range_supported    = abap_false
+) TO ls_bp-parameters.
 
   "============================================================
   " 1. Tạo manifest tối thiểu cho checkpoint CLAS
