@@ -1190,10 +1190,11 @@ METHOD build_select_src.
 
   "============================================================
   " Checkpoint input:
-  " - 0..N scalar optional inputs
-  " - Edm.String / Int32 / Int64 / Decimal / Double / Date
+  " - SCALAR optional:
+  "   String / Int32 / Int64 / Decimal / Double / Date
+  " - RANGE optional:
+  "   Edm.String, provider named table type
   " - Service Mapping = AUTO
-  " - Filter runtime chỉ hỗ trợ I/EQ
   "============================================================
   DATA lt_input_maps
     TYPE zif_mig_types=>tt_svc_in_map.
@@ -1203,7 +1204,6 @@ METHOD build_select_src.
     is_smap-input_maps.
 
 
-  "Sinh source ổn định, không phụ thuộc thứ tự parser trả về
   SORT lt_input_maps
     BY svc_name
        prv_name.
@@ -1234,10 +1234,13 @@ METHOD build_select_src.
       ).
 
 
-    IF ls_input_map-map_state <>
-         zif_mig_types=>gc_smap_auto
-       OR lv_svc_kind <> 'SCALAR'
-       OR lv_svc_edm <> lv_prv_edm
+    READ TABLE is_sig-input_params
+      WITH KEY par_name = ls_input_map-prv_name
+      INTO DATA(ls_sig_input).
+
+    IF sy-subrc <> 0
+       OR ls_input_map-map_state <>
+            zif_mig_types=>gc_smap_auto
        OR ls_input_map-mandatory =
             abap_true
        OR ls_input_map-prv_optional <>
@@ -1253,16 +1256,58 @@ METHOD build_select_src.
     ENDIF.
 
 
-    CASE lv_svc_edm.
+    CASE lv_svc_kind.
 
-      WHEN 'EDM.STRING'
-        OR 'EDM.INT32'
-        OR 'EDM.INT64'
-        OR 'EDM.DECIMAL'
-        OR 'EDM.DOUBLE'
-        OR 'EDM.DATE'.
+      WHEN 'SCALAR'.
 
-        "Supported in this checkpoint
+        IF ls_sig_input-is_table =
+             abap_true
+           OR lv_svc_edm <> lv_prv_edm.
+
+          RAISE EXCEPTION NEW zcx_mig_analysis(
+            textid =
+              zcx_mig_analysis=>analysis_failed
+          ).
+
+        ENDIF.
+
+
+        CASE lv_svc_edm.
+
+          WHEN 'EDM.STRING'
+            OR 'EDM.INT32'
+            OR 'EDM.INT64'
+            OR 'EDM.DECIMAL'
+            OR 'EDM.DOUBLE'
+            OR 'EDM.DATE'.
+
+            "Supported scalar type
+
+
+          WHEN OTHERS.
+
+            RAISE EXCEPTION NEW zcx_mig_analysis(
+              textid =
+                zcx_mig_analysis=>analysis_failed
+            ).
+
+        ENDCASE.
+
+
+      WHEN 'RANGE'.
+
+        IF lv_svc_edm <> 'EDM.STRING'
+           OR lv_prv_edm <> lv_svc_edm
+           OR ls_sig_input-is_table <>
+                abap_true
+           OR ls_sig_input-type_name IS INITIAL.
+
+          RAISE EXCEPTION NEW zcx_mig_analysis(
+            textid =
+              zcx_mig_analysis=>analysis_failed
+          ).
+
+        ENDIF.
 
 
       WHEN OTHERS.
@@ -1275,9 +1320,7 @@ METHOD build_select_src.
     ENDCASE.
 
 
-    "==========================================================
-    " Service parameter phải có output field filterable tương ứng
-    "==========================================================
+    "Service parameter phải có output field filterable tương ứng
     DATA(lv_svc_name_up) =
       to_upper(
         CONV string(
@@ -1522,16 +1565,18 @@ METHOD build_select_src.
 
 
   "============================================================
-  " Biến hỗ trợ sinh source cho N typed scalar filters
+  " Biến hỗ trợ sinh source cho scalar + range filters
   "============================================================
   DATA:
-    lv_filter_idx  TYPE i,
-    lv_filter_var  TYPE string,
-    lv_filter_set  TYPE string,
-    lv_filter_decl TYPE string,
-    lv_filter_edm  TYPE string,
-    lv_filter_name TYPE string,
-    lv_prv_param   TYPE string.
+    lv_filter_idx   TYPE i,
+    lv_filter_var   TYPE string,
+    lv_filter_set   TYPE string,
+    lv_filter_decl  TYPE string,
+    lv_filter_edm   TYPE string,
+    lv_filter_kind  TYPE string,
+    lv_filter_name  TYPE string,
+    lv_prv_param    TYPE string,
+    lv_prv_type     TYPE string.
 
 
   APPEND
@@ -1540,7 +1585,10 @@ METHOD build_select_src.
 
 
   "============================================================
-  " Khai báo typed variable và presence flag cho từng input
+  " Khai báo variable cho từng mapped input
+  "
+  " SCALAR -> LV_Fn TYPE elementary
+  " RANGE  -> LT_Fn TYPE provider named range type
   "============================================================
   CLEAR lv_filter_idx.
 
@@ -1550,11 +1598,15 @@ METHOD build_select_src.
 
     lv_filter_idx += 1.
 
-    lv_filter_var =
-      |lv_f{ lv_filter_idx }|.
-
     lv_filter_set =
       |lv_f{ lv_filter_idx }_set|.
+
+    lv_filter_kind =
+      to_upper(
+        CONV string(
+          ls_input_map-svc_kind
+        )
+      ).
 
     lv_filter_edm =
       to_upper(
@@ -1564,57 +1616,107 @@ METHOD build_select_src.
       ).
 
 
-    CASE lv_filter_edm.
+    READ TABLE is_sig-input_params
+      WITH KEY par_name = ls_input_map-prv_name
+      INTO ls_sig_input.
 
-      WHEN 'EDM.STRING'.
+    IF sy-subrc <> 0.
 
-        lv_filter_decl =
-          'TYPE c LENGTH 120'.
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid =
+          zcx_mig_analysis=>analysis_failed
+      ).
 
-
-      WHEN 'EDM.INT32'.
-
-        lv_filter_decl =
-          'TYPE i'.
-
-
-      WHEN 'EDM.INT64'.
-
-        lv_filter_decl =
-          'TYPE int8'.
+    ENDIF.
 
 
-      WHEN 'EDM.DECIMAL'.
+    IF lv_filter_kind = 'RANGE'.
 
-        lv_filter_decl =
-          'TYPE decfloat16'.
+      lv_filter_var =
+        |lt_f{ lv_filter_idx }|.
 
+      lv_prv_type =
+        CONV string(
+          ls_sig_input-type_name
+        ).
 
-      WHEN 'EDM.DOUBLE'.
-
-        lv_filter_decl =
-          'TYPE decfloat34'.
-
-
-      WHEN 'EDM.DATE'.
-
-        lv_filter_decl =
-          'TYPE d'.
+      CONDENSE lv_prv_type NO-GAPS.
 
 
-      WHEN OTHERS.
+      IF lv_prv_type IS INITIAL.
 
         RAISE EXCEPTION NEW zcx_mig_analysis(
           textid =
             zcx_mig_analysis=>analysis_failed
         ).
 
-    ENDCASE.
+      ENDIF.
 
 
-    APPEND
-      |DATA { lv_filter_var } { lv_filter_decl }.|
-      TO rt_source.
+      APPEND
+        |DATA { lv_filter_var } TYPE { lv_prv_type }.|
+        TO rt_source.
+
+
+    ELSE.
+
+      lv_filter_var =
+        |lv_f{ lv_filter_idx }|.
+
+
+      CASE lv_filter_edm.
+
+        WHEN 'EDM.STRING'.
+
+          lv_filter_decl =
+            'TYPE c LENGTH 120'.
+
+
+        WHEN 'EDM.INT32'.
+
+          lv_filter_decl =
+            'TYPE i'.
+
+
+        WHEN 'EDM.INT64'.
+
+          lv_filter_decl =
+            'TYPE int8'.
+
+
+        WHEN 'EDM.DECIMAL'.
+
+          lv_filter_decl =
+            'TYPE decfloat16'.
+
+
+        WHEN 'EDM.DOUBLE'.
+
+          lv_filter_decl =
+            'TYPE decfloat34'.
+
+
+        WHEN 'EDM.DATE'.
+
+          lv_filter_decl =
+            'TYPE d'.
+
+
+        WHEN OTHERS.
+
+          RAISE EXCEPTION NEW zcx_mig_analysis(
+            textid =
+              zcx_mig_analysis=>analysis_failed
+          ).
+
+      ENDCASE.
+
+
+      APPEND
+        |DATA { lv_filter_var } { lv_filter_decl }.|
+        TO rt_source.
+
+    ENDIF.
 
 
     APPEND
@@ -1624,8 +1726,19 @@ METHOD build_select_src.
   ENDLOOP.
 
 
+
   "============================================================
-  " Đọc request filters; chỉ chấp nhận mapped scalar I/EQ
+  " Đọc request filters
+  "
+  " SCALAR:
+  " - đúng 1 row
+  " - SIGN I
+  " - OPTION EQ
+  "
+  " RANGE Edm.String:
+  " - 1..N rows
+  " - SIGN I
+  " - OPTION EQ hoặc BT
   "============================================================
   APPEND
     |TRY.|
@@ -1647,48 +1760,14 @@ METHOD build_select_src.
     TO rt_source.
 
 
+  "Khai báo work area đúng một lần, tránh inline declaration lặp
   APPEND
-    |      IF lines( ls_filter_pair-range ) <> 1.|
+    |      READ TABLE ls_filter_pair-range INDEX 1 INTO DATA(ls_filter_option).|
     TO rt_source.
 
 
   APPEND
-    |        lv_filter_valid = abap_false.|
-    TO rt_source.
-
-
-  APPEND
-    |        EXIT.|
-    TO rt_source.
-
-
-  APPEND
-    |      ENDIF.|
-    TO rt_source.
-
-
-  APPEND
-    |      READ TABLE ls_filter_pair-range INDEX 1 ASSIGNING FIELD-SYMBOL(<ls_filter_option>).|
-    TO rt_source.
-
-
-  APPEND
-    |      IF sy-subrc <> 0|
-    TO rt_source.
-
-
-  APPEND
-    |         OR <ls_filter_option>-sign <> 'I'|
-    TO rt_source.
-
-
-  APPEND
-    |         OR <ls_filter_option>-option <> 'EQ'|
-    TO rt_source.
-
-
-  APPEND
-    |         OR <ls_filter_option>-high IS NOT INITIAL.|
+    |      IF sy-subrc <> 0.|
     TO rt_source.
 
 
@@ -1720,11 +1799,22 @@ METHOD build_select_src.
 
     lv_filter_idx += 1.
 
-    lv_filter_var =
-      |lv_f{ lv_filter_idx }|.
-
     lv_filter_set =
       |lv_f{ lv_filter_idx }_set|.
+
+    lv_filter_kind =
+      to_upper(
+        CONV string(
+          ls_input_map-svc_kind
+        )
+      ).
+
+    lv_filter_edm =
+      to_upper(
+        CONV string(
+          ls_input_map-svc_edm
+        )
+      ).
 
     lv_filter_name =
       to_upper(
@@ -1736,193 +1826,400 @@ METHOD build_select_src.
     CONDENSE lv_filter_name NO-GAPS.
 
 
-    lv_filter_edm =
-      to_upper(
-        CONV string(
-          ls_input_map-svc_edm
-        )
-      ).
-
-
     APPEND
       |        WHEN '{ lv_filter_name }'.|
       TO rt_source.
 
 
-    CASE lv_filter_edm.
+    IF lv_filter_kind = 'RANGE'.
 
-      WHEN 'EDM.STRING'.
+      lv_filter_var =
+        |lt_f{ lv_filter_idx }|.
 
-        APPEND
-          |          { lv_filter_var } = <ls_filter_option>-low.|
-          TO rt_source.
 
+      APPEND
+        |          CLEAR { lv_filter_var }.|
+        TO rt_source.
 
-        APPEND
-          |          { lv_filter_set } = abap_true.|
-          TO rt_source.
 
+      APPEND
+        |          LOOP AT ls_filter_pair-range INTO ls_filter_option.|
+        TO rt_source.
 
-      WHEN 'EDM.INT32'.
 
-        APPEND
-          |          TRY.|
-          TO rt_source.
+      APPEND
+        |            IF ls_filter_option-sign <> 'I'.|
+        TO rt_source.
 
 
-        APPEND
-          |              { lv_filter_var } = CONV i( <ls_filter_option>-low ).|
-          TO rt_source.
+      APPEND
+        |              lv_filter_valid = abap_false.|
+        TO rt_source.
 
 
-        APPEND
-          |              { lv_filter_set } = abap_true.|
-          TO rt_source.
+      APPEND
+        |              EXIT.|
+        TO rt_source.
 
 
-        APPEND
-          |            CATCH cx_sy_conversion_error.|
-          TO rt_source.
+      APPEND
+        |            ENDIF.|
+        TO rt_source.
 
 
-        APPEND
-          |              lv_filter_valid = abap_false.|
-          TO rt_source.
+      APPEND
+        |            CASE ls_filter_option-option.|
+        TO rt_source.
 
 
-        APPEND
-          |          ENDTRY.|
-          TO rt_source.
+      APPEND
+        |              WHEN 'EQ'.|
+        TO rt_source.
 
 
-      WHEN 'EDM.INT64'.
+      APPEND
+        |                IF ls_filter_option-high IS NOT INITIAL.|
+        TO rt_source.
 
-        APPEND
-          |          TRY.|
-          TO rt_source.
 
+      APPEND
+        |                  lv_filter_valid = abap_false.|
+        TO rt_source.
 
-        APPEND
-          |              { lv_filter_var } = CONV int8( <ls_filter_option>-low ).|
-          TO rt_source.
 
+      APPEND
+        |                ENDIF.|
+        TO rt_source.
 
-        APPEND
-          |              { lv_filter_set } = abap_true.|
-          TO rt_source.
 
+    APPEND
+      |              WHEN 'BT'.|
+      TO rt_source.
 
-        APPEND
-          |            CATCH cx_sy_conversion_error.|
-          TO rt_source.
 
+    APPEND
+      |                IF ls_filter_option-low IS INITIAL|
+      TO rt_source.
 
-        APPEND
-          |              lv_filter_valid = abap_false.|
-          TO rt_source.
 
+    APPEND
+      |                   OR ls_filter_option-high IS INITIAL.|
+      TO rt_source.
 
-        APPEND
-          |          ENDTRY.|
-          TO rt_source.
 
+    APPEND
+      |                  lv_filter_valid = abap_false.|
+      TO rt_source.
 
-      WHEN 'EDM.DECIMAL'.
 
-        APPEND
-          |          TRY.|
-          TO rt_source.
+    APPEND
+      |                ENDIF.|
+      TO rt_source.
 
 
-        APPEND
-          |              { lv_filter_var } = CONV decfloat16( <ls_filter_option>-low ).|
-          TO rt_source.
+      APPEND
+        |              WHEN OTHERS.|
+        TO rt_source.
 
 
-        APPEND
-          |              { lv_filter_set } = abap_true.|
-          TO rt_source.
+      APPEND
+        |                lv_filter_valid = abap_false.|
+        TO rt_source.
 
 
-        APPEND
-          |            CATCH cx_sy_conversion_error.|
-          TO rt_source.
+      APPEND
+        |            ENDCASE.|
+        TO rt_source.
 
 
-        APPEND
-          |              lv_filter_valid = abap_false.|
-          TO rt_source.
+      APPEND
+        |            IF lv_filter_valid = abap_false.|
+        TO rt_source.
 
 
-        APPEND
-          |          ENDTRY.|
-          TO rt_source.
+      APPEND
+        |              EXIT.|
+        TO rt_source.
 
 
-      WHEN 'EDM.DOUBLE'.
+      APPEND
+        |            ENDIF.|
+        TO rt_source.
 
-        APPEND
-          |          TRY.|
-          TO rt_source.
 
+      APPEND
+        |            APPEND VALUE #(|
+        TO rt_source.
 
-        APPEND
-          |              { lv_filter_var } = CONV decfloat34( <ls_filter_option>-low ).|
-          TO rt_source.
 
+      APPEND
+        |              sign   = ls_filter_option-sign|
+        TO rt_source.
 
-        APPEND
-          |              { lv_filter_set } = abap_true.|
-          TO rt_source.
 
+      APPEND
+        |              option = ls_filter_option-option|
+        TO rt_source.
 
-        APPEND
-          |            CATCH cx_sy_conversion_error.|
-          TO rt_source.
 
+      APPEND
+        |              low    = ls_filter_option-low|
+        TO rt_source.
 
-        APPEND
-          |              lv_filter_valid = abap_false.|
-          TO rt_source.
 
+      APPEND
+        |              high   = ls_filter_option-high|
+        TO rt_source.
 
-        APPEND
-          |          ENDTRY.|
-          TO rt_source.
 
+      APPEND
+        |            ) TO { lv_filter_var }.|
+        TO rt_source.
 
-      WHEN 'EDM.DATE'.
 
-        APPEND
-          |          TRY.|
-          TO rt_source.
+      APPEND
+        |          ENDLOOP.|
+        TO rt_source.
 
 
-        APPEND
-          |              { lv_filter_var } = CONV d( replace( val = <ls_filter_option>-low sub = '-' with = '' occ = 0 ) ).|
-          TO rt_source.
+      APPEND
+        |          IF lv_filter_valid = abap_true|
+        TO rt_source.
 
 
-        APPEND
-          |              { lv_filter_set } = abap_true.|
-          TO rt_source.
+      APPEND
+        |             AND { lv_filter_var } IS NOT INITIAL.|
+        TO rt_source.
 
 
-        APPEND
-          |            CATCH cx_sy_conversion_error.|
-          TO rt_source.
+      APPEND
+        |            { lv_filter_set } = abap_true.|
+        TO rt_source.
 
 
-        APPEND
-          |              lv_filter_valid = abap_false.|
-          TO rt_source.
+      APPEND
+        |          ENDIF.|
+        TO rt_source.
 
 
-        APPEND
-          |          ENDTRY.|
-          TO rt_source.
+    ELSE.
 
-    ENDCASE.
+      lv_filter_var =
+        |lv_f{ lv_filter_idx }|.
+
+
+      "Scalar chỉ chấp nhận đúng một I/EQ row
+      APPEND
+        |          IF lines( ls_filter_pair-range ) <> 1|
+        TO rt_source.
+
+
+      APPEND
+        |             OR ls_filter_option-sign <> 'I'|
+        TO rt_source.
+
+
+      APPEND
+        |             OR ls_filter_option-option <> 'EQ'|
+        TO rt_source.
+
+
+      APPEND
+        |             OR ls_filter_option-high IS NOT INITIAL.|
+        TO rt_source.
+
+
+      APPEND
+        |            lv_filter_valid = abap_false.|
+        TO rt_source.
+
+
+      APPEND
+        |          ELSE.|
+        TO rt_source.
+
+
+      CASE lv_filter_edm.
+
+        WHEN 'EDM.STRING'.
+
+          APPEND
+            |            { lv_filter_var } = ls_filter_option-low.|
+            TO rt_source.
+
+
+          APPEND
+            |            { lv_filter_set } = abap_true.|
+            TO rt_source.
+
+
+        WHEN 'EDM.INT32'.
+
+          APPEND
+            |            TRY.|
+            TO rt_source.
+
+
+          APPEND
+            |                { lv_filter_var } = CONV i( ls_filter_option-low ).|
+            TO rt_source.
+
+
+          APPEND
+            |                { lv_filter_set } = abap_true.|
+            TO rt_source.
+
+
+          APPEND
+            |              CATCH cx_sy_conversion_error.|
+            TO rt_source.
+
+
+          APPEND
+            |                lv_filter_valid = abap_false.|
+            TO rt_source.
+
+
+          APPEND
+            |            ENDTRY.|
+            TO rt_source.
+
+
+        WHEN 'EDM.INT64'.
+
+          APPEND
+            |            TRY.|
+            TO rt_source.
+
+
+          APPEND
+            |                { lv_filter_var } = CONV int8( ls_filter_option-low ).|
+            TO rt_source.
+
+
+          APPEND
+            |                { lv_filter_set } = abap_true.|
+            TO rt_source.
+
+
+          APPEND
+            |              CATCH cx_sy_conversion_error.|
+            TO rt_source.
+
+
+          APPEND
+            |                lv_filter_valid = abap_false.|
+            TO rt_source.
+
+
+          APPEND
+            |            ENDTRY.|
+            TO rt_source.
+
+
+        WHEN 'EDM.DECIMAL'.
+
+          APPEND
+            |            TRY.|
+            TO rt_source.
+
+
+          APPEND
+            |                { lv_filter_var } = CONV decfloat16( ls_filter_option-low ).|
+            TO rt_source.
+
+
+          APPEND
+            |                { lv_filter_set } = abap_true.|
+            TO rt_source.
+
+
+          APPEND
+            |              CATCH cx_sy_conversion_error.|
+            TO rt_source.
+
+
+          APPEND
+            |                lv_filter_valid = abap_false.|
+            TO rt_source.
+
+
+          APPEND
+            |            ENDTRY.|
+            TO rt_source.
+
+
+        WHEN 'EDM.DOUBLE'.
+
+          APPEND
+            |            TRY.|
+            TO rt_source.
+
+
+          APPEND
+            |                { lv_filter_var } = CONV decfloat34( ls_filter_option-low ).|
+            TO rt_source.
+
+
+          APPEND
+            |                { lv_filter_set } = abap_true.|
+            TO rt_source.
+
+
+          APPEND
+            |              CATCH cx_sy_conversion_error.|
+            TO rt_source.
+
+
+          APPEND
+            |                lv_filter_valid = abap_false.|
+            TO rt_source.
+
+
+          APPEND
+            |            ENDTRY.|
+            TO rt_source.
+
+
+        WHEN 'EDM.DATE'.
+
+          APPEND
+            |            TRY.|
+            TO rt_source.
+
+
+          APPEND
+            |                { lv_filter_var } = CONV d( replace( val = ls_filter_option-low sub = '-' with = '' occ = 0 ) ).|
+            TO rt_source.
+
+
+          APPEND
+            |                { lv_filter_set } = abap_true.|
+            TO rt_source.
+
+
+          APPEND
+            |              CATCH cx_sy_conversion_error.|
+            TO rt_source.
+
+
+          APPEND
+            |                lv_filter_valid = abap_false.|
+            TO rt_source.
+
+
+          APPEND
+            |            ENDTRY.|
+            TO rt_source.
+
+      ENDCASE.
+
+
+      APPEND
+        |          ENDIF.|
+        TO rt_source.
+
+    ENDIF.
 
   ENDLOOP.
 
@@ -1975,6 +2272,7 @@ METHOD build_select_src.
   APPEND
     |ENDTRY.|
     TO rt_source.
+
 
 
   "============================================================
@@ -2043,16 +2341,34 @@ METHOD build_select_src.
   CLEAR lv_filter_idx.
 
 
-  LOOP AT lt_input_maps
+   LOOP AT lt_input_maps
     INTO ls_input_map.
 
     lv_filter_idx += 1.
 
-    lv_filter_var =
-      |lv_f{ lv_filter_idx }|.
-
     lv_filter_set =
       |lv_f{ lv_filter_idx }_set|.
+
+    lv_filter_kind =
+      to_upper(
+        CONV string(
+          ls_input_map-svc_kind
+        )
+      ).
+
+
+    IF lv_filter_kind = 'RANGE'.
+
+      lv_filter_var =
+        |lt_f{ lv_filter_idx }|.
+
+    ELSE.
+
+      lv_filter_var =
+        |lv_f{ lv_filter_idx }|.
+
+    ENDIF.
+
 
     lv_prv_param =
       to_upper(
@@ -2099,6 +2415,7 @@ METHOD build_select_src.
       TO rt_source.
 
   ENDLOOP.
+
 
 
   APPEND

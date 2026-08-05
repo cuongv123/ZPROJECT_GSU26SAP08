@@ -732,51 +732,64 @@ ENDMETHOD.
 
   METHOD type_ok.
 
-    rv_ok =
-      abap_false.
+  rv_ok =
+    abap_false.
 
 
-    "SELECT-OPTIONS / RANGE phải map vào table parameter
-    IF is_svc-odata_kind = 'RANGE'.
-
-      rv_ok =
-        xsdbool(
-          is_prv-is_table = abap_true
-        ).
-
-      RETURN.
-
-    ENDIF.
+  DATA:
+    lv_svc_edm TYPE string,
+    lv_prv_edm TYPE string.
 
 
-    "Scalar service parameter không map vào table parameter
-    IF is_prv-is_table = abap_true.
-      RETURN.
-    ENDIF.
+  lv_svc_edm =
+    to_upper(
+      CONV string(
+        is_svc-edm_type
+      )
+    ).
+
+  lv_prv_edm =
+    to_upper(
+      CONV string(
+        is_prv-edm_type
+      )
+    ).
 
 
-    DATA:
-      lv_svc_edm TYPE string,
-      lv_prv_edm TYPE string.
-
-    lv_svc_edm =
-      to_upper(
-        CONV string( is_svc-edm_type )
-      ).
-
-    lv_prv_edm =
-      to_upper(
-        CONV string( is_prv-edm_type )
-      ).
-
+  "============================================================
+  " SELECT-OPTIONS / RANGE
+  " - phải map vào table parameter
+  " - phải có named table type để generated class khai báo đúng type
+  " - EDM element type phải khớp
+  "============================================================
+  IF is_svc-odata_kind = 'RANGE'.
 
     rv_ok =
       xsdbool(
-        lv_svc_edm = lv_prv_edm
+        is_prv-is_table = abap_true
+        AND is_prv-type_name IS NOT INITIAL
+        AND lv_svc_edm = lv_prv_edm
       ).
 
-  ENDMETHOD.
+    RETURN.
 
+  ENDIF.
+
+
+  "============================================================
+  " Scalar không được map vào table parameter
+  "============================================================
+  IF is_prv-is_table = abap_true.
+    RETURN.
+  ENDIF.
+
+
+  rv_ok =
+    xsdbool(
+      lv_svc_edm = lv_prv_edm
+    ).
+
+ENDMETHOD.
 
   METHOD set_status.
 

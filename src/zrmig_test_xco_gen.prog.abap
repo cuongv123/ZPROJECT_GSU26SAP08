@@ -146,13 +146,16 @@ APPEND ls_in
 CLEAR ls_in.
 
 ls_in-par_name =
-  'IV_MATERIAL'.
+  'IT_MATERIAL'.
 
 ls_in-direction =
   zif_mig_types=>gc_sig_imp.
 
 ls_in-abap_type =
-  'CHAR'.
+  'TABLE'.
+
+ls_in-type_name =
+  'ZCL_MIG_TEST_PROVIDER=>TY_R_MATERIAL'.
 
 ls_in-edm_type =
   'Edm.String'.
@@ -164,7 +167,7 @@ ls_in-optional =
   abap_true.
 
 ls_in-is_table =
-  abap_false.
+  abap_true.
 
 
 APPEND ls_in
@@ -302,7 +305,7 @@ DATA ls_ret
         edm_type   = 'Edm.String'
         position   = 20
         visible    = abap_true
-        filterable = abap_true
+        filterable = abap_false
         sortable   = abap_true
       ) TO ls_bp-fields.
 
@@ -368,7 +371,7 @@ DATA ls_ret
       edm_type   = 'Edm.Boolean'
       position   = 80
       visible    = abap_true
-      filterable = abap_true
+      filterable = abap_false
     ) TO ls_bp-fields.
 
     APPEND VALUE #(
@@ -383,12 +386,12 @@ DATA ls_ret
 
     APPEND VALUE #(
     parameter_name     = 'Material'
-    source_kind        = 'PARAMETERS'
-    odata_kind         = 'SCALAR'
+    source_kind        = 'SELECT-OPTIONS'
+    odata_kind         = 'RANGE'
     edm_type           = 'Edm.String'
     mandatory          = abap_false
-    multiple_selection = abap_false
-    range_supported    = abap_false
+    multiple_selection = abap_true
+    range_supported    = abap_true
   ) TO ls_bp-parameters.
 
     APPEND VALUE #(

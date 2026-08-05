@@ -28,10 +28,10 @@ CLASS zcl_mig_mail_service DEFINITION
 
     CLASS-METHODS send_job
       IMPORTING
-        iv_job_id       TYPE sysuuid_x16
-        iv_trigger_type TYPE zmig_e_trigger_type OPTIONAL
-        is_mail_content TYPE ty_mail_content OPTIONAL
-        is_attachment   TYPE ty_attachment OPTIONAL
+        iv_job_id        TYPE sysuuid_x16
+        iv_trigger_type  TYPE zmig_e_trigger_type OPTIONAL
+        is_mail_content  TYPE ty_mail_content OPTIONAL
+        is_attachment    TYPE ty_attachment OPTIONAL
       RETURNING
         VALUE(rs_result) TYPE ty_send_result.
 
@@ -39,7 +39,7 @@ ENDCLASS.
 
 
 
-CLASS ZCL_MIG_MAIL_SERVICE IMPLEMENTATION.
+CLASS zcl_mig_mail_service IMPLEMENTATION.
 
 
   METHOD send_job.
@@ -55,15 +55,15 @@ CLASS ZCL_MIG_MAIL_SERVICE IMPLEMENTATION.
       lc_document_type_html TYPE so_obj_tp VALUE 'HTM'.
 
     DATA:
-      lv_trigger_type     TYPE zmig_e_trigger_type,
-      lv_log_file_format  TYPE zmig_e_file_format,
-      lv_attachment_name  TYPE zmig_mail_log-file_name,
-      lv_attachment_size  TYPE zmig_mail_log-file_size,
-      lv_mail_subject     TYPE so_obj_des,
-      lv_mail_body        TYPE string,
-      lv_document_type    TYPE so_obj_tp,
-      lv_log_message      TYPE string,
-      ls_finish_result    TYPE zcl_mig_mail_log_service=>ty_finish_result.
+      lv_trigger_type    TYPE zmig_e_trigger_type,
+      lv_log_file_format TYPE zmig_e_file_format,
+      lv_attachment_name TYPE zmig_mail_log-file_name,
+      lv_attachment_size TYPE zmig_mail_log-file_size,
+      lv_mail_subject    TYPE so_obj_des,
+      lv_mail_body       TYPE string,
+      lv_document_type   TYPE so_obj_tp,
+      lv_log_message     TYPE string,
+      ls_finish_result   TYPE zcl_mig_mail_log_service=>ty_finish_result.
 
 
     "------------------------------------------------------------
@@ -121,26 +121,26 @@ CLASS ZCL_MIG_MAIL_SERVICE IMPLEMENTATION.
 
     ENDIF.
 
-"------------------------------------------------------------
-" Validate resolved mail content
-"------------------------------------------------------------
-IF lv_mail_subject IS INITIAL.
+    "------------------------------------------------------------
+    " Validate resolved mail content
+    "------------------------------------------------------------
+    IF lv_mail_subject IS INITIAL.
 
-  MESSAGE e013(zmig_msg)
-    INTO rs_result-message.
+      MESSAGE e013(zmig_msg)
+        INTO rs_result-message.
 
-  RETURN.
+      RETURN.
 
-ENDIF.
+    ENDIF.
 
-IF lv_mail_body IS INITIAL.
+    IF lv_mail_body IS INITIAL.
 
-  MESSAGE e037(zmig_msg)
-    INTO rs_result-message.
+      MESSAGE e037(zmig_msg)
+        INTO rs_result-message.
 
-  RETURN.
+      RETURN.
 
-ENDIF.
+    ENDIF.
 
 
     "------------------------------------------------------------
@@ -466,7 +466,6 @@ ENDIF.
           ).
 
         rs_result-request_created = abap_true.
-COMMIT WORK AND WAIT.
 
         "----------------------------------------------------------
         " All recipients accepted
@@ -500,9 +499,9 @@ COMMIT WORK AND WAIT.
           ENDIF.
 
 
-        "----------------------------------------------------------
-        " At least one recipient was not accepted
-        "----------------------------------------------------------
+          "----------------------------------------------------------
+          " At least one recipient was not accepted
+          "----------------------------------------------------------
         ELSE.
 
           MESSAGE e036(zmig_msg)

@@ -1,0 +1,17 @@
+managed implementation in class zbp_i_mig_exp_job unique;
+strict ( 2 );
+
+define behavior for ZI_MIG_EXP_JOB alias ExportJob
+persistent table zmig_exp_job
+lock master
+authorization master ( global )
+{
+  // Chỉ đọc qua OData. Dữ liệu được ghi bằng INSERT thuần trong
+  // action PrepareSelectedExport (ZBP_I_MIG_ANALYSIS), không qua
+  // RAP create/update/delete -> không khai báo các operation này.
+
+  field ( readonly )
+    ExportId, AnalysisId, FileFormat, ExportSection, SelectedFields,
+    Status, FileName, MimeType, Content, Message,
+    CreatedBy, CreatedAt, ExpiresAt;
+}
