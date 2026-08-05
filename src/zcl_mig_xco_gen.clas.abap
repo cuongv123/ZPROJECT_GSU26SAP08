@@ -21,6 +21,9 @@ CLASS zcl_mig_xco_gen DEFINITION
 
         is_smap
           TYPE zif_mig_types=>ty_svc_map_result
+        it_shared_services
+          TYPE zif_mig_types=>tt_shared_service
+          OPTIONAL
 
         iv_request
           TYPE trkorr
@@ -117,25 +120,25 @@ CLASS zcl_mig_xco_gen DEFINITION
           RAISING
             zcx_mig_analysis.
 
-      METHODS add_srvb
-          IMPORTING
-            io_put
-              TYPE REF TO if_xco_cp_gen_d_o_put
+      METHODS update_shared_srvb
+        IMPORTING
+          io_put
+            TYPE REF TO if_xco_cp_gen_d_o_put
 
-            is_item
-              TYPE zif_mig_types=>ty_art_item
+          iv_package
+            TYPE devclass
 
-            iv_package
-              TYPE devclass
+          it_existing_services
+            TYPE zif_mig_types=>tt_shared_service
 
-            iv_service_name
-              TYPE zif_mig_types=>ty_art_name
+          iv_service_name
+            TYPE zif_mig_types=>ty_art_name
 
-            iv_srvd_name
-              TYPE zif_mig_types=>ty_art_name
+          iv_srvd_name
+            TYPE zif_mig_types=>ty_art_name
 
-          RAISING
-            zcx_mig_analysis.
+        RAISING
+          zcx_mig_analysis.
 
       METHODS build_select_src
           IMPORTING
@@ -230,42 +233,9 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
 
     ENDIF.
 
-    READ TABLE is_mfst-items
-      WITH KEY
-        art_type = zif_mig_types=>gc_art_srvb
-        art_role = zif_mig_types=>gc_art_srv_bind
-      INTO DATA(ls_srvb).
-
-
-    IF sy-subrc <> 0
-       OR ls_srvb-object_name IS INITIAL.
-
-      RAISE EXCEPTION NEW zcx_mig_analysis(
-        textid =
-          zcx_mig_analysis=>analysis_failed
-
-        program_name =
-          is_mfst-source_program
-      ).
-
-    ENDIF.
-
-
-    IF strlen(
-         CONV string(
-           ls_srvb-object_name
-         )
-       ) > 26.
-
-      RAISE EXCEPTION NEW zcx_mig_analysis(
-        textid =
-          zcx_mig_analysis=>analysis_failed
-
-        program_name =
-          is_mfst-source_program
-      ).
-
-    ENDIF.
+    CONSTANTS gc_shared_srvb
+      TYPE zif_mig_types=>ty_art_name
+      VALUE 'ZUI_MIG_SHARED_O4'.
 
     DATA(lv_srv_alias) =
       CONV string(
@@ -475,21 +445,12 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
         lv_srv_alias
     ).
 
-    add_srvb(
-      io_put =
-        lo_srvb_put
-
-      is_item =
-        ls_srvb
-
-      iv_package =
-        is_mfst-package
-
-      iv_service_name =
-        ls_srvd-object_name
-
-      iv_srvd_name =
-        ls_srvd-object_name
+    update_shared_srvb(
+      io_put              = lo_srvb_put
+      iv_package          = is_mfst-package
+      it_existing_services = it_shared_services
+      iv_service_name     = ls_srvd-object_name
+      iv_srvd_name        = ls_srvd-object_name
     ).
 
     IF iv_execute = abap_true.
@@ -1059,10 +1020,14 @@ METHOD add_srvd.
 
 ENDMETHOD.
 
-METHOD add_srvb.
+METHOD update_shared_srvb.
 
-  IF is_item-object_name IS INITIAL
-     OR iv_package IS INITIAL
+  CONSTANTS gc_shared_srvb
+    TYPE zif_mig_types=>ty_art_name
+    VALUE 'ZUI_MIG_SHARED_O4'.
+
+
+  IF iv_package IS INITIAL
      OR iv_service_name IS INITIAL
      OR iv_srvd_name IS INITIAL.
 
@@ -1076,14 +1041,14 @@ METHOD add_srvb.
 
   DATA(lo_spec) =
     io_put->for-srvb->add_object(
-      CONV #( is_item-object_name )
+      CONV #( gc_shared_srvb )
     )->set_package(
       iv_package
     )->create_form_specification( ).
 
 
   lo_spec->set_short_description(
-    'Generated MIG OData V4 binding'
+    'MIG shared OData V4 binding'
   ).
 
 
@@ -1092,19 +1057,111 @@ METHOD add_srvb.
   ).
 
 
-  DATA(lo_service) =
+  DATA(lv_new_service) =
+    to_upper(
+      CONV string(
+        iv_service_name
+      )
+    ).
+
+  CONDENSE lv_new_service NO-GAPS.
+
+
+  DATA lt_services
+    TYPE zif_mig_types=>tt_shared_service.
+
+  lt_services =
+    it_existing_services.
+
+
+  "Remove duplicate of the service being generated.
+  "The new definition will be appended once with version 0001.
+  LOOP AT lt_services
+    ASSIGNING FIELD-SYMBOL(<ls_service>).
+
+    DATA(lv_existing_name) =
+      to_upper(
+        CONV string(
+          <ls_service>-service_name
+        )
+      ).
+
+    CONDENSE lv_existing_name NO-GAPS.
+
+
+    IF lv_existing_name =
+         lv_new_service.
+
+      DELETE lt_services
+        INDEX sy-tabix.
+
+    ENDIF.
+
+  ENDLOOP.
+
+
+  SORT lt_services
+    BY service_name
+       version
+       srvd_name.
+
+
+  DELETE ADJACENT DUPLICATES FROM lt_services
+    COMPARING
+      service_name
+      version
+      srvd_name.
+
+
+  LOOP AT lt_services
+    INTO DATA(ls_service).
+
+    IF ls_service-service_name IS INITIAL
+       OR ls_service-srvd_name IS INITIAL.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid =
+          zcx_mig_analysis=>analysis_failed
+      ).
+
+    ENDIF.
+
+
+    DATA(lv_version) =
+      ls_service-version.
+
+
+    IF lv_version <= 0.
+      lv_version = 1.
+    ENDIF.
+
+
+    DATA(lo_existing_service) =
+      lo_spec->add_service(
+        CONV #( ls_service-service_name )
+      ).
+
+
+    lo_existing_service->add_version(
+      CONV #( lv_version )
+    )->set_service_definition(
+       ls_service-srvd_name
+    ).
+
+  ENDLOOP.
+
+
+  DATA(lo_new_service) =
     lo_spec->add_service(
       CONV #( iv_service_name )
     ).
 
 
-  DATA(lo_version) =
-    lo_service->add_version(
-      0001
-    ).
-
-
-  lo_version->set_service_definition( iv_srvd_name ).
+  lo_new_service->add_version(
+    0001
+  )->set_service_definition(
+     iv_srvd_name
+  ).
 
 ENDMETHOD.
 

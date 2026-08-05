@@ -5,6 +5,7 @@ define behavior for ZC_MIG_ANALYSIS //alias <alias_name>
 {
 
   use action Analyze;
+  use action PrepareSelectedExport;   // === MỚI ===
   use association _SourceObjects;
   use association _UiFilters;
   use association _DatabaseObjects;

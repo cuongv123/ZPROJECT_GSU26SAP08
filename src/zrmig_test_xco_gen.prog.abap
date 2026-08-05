@@ -10,9 +10,6 @@ PARAMETERS:
   p_srvd TYPE zif_mig_types=>ty_art_name
     DEFAULT 'ZUI_MIG_Q_TEST15',
 
-  p_srvb TYPE zif_mig_types=>ty_art_name
-    DEFAULT 'ZUI_MIG_Q_TEST15_O4',
-
   p_pack TYPE devclass
     DEFAULT 'ZMIG_GEN_TEST',
 
@@ -371,7 +368,7 @@ DATA ls_ret
       edm_type   = 'Edm.Boolean'
       position   = 80
       visible    = abap_true
-      filterable = abap_false
+      filterable = abap_true
     ) TO ls_bp-fields.
 
     APPEND VALUE #(
@@ -548,37 +545,6 @@ APPEND VALUE #(
     zif_mig_types=>gc_art_planned
 ) TO ls_mfst-items.
 
-  APPEND VALUE #(
-  seq =
-    50
-
-  art_type =
-    zif_mig_types=>gc_art_srvb
-
-  art_role =
-    zif_mig_types=>gc_art_srv_bind
-
-  object_name =
-    p_srvb
-
-  package =
-    p_pack
-
-  description =
-    'Generated MIG OData V4 binding test'
-
-  gen_order =
-    50
-
-  required =
-    abap_true
-
-  cap_state =
-    zif_mig_types=>gc_art_cap_yes
-
-  gen_state =
-    zif_mig_types=>gc_art_planned
-) TO ls_mfst-items.
 
   APPEND VALUE #(
   art_seq = 20
@@ -601,6 +567,32 @@ APPEND VALUE #(
   ls_mfst-dep_count =
     lines( ls_mfst-dependencies ).
 
+  DATA(lo_registry) =
+  NEW zcl_mig_svc_registry( ).
+
+
+DATA(lt_shared_services) =
+  lo_registry->read_all( ).
+
+
+WRITE:
+  / 'Shared registry count:',
+    lines( lt_shared_services ).
+
+
+LOOP AT lt_shared_services
+  INTO DATA(ls_shared_debug).
+
+  WRITE:
+    / 'Registered service:',
+      ls_shared_debug-service_name,
+      ls_shared_debug-srvd_name,
+      ls_shared_debug-version.
+
+ENDLOOP.
+
+
+
   TRY.
 
       "==========================================================
@@ -615,6 +607,7 @@ APPEND VALUE #(
           is_sig =
             ls_sig
         ).
+
 
 
     WRITE:
@@ -686,47 +679,57 @@ APPEND VALUE #(
       "==========================================================
       " 4. Gọi generator
       "==========================================================
-      DATA(lo_gen) =
-        NEW zcl_mig_xco_gen( ).
 
 
-      lo_gen->generate_query(
-        is_mfst =
-          ls_pref
-
-        is_bp =
-          ls_bp
-
-        is_prv =
-          ls_prv
-
-        is_sig =
-          ls_sig
-
-        is_smap =
-          ls_smap
-
-        iv_request =
-          p_req
-
-        iv_execute =
-          p_exec
-      ).
 
 
-      IF p_exec = abap_true.
+DATA(lo_gen) =
+  NEW zcl_mig_xco_gen( ).
 
-        WRITE:
-          / 'XCO execute completed.',
-          / 'Refresh package:', p_pack.
 
-      ELSE.
+lo_gen->generate_query(
+  is_mfst =
+    ls_pref
 
-        WRITE:
-          / 'Dry run completed.',
-          / 'No repository object was created.'.
+  is_bp =
+    ls_bp
 
-      ENDIF.
+  is_prv =
+    ls_prv
+
+  is_sig =
+    ls_sig
+
+  is_smap =
+    ls_smap
+
+  it_shared_services =
+    lt_shared_services
+
+  iv_request =
+    p_req
+
+  iv_execute =
+    p_exec
+).
+
+
+IF p_exec = abap_true.
+
+  "Only reached when both XCO operations succeeded:
+  "1. CLAS/DDLS/SRVD
+  "2. Shared SRVB update
+  lo_registry->upsert(
+    iv_service_name = p_srvd
+    iv_srvd_name    = p_srvd
+    iv_version      = 1
+  ).
+
+  WRITE:
+    / 'Service registry updated:',
+      p_srvd.
+
+ENDIF.
 
 
     CATCH zcx_mig_analysis INTO DATA(lx_mig).

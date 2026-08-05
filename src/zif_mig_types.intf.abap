@@ -1267,6 +1267,15 @@
           TYPE STANDARD TABLE OF ty_art_repo_info
           WITH EMPTY KEY.
 
+     TYPES:
+      BEGIN OF ty_shared_service,
+        service_name TYPE ty_art_name,
+        srvd_name    TYPE ty_art_name,
+        version      TYPE i,
+      END OF ty_shared_service,
+
+      tt_shared_service TYPE STANDARD TABLE OF ty_shared_service
+        WITH EMPTY KEY.
 
   "============================================================
   " Complete analysis result

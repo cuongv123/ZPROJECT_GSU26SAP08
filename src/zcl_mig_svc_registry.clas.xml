@@ -3,15 +3,13 @@
  <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
   <asx:values>
    <VSEOCLASS>
-    <CLSNAME>ZBP_I_MIG_ANALYSIS</CLSNAME>
+    <CLSNAME>ZCL_MIG_SVC_REGISTRY</CLSNAME>
     <LANGU>E</LANGU>
-    <DESCRIPT>Behavior Implementation for ZI_MIG_ANALYSIS</DESCRIPT>
-    <CATEGORY>06</CATEGORY>
+    <DESCRIPT>automatic registry</DESCRIPT>
     <STATE>1</STATE>
     <CLSCCINCL>X</CLSCCINCL>
     <FIXPT>X</FIXPT>
     <UNICODE>X</UNICODE>
-    <CLSDEFINT>ZI_MIG_ANALYSIS</CLSDEFINT>
    </VSEOCLASS>
   </asx:values>
  </asx:abap>
