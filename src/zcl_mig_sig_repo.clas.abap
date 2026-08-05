@@ -606,8 +606,22 @@ CLASS zcl_mig_sig_repo IMPLEMENTATION.
 
     IF io_type->absolute_name IS NOT INITIAL.
 
+      DATA(lv_absolute_name) =
+        CONV string(
+          io_type->absolute_name
+        ).
+
+      IF lv_absolute_name CP '\TYPE=*'.
+
+        REPLACE FIRST OCCURRENCE OF '\TYPE='
+          IN lv_absolute_name
+          WITH ''.
+
+      ENDIF.
+
+
       cs_par-type_name =
-        io_type->absolute_name.
+        lv_absolute_name.
 
     ENDIF.
 

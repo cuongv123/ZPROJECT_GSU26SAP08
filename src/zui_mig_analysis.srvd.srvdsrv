@@ -15,4 +15,6 @@ define service ZUI_MIG_ANALYSIS {
   expose ZC_MIG_ANL_ANN as Annotations;
   expose ZC_MIG_ANL_MSG as AnalysisMessages;
   expose ZCE_MIG_EXPORT as ExportResult;
+  expose ZCE_MIG_PROGRAM_VH as ProgramValueHelp;
+  expose ZC_MIG_EXP_JOB as ExportJobs;
 }

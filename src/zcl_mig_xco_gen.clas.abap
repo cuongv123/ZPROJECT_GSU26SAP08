@@ -274,16 +274,35 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
 
     ENDIF.
 
+    DATA(lv_is_class_provider) =
+      xsdbool(
+        is_prv-provider_kind =
+          zif_mig_types=>gc_provider_class_method
+      ).
+
+
+    DATA(lv_is_fm_provider) =
+      xsdbool(
+        is_prv-provider_kind =
+          zif_mig_types=>gc_provider_function
+      ).
+
+
     IF is_prv-service_strategy <>
          zif_mig_types=>gc_svc_query
-       OR is_prv-provider_kind <>
-            zif_mig_types=>gc_provider_class_method
        OR is_prv-provider_status <>
             zif_mig_types=>gc_provider_ready
        OR is_prv-manual_review =
             abap_true
-       OR is_prv-source_container_name IS INITIAL
-       OR is_prv-source_object_name IS INITIAL.
+       OR is_prv-source_object_name IS INITIAL
+       OR (
+            lv_is_class_provider = abap_false
+            AND lv_is_fm_provider = abap_false
+          )
+       OR (
+            lv_is_class_provider = abap_true
+            AND is_prv-source_container_name IS INITIAL
+          ).
 
       RAISE EXCEPTION NEW zcx_mig_analysis(
         textid =
@@ -294,6 +313,7 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
       ).
 
     ENDIF.
+
 
 
     IF is_sig-status <>
@@ -301,7 +321,7 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
        OR is_sig-manual_review =
             abap_true
        OR is_sig-provider_kind <>
-            zif_mig_types=>gc_provider_class_method.
+            is_prv-provider_kind.
 
       RAISE EXCEPTION NEW zcx_mig_analysis(
         textid =
@@ -312,6 +332,7 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
       ).
 
     ENDIF.
+
 
     IF is_mfst-analysis_id IS NOT INITIAL
        AND is_bp-blueprint-analysis_id <>
@@ -341,25 +362,111 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
 
     ENDLOOP.
 
-    DATA lv_ret_count
+    IF lv_is_fm_provider = abap_true.
+
+      LOOP AT is_sig-input_params
+        TRANSPORTING NO FIELDS
+        WHERE direction <>
+                zif_mig_types=>gc_sig_imp
+           OR is_table =
+                abap_true
+           OR is_ref =
+                abap_true
+           OR is_deep =
+                abap_true.
+
+        RAISE EXCEPTION NEW zcx_mig_analysis(
+          textid =
+            zcx_mig_analysis=>analysis_failed
+
+          program_name =
+            is_mfst-source_program
+        ).
+
+      ENDLOOP.
+
+
+      LOOP AT is_sig-all_params
+        TRANSPORTING NO FIELDS
+        WHERE direction =
+                zif_mig_types=>gc_sig_chg
+           OR direction =
+                zif_mig_types=>gc_sig_tab.
+
+        RAISE EXCEPTION NEW zcx_mig_analysis(
+          textid =
+            zcx_mig_analysis=>analysis_failed
+
+          program_name =
+            is_mfst-source_program
+        ).
+
+      ENDLOOP.
+
+    ENDIF.
+
+    DATA lv_output_table_count
       TYPE i.
 
-    CLEAR lv_ret_count.
+    CLEAR lv_output_table_count.
 
 
     LOOP AT is_sig-output_params
-      TRANSPORTING NO FIELDS
-      WHERE direction =
-              zif_mig_types=>gc_sig_ret
-        AND is_table =
-              abap_true.
+      INTO DATA(ls_output_param)
+      WHERE is_table = abap_true.
 
-      lv_ret_count += 1.
+      IF lv_is_class_provider = abap_true
+         AND ls_output_param-direction =
+               zif_mig_types=>gc_sig_ret.
+
+        lv_output_table_count += 1.
+
+      ELSEIF lv_is_fm_provider = abap_true
+         AND ls_output_param-direction =
+               zif_mig_types=>gc_sig_exp.
+
+        lv_output_table_count += 1.
+
+      ENDIF.
 
     ENDLOOP.
 
 
-    IF lv_ret_count <> 1.
+    IF lv_output_table_count <> 1
+       OR is_smap-selected_out-par_name IS INITIAL
+       OR is_smap-selected_out-type_name IS INITIAL
+       OR is_smap-selected_out-is_table <>
+            abap_true.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid =
+          zcx_mig_analysis=>analysis_failed
+
+        program_name =
+          is_mfst-source_program
+      ).
+
+    ENDIF.
+
+
+    IF lv_is_class_provider = abap_true
+       AND is_smap-selected_out-direction <>
+             zif_mig_types=>gc_sig_ret.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid =
+          zcx_mig_analysis=>analysis_failed
+
+        program_name =
+          is_mfst-source_program
+      ).
+
+    ENDIF.
+
+
+    IF lv_is_fm_provider = abap_true
+       AND is_smap-selected_out-direction <>
+             zif_mig_types=>gc_sig_exp.
 
       RAISE EXCEPTION NEW zcx_mig_analysis(
         textid =
@@ -1170,6 +1277,12 @@ METHOD build_select_src.
   DATA lt_fields
     TYPE zif_mig_types=>tt_service_field.
 
+  DATA(lv_is_fm_provider) =
+    xsdbool(
+      is_prv-provider_kind =
+        zif_mig_types=>gc_provider_function
+    ).
+
 
   lt_fields =
     it_fields.
@@ -1586,37 +1699,83 @@ METHOD build_select_src.
     |DATA lt_result TYPE STANDARD TABLE OF ty_result WITH EMPTY KEY.|
     TO rt_source.
 
+  APPEND
+      |DATA(lo_paging) = io_request->get_paging( ).|
+      TO rt_source.
+
+
+    APPEND
+      |DATA(lv_offset) = lo_paging->get_offset( ).|
+      TO rt_source.
+
+
+    APPEND
+      |DATA(lv_page_size) = lo_paging->get_page_size( ).|
+      TO rt_source.
 
   "============================================================
-  " Chuẩn hóa tên class và static method provider
   "============================================================
-  DATA(lv_class_name) =
-    to_upper(
-      CONV string(
-        is_prv-source_container_name
-      )
-    ).
-
-  CONDENSE lv_class_name NO-GAPS.
+  " Chuẩn hóa tên provider
+  "============================================================
+  DATA:
+    lv_class_name TYPE string,
+    lv_method_name TYPE string,
+    lv_fm_name TYPE string.
 
 
-  DATA(lv_method_name) =
-    to_upper(
-      CONV string(
-        is_prv-source_object_name
-      )
-    ).
+  IF lv_is_fm_provider = abap_true.
 
-  CONDENSE lv_method_name NO-GAPS.
+    lv_fm_name =
+      to_upper(
+        CONV string(
+          is_prv-source_object_name
+        )
+      ).
+
+    CONDENSE lv_fm_name NO-GAPS.
 
 
-  IF lv_class_name IS INITIAL
-     OR lv_method_name IS INITIAL.
+    IF lv_fm_name IS INITIAL.
 
-    RAISE EXCEPTION NEW zcx_mig_analysis(
-      textid =
-        zcx_mig_analysis=>analysis_failed
-    ).
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid =
+          zcx_mig_analysis=>analysis_failed
+      ).
+
+    ENDIF.
+
+
+  ELSE.
+
+    lv_class_name =
+      to_upper(
+        CONV string(
+          is_prv-source_container_name
+        )
+      ).
+
+    CONDENSE lv_class_name NO-GAPS.
+
+
+    lv_method_name =
+      to_upper(
+        CONV string(
+          is_prv-source_object_name
+        )
+      ).
+
+    CONDENSE lv_method_name NO-GAPS.
+
+
+    IF lv_class_name IS INITIAL
+       OR lv_method_name IS INITIAL.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid =
+          zcx_mig_analysis=>analysis_failed
+      ).
+
+    ENDIF.
 
   ENDIF.
 
@@ -1717,63 +1876,102 @@ METHOD build_select_src.
 
     ELSE.
 
-      lv_filter_var =
-        |lv_f{ lv_filter_idx }|.
+  lv_filter_var =
+    |lv_f{ lv_filter_idx }|.
 
 
-      CASE lv_filter_edm.
+  "Function Module dynamic call cần đúng kiểu parameter thật
+  IF lv_is_fm_provider = abap_true
+     AND ls_sig_input-type_name IS NOT INITIAL.
 
-        WHEN 'EDM.STRING'.
+    lv_prv_type =
+      CONV string(
+        ls_sig_input-type_name
+      ).
 
-          lv_filter_decl =
-            'TYPE c LENGTH 120'.
-
-
-        WHEN 'EDM.INT32'.
-
-          lv_filter_decl =
-            'TYPE i'.
+    CONDENSE lv_prv_type NO-GAPS.
 
 
-        WHEN 'EDM.INT64'.
+    IF lv_prv_type CP '\TYPE=*'.
 
-          lv_filter_decl =
-            'TYPE int8'.
-
-
-        WHEN 'EDM.DECIMAL'.
-
-          lv_filter_decl =
-            'TYPE decfloat16'.
-
-
-        WHEN 'EDM.DOUBLE'.
-
-          lv_filter_decl =
-            'TYPE decfloat34'.
-
-
-        WHEN 'EDM.DATE'.
-
-          lv_filter_decl =
-            'TYPE d'.
-
-
-        WHEN OTHERS.
-
-          RAISE EXCEPTION NEW zcx_mig_analysis(
-            textid =
-              zcx_mig_analysis=>analysis_failed
-          ).
-
-      ENDCASE.
-
-
-      APPEND
-        |DATA { lv_filter_var } { lv_filter_decl }.|
-        TO rt_source.
+      REPLACE FIRST OCCURRENCE OF '\TYPE='
+        IN lv_prv_type
+        WITH ''.
 
     ENDIF.
+
+
+    IF lv_prv_type IS INITIAL.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid =
+          zcx_mig_analysis=>analysis_failed
+      ).
+
+    ENDIF.
+
+
+    lv_filter_decl =
+      |TYPE { lv_prv_type }|.
+
+
+  ELSE.
+
+    CASE lv_filter_edm.
+
+      WHEN 'EDM.STRING'.
+
+        lv_filter_decl =
+          'TYPE c LENGTH 120'.
+
+
+      WHEN 'EDM.INT32'.
+
+        lv_filter_decl =
+          'TYPE i'.
+
+
+      WHEN 'EDM.INT64'.
+
+        lv_filter_decl =
+          'TYPE int8'.
+
+
+      WHEN 'EDM.DECIMAL'.
+
+        lv_filter_decl =
+          'TYPE decfloat16'.
+
+
+      WHEN 'EDM.DOUBLE'.
+
+        lv_filter_decl =
+          'TYPE decfloat34'.
+
+
+      WHEN 'EDM.DATE'.
+
+        lv_filter_decl =
+          'TYPE d'.
+
+
+      WHEN OTHERS.
+
+        RAISE EXCEPTION NEW zcx_mig_analysis(
+          textid =
+            zcx_mig_analysis=>analysis_failed
+        ).
+
+    ENDCASE.
+
+  ENDIF.
+
+
+  APPEND
+    |DATA { lv_filter_var } { lv_filter_decl }.|
+    TO rt_source.
+
+ENDIF.
 
 
     APPEND
@@ -2383,22 +2581,37 @@ METHOD build_select_src.
   "============================================================
   " Dynamic provider call:
   " - chỉ bind optional parameter thực sự có trong request
-  " - giữ đúng IS SUPPLIED kể cả giá trị 0 hoặc initial date
+  " - class method dùng ABAP_PARMBIND_TAB
+  " - function module dùng ABAP_FUNC_PARMBIND_TAB
   "============================================================
   APPEND
     |DATA lt_provider TYPE { lv_output_type }.|
     TO rt_source.
 
 
-  APPEND
-    |DATA lt_bind TYPE abap_parmbind_tab.|
-    TO rt_source.
+  IF lv_is_fm_provider = abap_true.
+
+    APPEND
+      |DATA lt_bind TYPE abap_func_parmbind_tab.|
+      TO rt_source.
+
+    APPEND
+      |DATA lt_exceptions TYPE abap_func_excpbind_tab.|
+      TO rt_source.
+
+  ELSE.
+
+    APPEND
+      |DATA lt_bind TYPE abap_parmbind_tab.|
+      TO rt_source.
+
+  ENDIF.
 
 
   CLEAR lv_filter_idx.
 
 
-   LOOP AT lt_input_maps
+  LOOP AT lt_input_maps
     INTO ls_input_map.
 
     lv_filter_idx += 1.
@@ -2452,9 +2665,19 @@ METHOD build_select_src.
       TO rt_source.
 
 
-    APPEND
-      |    kind = cl_abap_objectdescr=>exporting|
-      TO rt_source.
+    IF lv_is_fm_provider = abap_true.
+
+      APPEND
+        |    kind = abap_func_exporting|
+        TO rt_source.
+
+    ELSE.
+
+      APPEND
+        |    kind = cl_abap_objectdescr=>exporting|
+        TO rt_source.
+
+    ENDIF.
 
 
     APPEND
@@ -2474,7 +2697,6 @@ METHOD build_select_src.
   ENDLOOP.
 
 
-
   APPEND
     |INSERT VALUE #(|
     TO rt_source.
@@ -2485,9 +2707,19 @@ METHOD build_select_src.
     TO rt_source.
 
 
-  APPEND
-    |  kind = cl_abap_objectdescr=>receiving|
-    TO rt_source.
+  IF lv_is_fm_provider = abap_true.
+
+    APPEND
+      |  kind = abap_func_importing|
+      TO rt_source.
+
+  ELSE.
+
+    APPEND
+      |  kind = cl_abap_objectdescr=>receiving|
+      TO rt_source.
+
+  ENDIF.
 
 
   APPEND
@@ -2500,74 +2732,205 @@ METHOD build_select_src.
     TO rt_source.
 
 
-  APPEND
-    |DATA(lv_provider_class) = '{ lv_class_name }'.|
-    TO rt_source.
+  IF lv_is_fm_provider = abap_true.
+
+    APPEND
+      |DATA(lv_provider_fm) = '{ lv_fm_name }'.|
+      TO rt_source.
 
 
-  APPEND
-    |DATA(lv_provider_method) = '{ lv_method_name }'.|
-    TO rt_source.
+    APPEND
+      |lt_exceptions = VALUE #( ( name = 'OTHERS' value = 1 ) ).|
+      TO rt_source.
 
 
-  APPEND
-    |TRY.|
-    TO rt_source.
+    APPEND
+      |TRY.|
+      TO rt_source.
 
 
-  APPEND
-    |    CALL METHOD (lv_provider_class)=>(lv_provider_method)|
-    TO rt_source.
+    APPEND
+      |    CALL FUNCTION lv_provider_fm|
+      TO rt_source.
 
 
-  APPEND
-    |      PARAMETER-TABLE lt_bind.|
-    TO rt_source.
+    APPEND
+      |      PARAMETER-TABLE lt_bind|
+      TO rt_source.
 
 
-  APPEND
-    |  CATCH cx_sy_dyn_call_error.|
-    TO rt_source.
+    APPEND
+      |      EXCEPTION-TABLE lt_exceptions.|
+      TO rt_source.
 
 
-  APPEND
-    |    IF io_request->is_total_numb_of_rec_requested( ).|
-    TO rt_source.
+    APPEND
+      |    DATA(lv_fm_subrc) = sy-subrc.|
+      TO rt_source.
 
 
-  APPEND
-    |      io_response->set_total_number_of_records( 0 ).|
-    TO rt_source.
+    APPEND
+      |  CATCH cx_sy_dyn_call_error.|
+      TO rt_source.
 
 
-  APPEND
-    |    ENDIF.|
-    TO rt_source.
+    APPEND
+      |    IF io_request->is_total_numb_of_rec_requested( ).|
+      TO rt_source.
 
 
-  APPEND
-    |    IF io_request->is_data_requested( ).|
-    TO rt_source.
+    APPEND
+      |      io_response->set_total_number_of_records( 0 ).|
+      TO rt_source.
 
 
-  APPEND
-    |      io_response->set_data( lt_result ).|
-    TO rt_source.
+    APPEND
+      |    ENDIF.|
+      TO rt_source.
 
 
-  APPEND
-    |    ENDIF.|
-    TO rt_source.
+    APPEND
+      |    IF io_request->is_data_requested( ).|
+      TO rt_source.
 
 
-  APPEND
-    |    RETURN.|
-    TO rt_source.
+    APPEND
+      |      io_response->set_data( lt_result ).|
+      TO rt_source.
 
 
-  APPEND
-    |ENDTRY.|
-    TO rt_source.
+    APPEND
+      |    ENDIF.|
+      TO rt_source.
+
+
+    APPEND
+      |    RETURN.|
+      TO rt_source.
+
+
+    APPEND
+      |ENDTRY.|
+      TO rt_source.
+
+
+    APPEND
+      |IF lv_fm_subrc <> 0.|
+      TO rt_source.
+
+
+    APPEND
+      |  IF io_request->is_total_numb_of_rec_requested( ).|
+      TO rt_source.
+
+
+    APPEND
+      |    io_response->set_total_number_of_records( 0 ).|
+      TO rt_source.
+
+
+    APPEND
+      |  ENDIF.|
+      TO rt_source.
+
+
+    APPEND
+      |  IF io_request->is_data_requested( ).|
+      TO rt_source.
+
+
+    APPEND
+      |    io_response->set_data( lt_result ).|
+      TO rt_source.
+
+
+    APPEND
+      |  ENDIF.|
+      TO rt_source.
+
+
+    APPEND
+      |  RETURN.|
+      TO rt_source.
+
+
+    APPEND
+      |ENDIF.|
+      TO rt_source.
+
+
+  ELSE.
+
+    APPEND
+      |DATA(lv_provider_class) = '{ lv_class_name }'.|
+      TO rt_source.
+
+
+    APPEND
+      |DATA(lv_provider_method) = '{ lv_method_name }'.|
+      TO rt_source.
+
+
+    APPEND
+      |TRY.|
+      TO rt_source.
+
+
+    APPEND
+      |    CALL METHOD (lv_provider_class)=>(lv_provider_method)|
+      TO rt_source.
+
+
+    APPEND
+      |      PARAMETER-TABLE lt_bind.|
+      TO rt_source.
+
+
+    APPEND
+      |  CATCH cx_sy_dyn_call_error.|
+      TO rt_source.
+
+
+    APPEND
+      |    IF io_request->is_total_numb_of_rec_requested( ).|
+      TO rt_source.
+
+
+    APPEND
+      |      io_response->set_total_number_of_records( 0 ).|
+      TO rt_source.
+
+
+    APPEND
+      |    ENDIF.|
+      TO rt_source.
+
+
+    APPEND
+      |    IF io_request->is_data_requested( ).|
+      TO rt_source.
+
+
+    APPEND
+      |      io_response->set_data( lt_result ).|
+      TO rt_source.
+
+
+    APPEND
+      |    ENDIF.|
+      TO rt_source.
+
+
+    APPEND
+      |    RETURN.|
+      TO rt_source.
+
+
+    APPEND
+      |ENDTRY.|
+      TO rt_source.
+
+  ENDIF.
 
 
   APPEND
@@ -2742,20 +3105,6 @@ METHOD build_select_src.
     |  DATA lt_page TYPE STANDARD TABLE OF ty_result WITH EMPTY KEY.|
     TO rt_source.
 
-
-  APPEND
-    |  DATA(lo_paging) = io_request->get_paging( ).|
-    TO rt_source.
-
-
-  APPEND
-    |  DATA(lv_offset) = lo_paging->get_offset( ).|
-    TO rt_source.
-
-
-  APPEND
-    |  DATA(lv_page_size) = lo_paging->get_page_size( ).|
-    TO rt_source.
 
 
   APPEND

@@ -95,6 +95,17 @@ CLASS lhc_Analysis DEFINITION INHERITING FROM cl_abap_behavior_handler.
     METHODS Analyze FOR MODIFY
       IMPORTING keys FOR ACTION Analysis~Analyze RESULT result.
 
+METHODS prepareselectedexport FOR MODIFY
+      IMPORTING keys FOR ACTION Analysis~PrepareSelectedExport RESULT result.
+
+    METHODS validate_selected_fields
+      IMPORTING
+        iv_export_section   TYPE zif_mig_export_provider=>ty_export_section
+        iv_selected_fields  TYPE string
+      EXPORTING
+        et_invalid_fields   TYPE string_table
+      RETURNING
+        VALUE(rv_all_valid) TYPE abap_bool.
 ENDCLASS.
 
 CLASS lhc_Analysis IMPLEMENTATION.
@@ -102,6 +113,9 @@ CLASS lhc_Analysis IMPLEMENTATION.
   METHOD get_global_authorizations.
 
       result-%action-Analyze =
+        if_abap_behv=>auth-allowed.
+
+        result-%action-PrepareSelectedExport =
         if_abap_behv=>auth-allowed.
 
   ENDMETHOD.
@@ -594,9 +608,11 @@ METHOD rba_Sourceobjects.
 
   ENDLOOP.
 
+
 ENDMETHOD.
 
   METHOD Analyze.
+
 
       DATA(lo_service) =
         NEW zcl_mig_analysis_service( ).
@@ -704,7 +720,129 @@ ENDMETHOD.
       ENDLOOP.
 
     ENDMETHOD.
+ METHOD prepareselectedexport.
 
+    LOOP AT keys ASSIGNING FIELD-SYMBOL(<key>).
+DATA(lv_created_at) = cl_abap_tstmp=>utclong2tstmp( utclong_current( ) ).
+      DATA(lv_expires_at) = cl_abap_tstmp=>add( tstmp = lv_created_at secs = 24 * 60 * 60 ).
+      DATA(lv_analysis_id) = <key>-AnalysisId.
+      DATA(ls_param)       = <key>-%param.
+DATA(lv_section) = CONV zif_mig_export_provider=>ty_export_section(
+  to_upper( condense( CONV string( ls_param-ExportSection ) ) ) ).
+      DATA(lv_fields)      = ls_param-SelectedFields.
+
+      IF lv_section = 'ALL' AND lv_fields IS NOT INITIAL.
+        APPEND VALUE #( %tky = <key>-%tky ) TO failed-Analysis.
+        APPEND VALUE #(
+          %tky = <key>-%tky
+          %msg = new_message_with_text(
+                   severity = if_abap_behv_message=>severity-error
+                   text     = 'SelectedFields is not supported when ExportSection is ALL.' )
+        ) TO reported-Analysis.
+        CONTINUE.
+      ENDIF.
+
+      DATA lt_invalid TYPE string_table.
+DATA(lv_all_valid) = validate_selected_fields(
+  EXPORTING
+    iv_export_section  = lv_section
+    iv_selected_fields = lv_fields
+  IMPORTING
+    et_invalid_fields  = lt_invalid ).
+
+      IF lv_all_valid = abap_false.
+        DATA(lv_invalid_list) = concat_lines_of( table = lt_invalid sep = `, ` ).
+        APPEND VALUE #( %tky = <key>-%tky ) TO failed-Analysis.
+        APPEND VALUE #(
+          %tky = <key>-%tky
+          %msg = new_message_with_text(
+                   severity = if_abap_behv_message=>severity-error
+                   text     = |INVALID_EXPORT_FIELDS: { lv_invalid_list }| )
+        ) TO reported-Analysis.
+        CONTINUE.
+      ENDIF.
+
+      DATA(lo_engine) = NEW zcl_mig_export_engine( ).
+      DATA(ls_export_result) = CAST zif_mig_export_provider( lo_engine )->generate(
+        iv_job_id          = VALUE #( )
+        iv_analysis_id     = lv_analysis_id
+        iv_report_type     = VALUE #( )
+        iv_file_format     = ls_param-FileFormat
+        iv_export_section  = lv_section
+        iv_selected_fields = lv_fields ).
+
+      IF ls_export_result-success = abap_false.
+        APPEND VALUE #( %tky = <key>-%tky ) TO failed-Analysis.
+        APPEND VALUE #(
+          %tky = <key>-%tky
+          %msg = new_message_with_text(
+                   severity = if_abap_behv_message=>severity-error
+                   text     = ls_export_result-message )
+        ) TO reported-Analysis.
+        CONTINUE.
+      ENDIF.
+
+      DATA(lv_export_id) = cl_system_uuid=>create_uuid_x16_static( ).
+
+      INSERT zmig_exp_job FROM @( VALUE #(
+        client          = sy-mandt
+        export_id       = lv_export_id
+        analysis_id     = lv_analysis_id
+        file_format     = ls_param-FileFormat
+        export_section  = lv_section
+        selected_fields = lv_fields
+        status          = 'READY'
+        file_name       = ls_export_result-file_name
+        mime_type       = ls_export_result-mime_type
+        content         = ls_export_result-content
+        message         = ls_export_result-message
+        created_by      = sy-uname
+        created_at      = lv_created_at
+        expires_at      = lv_expires_at
+      ) ).
+      APPEND VALUE #(
+        %tky   = <key>-%tky
+        %param = VALUE #(
+          ExportId    = lv_export_id
+          Status      = 'READY'
+          FileName    = ls_export_result-file_name
+          MimeType    = ls_export_result-mime_type
+          DownloadUrl = |/ExportJobs({ lv_export_id })/Content|
+        )
+      ) TO result.
+
+    ENDLOOP.
+
+  ENDMETHOD.
+
+
+  METHOD validate_selected_fields.
+    CLEAR: et_invalid_fields.
+    rv_all_valid = abap_true.
+
+    IF iv_selected_fields IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    SPLIT iv_selected_fields AT ',' INTO TABLE DATA(lt_raw).
+
+    SELECT odata_property
+      FROM ztb_exp_col
+      WHERE section_code = @iv_export_section
+      INTO TABLE @DATA(lt_valid_props).
+
+    LOOP AT lt_raw INTO DATA(lv_raw).
+      DATA(lv_trimmed) = condense( lv_raw ).
+      IF lv_trimmed IS INITIAL.
+        CONTINUE.
+      ENDIF.
+      READ TABLE lt_valid_props WITH KEY odata_property = lv_trimmed TRANSPORTING NO FIELDS.
+      IF sy-subrc <> 0.
+        APPEND lv_trimmed TO et_invalid_fields.
+        rv_all_valid = abap_false.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
 ENDCLASS.
 
 CLASS lhc_UiFilter DEFINITION INHERITING FROM cl_abap_behavior_handler.
