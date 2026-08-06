@@ -186,6 +186,9 @@ CLASS zcl_mig_analysis_agg IMPLEMENTATION.
     DATA(lo_fcat_analyzer) =
       NEW zcl_mig_alv_fcat_analyzer( ).
 
+    DATA(lo_row_analyzer) =
+      NEW zcl_mig_alv_row_analyzer( ).
+
     DATA(lo_sf_analyzer) =
       NEW zcl_mig_alv_sf_analyzer( ).
 
@@ -262,6 +265,18 @@ CLASS zcl_mig_analysis_agg IMPLEMENTATION.
 
     rs_result-alv_columns =
       ls_fcat_result-alv_columns.
+
+     "Fallback for SALV / ALV without explicit field catalog
+        DATA(ls_row_result) =
+          lo_row_analyzer->zif_mig_alv_fcat_analyzer~analyze(
+            iv_analysis_id  = lv_analysis_id
+            it_source_units = it_source_units
+            it_alv_outputs  = ls_alv_result-alv_outputs
+          ).
+
+        APPEND LINES OF
+          ls_row_result-alv_columns
+          TO rs_result-alv_columns.
 
 
     "========================================================

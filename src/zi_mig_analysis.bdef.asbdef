@@ -10,6 +10,9 @@ authorization master ( global )
   static action Analyze
     parameter ZA_MIG_ANALYZE_PARAM
     result [1] $self;
+  action GenerateOData
+  parameter ZA_MIG_GEN_ODATA_PARAM
+  result [1] ZA_MIG_GEN_ODATA_RESULT;
 
   // === MỚI: action export theo field được chọn (chức năng 4) ===
   action PrepareSelectedExport

@@ -136,15 +136,19 @@ CLASS zcl_mig_service_blueprint IMPLEMENTATION.
   LOOP AT it_ui_filters
     INTO DATA(ls_filter).
 
-    DATA lv_odata_kind TYPE c LENGTH 20.
+    DATA lv_odata_kind
+      TYPE c LENGTH 20.
+
 
     IF ls_filter-field_kind = 'SELECT_OPTIONS'.
 
-      lv_odata_kind = 'RANGE'.
+      lv_odata_kind =
+        'RANGE'.
 
     ELSE.
 
-      lv_odata_kind = 'PROPERTY'.
+      lv_odata_kind =
+        'SCALAR'.
 
     ENDIF.
 
@@ -164,8 +168,11 @@ CLASS zcl_mig_service_blueprint IMPLEMENTATION.
 
       edm_type =
         map_edm_type(
-          iv_data_type = ls_filter-data_type
-          iv_checkbox  = ls_filter-checkbox
+          iv_data_type =
+            ls_filter-data_type
+
+          iv_checkbox =
+            ls_filter-checkbox
         )
 
       mandatory =
@@ -182,6 +189,7 @@ CLASS zcl_mig_service_blueprint IMPLEMENTATION.
     ) TO rt_parameters.
 
   ENDLOOP.
+
 
   SORT rt_parameters
     BY parameter_name.

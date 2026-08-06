@@ -291,9 +291,9 @@ CLASS ltc_service_blueprint IMPLEMENTATION.
     ).
 
     cl_abap_unit_assert=>assert_equals(
-      exp = 'PROPERTY'
+      exp = 'SCALAR'
       act = ls_waers-odata_kind
-      msg = 'PARAMETER phải map thành PROPERTY'
+      msg = 'PARAMETER phải map thành SCALAR'
     ).
 
     cl_abap_unit_assert=>assert_equals(

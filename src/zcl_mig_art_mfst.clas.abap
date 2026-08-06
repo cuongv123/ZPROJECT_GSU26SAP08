@@ -329,13 +329,12 @@ CLASS zcl_mig_art_mfst IMPLEMENTATION.
 
   ENDMETHOD.
 
-    METHOD build_query.
+ METHOD build_query.
 
   DATA:
     lv_ddls TYPE zif_mig_types=>ty_art_name,
     lv_clas TYPE zif_mig_types=>ty_art_name,
-    lv_srvd TYPE zif_mig_types=>ty_art_name,
-    lv_srvb TYPE zif_mig_types=>ty_art_name.
+    lv_srvd TYPE zif_mig_types=>ty_art_name.
 
 
   "============================================================
@@ -350,6 +349,7 @@ CLASS zcl_mig_art_mfst IMPLEMENTATION.
 
   lv_clas =
     is_prv-proposed_class_name.
+
 
   IF lv_clas IS INITIAL.
 
@@ -369,19 +369,11 @@ CLASS zcl_mig_art_mfst IMPLEMENTATION.
     ).
 
 
-  lv_srvb =
-    make_name(
-      iv_prefix = 'ZUI_MIG_'
-      iv_base   = cs_mfst-base_name
-      iv_suffix = '_O4'
-    ).
-
-
   "============================================================
   " 10 - Query Provider
   "
-  " Phải tồn tại trước khi Custom Entity được activate vì
-  " DDLS sẽ tham chiếu class qua @ObjectModel.query.implementedBy
+  "Query Provider phải active trước Custom Entity vì DDLS dùng:
+  "@ObjectModel.query.implementedBy
   "============================================================
   add_art(
     EXPORTING
@@ -392,6 +384,7 @@ CLASS zcl_mig_art_mfst IMPLEMENTATION.
       iv_package = cs_mfst-package
       iv_desc    = 'Generated RAP query provider'
       iv_order   = 10
+
     CHANGING
       ct_items   = cs_mfst-items
   ).
@@ -399,6 +392,9 @@ CLASS zcl_mig_art_mfst IMPLEMENTATION.
 
   "============================================================
   " 20 - Custom Entity
+  "
+  "UI annotations được sinh trực tiếp vào DDLS.
+  "Không tạo Metadata Extension riêng.
   "============================================================
   add_art(
     EXPORTING
@@ -409,57 +405,28 @@ CLASS zcl_mig_art_mfst IMPLEMENTATION.
       iv_package = cs_mfst-package
       iv_desc    = 'Generated RAP custom entity'
       iv_order   = 20
+
     CHANGING
       ct_items   = cs_mfst-items
   ).
 
 
   "============================================================
-  " 30 - Metadata Extension
+  " 30 - Service Definition
+  "
+  "Service Binding không được tạo riêng cho từng report.
+  "SRVD sẽ được thêm vào shared binding ZUI_MIG_SHARED_O4.
   "============================================================
   add_art(
     EXPORTING
       iv_seq     = 30
-      iv_type    = zif_mig_types=>gc_art_ddlx
-      iv_role    = zif_mig_types=>gc_art_annot
-      iv_name    = lv_ddls
-      iv_package = cs_mfst-package
-      iv_desc    = 'Generated Fiori metadata extension'
-      iv_order   = 30
-    CHANGING
-      ct_items   = cs_mfst-items
-  ).
-
-
-  "============================================================
-  " 40 - Service Definition
-  "============================================================
-  add_art(
-    EXPORTING
-      iv_seq     = 40
       iv_type    = zif_mig_types=>gc_art_srvd
       iv_role    = zif_mig_types=>gc_art_srv_def
       iv_name    = lv_srvd
       iv_package = cs_mfst-package
       iv_desc    = 'Generated RAP service definition'
-      iv_order   = 40
-    CHANGING
-      ct_items   = cs_mfst-items
-  ).
+      iv_order   = 30
 
-
-  "============================================================
-  " 50 - Service Binding
-  "============================================================
-  add_art(
-    EXPORTING
-      iv_seq     = 50
-      iv_type    = zif_mig_types=>gc_art_srvb
-      iv_role    = zif_mig_types=>gc_art_srv_bind
-      iv_name    = lv_srvb
-      iv_package = cs_mfst-package
-      iv_desc    = 'Generated OData V4 service binding'
-      iv_order   = 50
     CHANGING
       ct_items   = cs_mfst-items
   ).
@@ -474,36 +441,18 @@ CLASS zcl_mig_art_mfst IMPLEMENTATION.
     EXPORTING
       iv_art_seq = 20
       iv_req_seq = 10
+
     CHANGING
       ct_deps    = cs_mfst-dependencies
   ).
 
 
-  "Metadata Extension requires Custom Entity
+  "Service Definition requires Custom Entity
   add_dep(
     EXPORTING
       iv_art_seq = 30
       iv_req_seq = 20
-    CHANGING
-      ct_deps    = cs_mfst-dependencies
-  ).
 
-
-  "Service Definition exposes Custom Entity
-  add_dep(
-    EXPORTING
-      iv_art_seq = 40
-      iv_req_seq = 20
-    CHANGING
-      ct_deps    = cs_mfst-dependencies
-  ).
-
-
-  "Service Binding requires Service Definition
-  add_dep(
-    EXPORTING
-      iv_art_seq = 50
-      iv_req_seq = 40
     CHANGING
       ct_deps    = cs_mfst-dependencies
   ).
