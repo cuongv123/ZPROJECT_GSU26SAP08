@@ -1153,6 +1153,44 @@
         gc_art_review TYPE ty_art_status
           VALUE 'MANUAL_REVIEW'.
 
+      TYPES:
+        ty_art_pref TYPE c LENGTH 20,
+        ty_art_mode TYPE c LENGTH 10.
+
+
+      CONSTANTS:
+        gc_pref_unknown TYPE ty_art_pref
+          VALUE 'UNKNOWN',
+
+        gc_pref_new TYPE ty_art_pref
+          VALUE 'NEW',
+
+        gc_pref_exists TYPE ty_art_pref
+          VALUE 'EXISTING',
+
+        gc_pref_pkg_conf TYPE ty_art_pref
+          VALUE 'PACKAGE_CONFLICT',
+
+        gc_pref_unsup TYPE ty_art_pref
+          VALUE 'UNSUPPORTED',
+
+        gc_pref_repo_err TYPE ty_art_pref
+          VALUE 'REPO_ERROR',
+
+        gc_pref_dep_block TYPE ty_art_pref
+          VALUE 'DEPENDENCY_BLOCKED',
+
+        gc_pref_blocked TYPE ty_art_pref
+          VALUE 'BLOCKED'.
+
+
+      CONSTANTS:
+        gc_art_create TYPE ty_art_mode
+          VALUE 'CREATE',
+
+        gc_art_no_mode TYPE ty_art_mode
+          VALUE 'NONE'.
+
 
       TYPES:
         BEGIN OF ty_art_item,
@@ -1168,6 +1206,11 @@
           required    TYPE abap_bool,
           cap_state   TYPE ty_art_cap,
           gen_state   TYPE ty_art_gen,
+
+          object_exists TYPE abap_bool,
+          current_package TYPE devclass,
+          pref_state   TYPE ty_art_pref,
+          gen_mode     TYPE ty_art_mode,
 
           reason      TYPE string,
         END OF ty_art_item,
@@ -1201,9 +1244,38 @@
           item_count      TYPE i,
           dep_count       TYPE i,
 
+          create_count TYPE i,
+          block_count  TYPE i,
+
           items           TYPE tt_art_item,
           dependencies    TYPE tt_art_dep,
         END OF ty_art_mfst.
+
+     TYPES:
+        BEGIN OF ty_art_repo_info,
+          art_type    TYPE ty_art_type,
+          object_name TYPE ty_art_name,
+
+          read_ok     TYPE abap_bool,
+          exists      TYPE abap_bool,
+          package     TYPE devclass,
+
+          reason      TYPE string,
+        END OF ty_art_repo_info,
+
+        tt_art_repo_info
+          TYPE STANDARD TABLE OF ty_art_repo_info
+          WITH EMPTY KEY.
+
+     TYPES:
+      BEGIN OF ty_shared_service,
+        service_name TYPE ty_art_name,
+        srvd_name    TYPE ty_art_name,
+        version      TYPE i,
+      END OF ty_shared_service,
+
+      tt_shared_service TYPE STANDARD TABLE OF ty_shared_service
+        WITH EMPTY KEY.
 
   "============================================================
   " Complete analysis result

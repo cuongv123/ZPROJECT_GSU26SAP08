@@ -21,6 +21,9 @@ INTERFACE zif_mig_export_provider
       iv_report_type    TYPE zmig_mail_job-report_type
       iv_file_format    TYPE zmig_e_file_format
       iv_export_section TYPE ty_export_section DEFAULT 'ALL'
+      " === MỚI: optional, có DEFAULT -> Mail Runner gọi 5 tham số cũ
+      "          vẫn compile & chạy y như trước, KHÔNG breaking change.
+      iv_selected_fields TYPE string DEFAULT ''
     RETURNING
       VALUE(rs_result) TYPE ty_export_result.
 

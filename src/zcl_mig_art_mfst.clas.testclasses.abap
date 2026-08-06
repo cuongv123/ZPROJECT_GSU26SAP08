@@ -261,9 +261,9 @@ CLASS ltc_art_mfst IMPLEMENTATION.
     ).
 
     cl_abap_unit_assert=>assert_equals(
-      exp = 5
-      act = ls_mfst-item_count
-    ).
+  exp = 3
+  act = ls_mfst-item_count
+).
 
 
     READ TABLE ls_mfst-items
@@ -281,6 +281,54 @@ CLASS ltc_art_mfst IMPLEMENTATION.
       exp = 'ZCL_MIG_Q_ZRMIG_TEST'
       act = ls_class-object_name
     ).
+
+    cl_abap_unit_assert=>assert_equals(
+  exp = 0
+  act = sy-subrc
+).
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 10
+  act = ls_class-gen_order
+  msg = 'Query provider must be generated first'
+).
+
+
+READ TABLE ls_mfst-items
+  WITH KEY
+    art_type = zif_mig_types=>gc_art_ddls
+    art_role = zif_mig_types=>gc_art_entity
+  INTO DATA(ls_entity).
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 0
+  act = sy-subrc
+).
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 20
+  act = ls_entity-gen_order
+  msg = 'Custom entity must follow query provider'
+).
+
+READ TABLE ls_mfst-items
+  WITH KEY
+    art_type = zif_mig_types=>gc_art_srvd
+    art_role = zif_mig_types=>gc_art_srv_def
+  INTO DATA(ls_srvd).
+
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 0
+  act = sy-subrc
+).
+
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 30
+  act = ls_srvd-gen_order
+  msg = 'Service definition must follow custom entity'
+).
 
   ENDMETHOD.
 
@@ -365,59 +413,102 @@ CLASS ltc_art_mfst IMPLEMENTATION.
   ENDMETHOD.
 
 
-  METHOD check_query_deps.
+ METHOD check_query_deps.
 
-    DATA(ls_mfst) =
-      NEW zcl_mig_art_mfst(
-        )->zif_mig_art_mfst~build(
-          iv_package = '$TMP'
+  DATA(ls_mfst) =
+    NEW zcl_mig_art_mfst(
+      )->zif_mig_art_mfst~build(
+        iv_package = '$TMP'
 
-          is_bp =
-            make_bp(
-              iv_strategy =
-                zif_mig_types=>gc_svc_query
-            )
+        is_bp =
+          make_bp(
+            iv_strategy =
+              zif_mig_types=>gc_svc_query
+          )
 
-          is_prv =
-            make_prv(
-              iv_strategy =
-                zif_mig_types=>gc_svc_query
-            )
+        is_prv =
+          make_prv(
+            iv_strategy =
+              zif_mig_types=>gc_svc_query
+          )
 
-          is_sig =
-            make_sig(
-              iv_strategy =
-                zif_mig_types=>gc_svc_query
-            )
+        is_sig =
+          make_sig(
+            iv_strategy =
+              zif_mig_types=>gc_svc_query
+          )
 
-          is_smap =
-            make_smap( )
+        is_smap =
+          make_smap( )
 
-          is_row =
-            make_row( )
-        ).
+        is_row =
+          make_row( )
+      ).
 
 
-    cl_abap_unit_assert=>assert_equals(
+  cl_abap_unit_assert=>assert_equals(
+    exp = 2
+    act = ls_mfst-dep_count
+  ).
+
+
+  "DDLS depends on CLAS
+  READ TABLE ls_mfst-dependencies
+    WITH KEY
+      art_seq = 20
+      req_seq = 10
+    TRANSPORTING NO FIELDS.
+
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = 0
+    act = sy-subrc
+    msg = 'Custom entity must depend on query provider'
+  ).
+
+
+  "SRVD depends on DDLS
+  READ TABLE ls_mfst-dependencies
+    WITH KEY
+      art_seq = 30
+      req_seq = 20
+    TRANSPORTING NO FIELDS.
+
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = 0
+    act = sy-subrc
+    msg = 'Service definition must depend on custom entity'
+  ).
+
+
+  "Query manifest must not contain separate DDLX
+  READ TABLE ls_mfst-items
+    WITH KEY
+      art_type = zif_mig_types=>gc_art_ddlx
+    TRANSPORTING NO FIELDS.
+
+
+  cl_abap_unit_assert=>assert_equals(
       exp = 4
-      act = ls_mfst-dep_count
-    ).
-
-
-    READ TABLE ls_mfst-dependencies
-      WITH KEY
-        art_seq = 50
-        req_seq = 40
-      TRANSPORTING NO FIELDS.
-
-    cl_abap_unit_assert=>assert_equals(
-      exp = 0
       act = sy-subrc
-      msg = 'Service binding dependency is missing'
+      msg = 'Query manifest must not contain DDLX'
     ).
 
-  ENDMETHOD.
+  "Query manifest must not contain individual SRVB
+  READ TABLE ls_mfst-items
+    WITH KEY
+      art_type = zif_mig_types=>gc_art_srvb
+    TRANSPORTING NO FIELDS.
 
+
+  cl_abap_unit_assert=>assert_equals(
+  exp = 4
+  act = sy-subrc
+  msg = 'Query manifest must not contain individual SRVB'
+).
+
+ENDMETHOD.
 
   METHOD trim_long_names.
 

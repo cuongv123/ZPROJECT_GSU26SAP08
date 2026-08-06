@@ -69,18 +69,21 @@ CLASS zcl_mig_mail_log_service IMPLEMENTATION.
 
       INSERT zmig_mail_log FROM @ls_log.
 
-      IF sy-subrc = 0.
+IF sy-subrc = 0.
 
-        rs_result-success = abap_true.
-        rs_result-run_id  = lv_run_id.
-        rs_result-message = 'Execution log started successfully.'.
+  rs_result-success = abap_true.
+  rs_result-run_id  = lv_run_id.
+  CLEAR rs_result-message.
 
-      ELSE.
+ELSE.
 
-        rs_result-success = abap_false.
-        rs_result-message = 'Execution log could not be inserted.'.
+  rs_result-success = abap_false.
 
-      ENDIF.
+  MESSAGE e034(zmig_msg)
+    WITH 'INSERT ZMIG_MAIL_LOG failed'
+    INTO rs_result-message.
+
+ENDIF.
 
     CATCH cx_uuid_error INTO DATA(lx_uuid).
 
@@ -117,16 +120,18 @@ ENDMETHOD.
 
   IF sy-subrc = 0.
 
-    rs_result-success = abap_true.
-    rs_result-message = 'Execution log finished successfully.'.
+  rs_result-success = abap_true.
+  CLEAR rs_result-message.
 
-  ELSE.
+ELSE.
 
-    rs_result-success = abap_false.
-    rs_result-message =
-      'Execution log was not found or could not be updated.'.
+  rs_result-success = abap_false.
 
-  ENDIF.
+  MESSAGE e035(zmig_msg)
+    WITH 'ZMIG_MAIL_LOG record not found or update failed'
+    INTO rs_result-message.
+
+ENDIF.
 
 ENDMETHOD.
 

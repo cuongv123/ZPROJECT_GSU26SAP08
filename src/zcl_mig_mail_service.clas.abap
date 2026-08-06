@@ -13,6 +13,11 @@ CLASS zcl_mig_mail_service DEFINITION
         file_format TYPE zmig_e_file_format,
       END OF ty_attachment,
 
+      BEGIN OF ty_mail_content,
+        subject TYPE so_obj_des,
+        body    TYPE string,
+      END OF ty_mail_content,
+
       BEGIN OF ty_send_result,
         request_created TYPE abap_bool,
         accepted_all    TYPE abap_bool,
@@ -23,34 +28,47 @@ CLASS zcl_mig_mail_service DEFINITION
 
     CLASS-METHODS send_job
       IMPORTING
-        iv_job_id       TYPE sysuuid_x16
-        iv_trigger_type TYPE zmig_e_trigger_type OPTIONAL
-        is_attachment   TYPE ty_attachment OPTIONAL
+        iv_job_id        TYPE sysuuid_x16
+        iv_trigger_type  TYPE zmig_e_trigger_type OPTIONAL
+        is_mail_content  TYPE ty_mail_content OPTIONAL
+        is_attachment    TYPE ty_attachment OPTIONAL
       RETURNING
         VALUE(rs_result) TYPE ty_send_result.
 
 ENDCLASS.
 
 
+
 CLASS zcl_mig_mail_service IMPLEMENTATION.
+
 
   METHOD send_job.
 
     CONSTANTS:
-      lc_recipient_to   TYPE zmig_e_recip_type VALUE 'T',
-      lc_recipient_cc   TYPE zmig_e_recip_type VALUE 'C',
-      lc_recipient_bcc  TYPE zmig_e_recip_type VALUE 'B',
-      lc_trigger_manual TYPE zmig_e_trigger_type VALUE 'M',
-      lc_status_success TYPE zmig_e_run_status VALUE 'S',
-      lc_status_failed  TYPE zmig_e_run_status VALUE 'F'.
+      lc_recipient_to       TYPE zmig_e_recip_type VALUE 'T',
+      lc_recipient_cc       TYPE zmig_e_recip_type VALUE 'C',
+      lc_recipient_bcc      TYPE zmig_e_recip_type VALUE 'B',
+      lc_trigger_manual     TYPE zmig_e_trigger_type VALUE 'M',
+      lc_status_success     TYPE zmig_e_run_status VALUE 'S',
+      lc_status_failed      TYPE zmig_e_run_status VALUE 'F',
+      lc_document_type_raw  TYPE so_obj_tp VALUE 'RAW',
+      lc_document_type_html TYPE so_obj_tp VALUE 'HTM'.
 
     DATA:
       lv_trigger_type    TYPE zmig_e_trigger_type,
       lv_log_file_format TYPE zmig_e_file_format,
       lv_attachment_name TYPE zmig_mail_log-file_name,
       lv_attachment_size TYPE zmig_mail_log-file_size,
+      lv_mail_subject    TYPE so_obj_des,
+      lv_mail_body       TYPE string,
+      lv_document_type   TYPE so_obj_tp,
+      lv_log_message     TYPE string,
       ls_finish_result   TYPE zcl_mig_mail_log_service=>ty_finish_result.
 
+
+    "------------------------------------------------------------
+    " Resolve trigger type
+    "------------------------------------------------------------
     lv_trigger_type = iv_trigger_type.
 
     IF lv_trigger_type IS INITIAL.
@@ -72,8 +90,56 @@ CLASS zcl_mig_mail_service IMPLEMENTATION.
       INTO @DATA(ls_job).
 
     IF sy-subrc <> 0.
-      rs_result-message = 'Mail Job was not found.'.
+
+      MESSAGE e029(zmig_msg)
+        WITH iv_job_id
+        INTO rs_result-message.
+
       RETURN.
+
+    ENDIF.
+
+
+    "------------------------------------------------------------
+    " Resolve mail content
+    "
+    " Template content has priority.
+    " Database subject/body remains as backward-compatible fallback.
+    "------------------------------------------------------------
+    IF is_mail_content-subject IS NOT INITIAL
+       OR is_mail_content-body IS NOT INITIAL.
+
+      lv_mail_subject  = is_mail_content-subject.
+      lv_mail_body     = is_mail_content-body.
+      lv_document_type = lc_document_type_html.
+
+    ELSE.
+
+      lv_mail_subject  = CONV so_obj_des( ls_job-mail_subject ).
+      lv_mail_body     = ls_job-mail_body.
+      lv_document_type = lc_document_type_raw.
+
+    ENDIF.
+
+    "------------------------------------------------------------
+    " Validate resolved mail content
+    "------------------------------------------------------------
+    IF lv_mail_subject IS INITIAL.
+
+      MESSAGE e013(zmig_msg)
+        INTO rs_result-message.
+
+      RETURN.
+
+    ENDIF.
+
+    IF lv_mail_body IS INITIAL.
+
+      MESSAGE e037(zmig_msg)
+        INTO rs_result-message.
+
+      RETURN.
+
     ENDIF.
 
 
@@ -129,11 +195,12 @@ CLASS zcl_mig_mail_service IMPLEMENTATION.
 
 
     "------------------------------------------------------------
-    " No recipient
+    " Validate recipient existence
     "------------------------------------------------------------
     IF lt_recipients IS INITIAL.
 
-      rs_result-message = 'Mail Job has no recipients.'.
+      MESSAGE e026(zmig_msg)
+        INTO rs_result-message.
 
       ls_finish_result =
         zcl_mig_mail_log_service=>finish_run(
@@ -148,8 +215,14 @@ CLASS zcl_mig_mail_service IMPLEMENTATION.
         ).
 
       IF ls_finish_result-success = abap_false.
+
+        MESSAGE e035(zmig_msg)
+          WITH ls_finish_result-message
+          INTO lv_log_message.
+
         rs_result-message =
-          |{ rs_result-message } Log update failed: { ls_finish_result-message }|.
+          |{ rs_result-message } { lv_log_message }|.
+
       ENDIF.
 
       RETURN.
@@ -158,14 +231,15 @@ CLASS zcl_mig_mail_service IMPLEMENTATION.
 
 
     "------------------------------------------------------------
-    " Validate recipients
+    " Validate recipient information
     "------------------------------------------------------------
     LOOP AT lt_recipients INTO DATA(ls_recipient_check).
 
       IF ls_recipient_check-email_address IS INITIAL.
 
-        rs_result-message =
-          |Email is missing for SAP user { ls_recipient_check-sap_user }.|.
+        MESSAGE e023(zmig_msg)
+          WITH ls_recipient_check-sap_user
+          INTO rs_result-message.
 
         ls_finish_result =
           zcl_mig_mail_log_service=>finish_run(
@@ -180,8 +254,14 @@ CLASS zcl_mig_mail_service IMPLEMENTATION.
           ).
 
         IF ls_finish_result-success = abap_false.
+
+          MESSAGE e035(zmig_msg)
+            WITH ls_finish_result-message
+            INTO lv_log_message.
+
           rs_result-message =
-            |{ rs_result-message } Log update failed: { ls_finish_result-message }|.
+            |{ rs_result-message } { lv_log_message }|.
+
         ENDIF.
 
         RETURN.
@@ -193,8 +273,9 @@ CLASS zcl_mig_mail_service IMPLEMENTATION.
          AND ls_recipient_check-recipient_type <> lc_recipient_cc
          AND ls_recipient_check-recipient_type <> lc_recipient_bcc.
 
-        rs_result-message =
-          |Unsupported recipient type { ls_recipient_check-recipient_type }.|.
+        MESSAGE e024(zmig_msg)
+          WITH ls_recipient_check-recipient_type
+          INTO rs_result-message.
 
         ls_finish_result =
           zcl_mig_mail_log_service=>finish_run(
@@ -209,8 +290,14 @@ CLASS zcl_mig_mail_service IMPLEMENTATION.
           ).
 
         IF ls_finish_result-success = abap_false.
+
+          MESSAGE e035(zmig_msg)
+            WITH ls_finish_result-message
+            INTO lv_log_message.
+
           rs_result-message =
-            |{ rs_result-message } Log update failed: { ls_finish_result-message }|.
+            |{ rs_result-message } { lv_log_message }|.
+
         ENDIF.
 
         RETURN.
@@ -223,43 +310,29 @@ CLASS zcl_mig_mail_service IMPLEMENTATION.
     TRY.
 
         "----------------------------------------------------------
-        " Create BCS request
+        " Create persistent BCS request
         "----------------------------------------------------------
-        DATA(lo_send_request) = cl_bcs=>create_persistent( ).
-
-        DATA lt_mail_body TYPE bcsy_text.
-
-        IF ls_job-mail_body IS INITIAL.
-
-          APPEND VALUE #(
-            line = 'Migration report distribution.'
-          ) TO lt_mail_body.
-
-        ELSE.
-
-          SPLIT ls_job-mail_body
-            AT cl_abap_char_utilities=>newline
-            INTO TABLE DATA(lt_body_lines).
-
-          LOOP AT lt_body_lines INTO DATA(lv_body_line).
-
-            APPEND VALUE #(
-              line = lv_body_line
-            ) TO lt_mail_body.
-
-          ENDLOOP.
-
-        ENDIF.
+        DATA(lo_send_request) =
+          cl_bcs=>create_persistent( ).
 
 
-        DATA(lv_subject) =
-          CONV so_obj_des( ls_job-mail_subject ).
+        "----------------------------------------------------------
+        " Convert string body into BCS text table
+        "----------------------------------------------------------
+        DATA(lt_mail_body) =
+          cl_document_bcs=>string_to_soli(
+            ip_string = lv_mail_body
+          ).
 
+
+        "----------------------------------------------------------
+        " Create RAW or HTML document
+        "----------------------------------------------------------
         DATA(lo_document) =
           cl_document_bcs=>create_document(
-            i_type    = 'RAW'
+            i_type    = lv_document_type
             i_text    = lt_mail_body
-            i_subject = lv_subject
+            i_subject = lv_mail_subject
           ).
 
 
@@ -271,8 +344,8 @@ CLASS zcl_mig_mail_service IMPLEMENTATION.
           IF is_attachment-file_name IS INITIAL
              OR is_attachment-file_type IS INITIAL.
 
-            rs_result-message =
-              'Attachment file name or file type is missing.'.
+            MESSAGE e030(zmig_msg)
+              INTO rs_result-message.
 
             ls_finish_result =
               zcl_mig_mail_log_service=>finish_run(
@@ -287,8 +360,14 @@ CLASS zcl_mig_mail_service IMPLEMENTATION.
               ).
 
             IF ls_finish_result-success = abap_false.
+
+              MESSAGE e035(zmig_msg)
+                WITH ls_finish_result-message
+                INTO lv_log_message.
+
               rs_result-message =
-                |{ rs_result-message } Log update failed: { ls_finish_result-message }|.
+                |{ rs_result-message } { lv_log_message }|.
+
             ENDIF.
 
             RETURN.
@@ -307,7 +386,6 @@ CLASS zcl_mig_mail_service IMPLEMENTATION.
             line = |&SO_FILENAME={ is_attachment-file_name }|
           ) TO lt_attachment_header.
 
-          "CL_BCS expects SO_OBJ_LEN for attachment size.
           DATA(lv_bcs_attachment_size) =
             CONV so_obj_len( lv_attachment_size ).
 
@@ -324,13 +402,16 @@ CLASS zcl_mig_mail_service IMPLEMENTATION.
         ENDIF.
 
 
+        "----------------------------------------------------------
+        " Assign document to BCS request
+        "----------------------------------------------------------
         lo_send_request->set_document(
           i_document = lo_document
         ).
 
 
         "----------------------------------------------------------
-        " Set sender
+        " Set SAP current/background user as sender
         "----------------------------------------------------------
         DATA(lo_sender) =
           cl_sapuser_bcs=>create(
@@ -372,6 +453,9 @@ CLASS zcl_mig_mail_service IMPLEMENTATION.
         ENDLOOP.
 
 
+        "----------------------------------------------------------
+        " Send BCS request
+        "----------------------------------------------------------
         lo_send_request->set_send_immediately(
           i_send_immediately = abap_true
         ).
@@ -383,14 +467,13 @@ CLASS zcl_mig_mail_service IMPLEMENTATION.
 
         rs_result-request_created = abap_true.
 
-
         "----------------------------------------------------------
-        " BCS request accepted
+        " All recipients accepted
         "----------------------------------------------------------
         IF rs_result-accepted_all = abap_true.
 
-          rs_result-message =
-            'BCS send request created successfully.'.
+          MESSAGE s027(zmig_msg)
+            INTO rs_result-message.
 
           ls_finish_result =
             zcl_mig_mail_log_service=>finish_run(
@@ -401,23 +484,28 @@ CLASS zcl_mig_mail_service IMPLEMENTATION.
               iv_file_format     = lv_log_file_format
               iv_file_size       = lv_attachment_size
               iv_recipient_count = rs_result-recipient_count
-              iv_log_message     =
-                'BCS request created; final delivery is tracked in SOST'
+              iv_log_message     = rs_result-message
             ).
 
           IF ls_finish_result-success = abap_false.
+
+            MESSAGE e035(zmig_msg)
+              WITH ls_finish_result-message
+              INTO lv_log_message.
+
             rs_result-message =
-              |{ rs_result-message } Log update failed: { ls_finish_result-message }|.
+              |{ rs_result-message } { lv_log_message }|.
+
           ENDIF.
 
 
-        "----------------------------------------------------------
-        " Not all recipients accepted
-        "----------------------------------------------------------
+          "----------------------------------------------------------
+          " At least one recipient was not accepted
+          "----------------------------------------------------------
         ELSE.
 
-          rs_result-message =
-            'BCS request created, but not all recipients were accepted.'.
+          MESSAGE e036(zmig_msg)
+            INTO rs_result-message.
 
           ls_finish_result =
             zcl_mig_mail_log_service=>finish_run(
@@ -432,8 +520,14 @@ CLASS zcl_mig_mail_service IMPLEMENTATION.
             ).
 
           IF ls_finish_result-success = abap_false.
+
+            MESSAGE e035(zmig_msg)
+              WITH ls_finish_result-message
+              INTO lv_log_message.
+
             rs_result-message =
-              |{ rs_result-message } Log update failed: { ls_finish_result-message }|.
+              |{ rs_result-message } { lv_log_message }|.
+
           ENDIF.
 
         ENDIF.
@@ -443,7 +537,10 @@ CLASS zcl_mig_mail_service IMPLEMENTATION.
 
         rs_result-request_created = abap_false.
         rs_result-accepted_all    = abap_false.
-        rs_result-message         = lx_bcs->get_text( ).
+
+        MESSAGE e028(zmig_msg)
+          WITH lx_bcs->get_text( )
+          INTO rs_result-message.
 
         ls_finish_result =
           zcl_mig_mail_log_service=>finish_run(
@@ -458,12 +555,17 @@ CLASS zcl_mig_mail_service IMPLEMENTATION.
           ).
 
         IF ls_finish_result-success = abap_false.
+
+          MESSAGE e035(zmig_msg)
+            WITH ls_finish_result-message
+            INTO lv_log_message.
+
           rs_result-message =
-            |{ rs_result-message } Log update failed: { ls_finish_result-message }|.
+            |{ rs_result-message } { lv_log_message }|.
+
         ENDIF.
 
     ENDTRY.
 
   ENDMETHOD.
-
 ENDCLASS.

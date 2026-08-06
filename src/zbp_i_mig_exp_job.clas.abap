@@ -1,0 +1,7 @@
+CLASS zbp_i_mig_exp_job DEFINITION PUBLIC ABSTRACT FINAL FOR BEHAVIOR OF zi_mig_exp_job.
+ENDCLASS.
+
+CLASS zbp_i_mig_exp_job IMPLEMENTATION.
+
+ENDCLASS.
+
