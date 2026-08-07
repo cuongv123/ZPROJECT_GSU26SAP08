@@ -1,8 +1,0 @@
-@EndUserText.label: 'Owner Access for Mail Job Interface'
-@MappingRole: true
-define role ZAC_I_MIG_MAIL_JOB_OWNER {
-
-  grant select on ZI_MIG_MAIL_JOB
-    where CreatedBy = aspect user;
-
-}

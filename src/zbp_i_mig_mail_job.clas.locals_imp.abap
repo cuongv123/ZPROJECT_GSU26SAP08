@@ -9,36 +9,36 @@ CLASS lhc_MailJob DEFINITION
       gc_frequency_weekly    TYPE zmig_e_frequency VALUE 'W',
       gc_frequency_monthly   TYPE zmig_e_frequency VALUE 'M',
       gc_status_active       TYPE zmig_e_job_status VALUE 'A',
-      gc_monday_anchor TYPE d VALUE '19000101'.
+      gc_monday_anchor       TYPE d VALUE '19000101'.
 " Declare methods validation"
-    METHODS get_global_authorizations
-      FOR GLOBAL AUTHORIZATION
-      IMPORTING
-        REQUEST requested_authorizations FOR MailJob
-      RESULT result.
+   METHODS get_global_authorizations
+  FOR GLOBAL AUTHORIZATION
+  IMPORTING
+    REQUEST requested_authorizations FOR MailJob
+  RESULT result.
 
-    METHODS validateRequiredFields
-      FOR VALIDATE ON SAVE
-      IMPORTING keys FOR MailJob~validateRequiredFields.
+METHODS validateRequiredFields
+  FOR VALIDATE ON SAVE
+  IMPORTING keys FOR MailJob~validateRequiredFields.
 
-    METHODS validateSchedule
-      FOR VALIDATE ON SAVE
-      IMPORTING keys FOR MailJob~validateSchedule.
+METHODS validateSchedule
+  FOR VALIDATE ON SAVE
+  IMPORTING keys FOR MailJob~validateSchedule.
 
-     METHODS validateHasRecipient
-      FOR VALIDATE ON SAVE
-      IMPORTING keys FOR MailJob~validateHasRecipient.
+METHODS validateHasRecipient
+  FOR VALIDATE ON SAVE
+  IMPORTING keys FOR MailJob~validateHasRecipient.
 
-     METHODS calculateNextRunAt
-      FOR DETERMINE ON MODIFY
-       IMPORTING keys FOR MailJob~calculateNextRunAt.
+METHODS calculateNextRunAt
+  FOR DETERMINE ON MODIFY
+  IMPORTING keys FOR MailJob~calculateNextRunAt.
 
-       METHODS sendNow
-       FOR MODIFY
-       IMPORTING keys FOR ACTION MailJob~sendNow
-       RESULT result.
+METHODS sendNow
+  FOR MODIFY
+  IMPORTING keys FOR ACTION MailJob~sendNow
+  RESULT result.
 
-       METHODS get_month_start
+METHODS get_month_start
   IMPORTING
     iv_date         TYPE d
     iv_month_offset TYPE i
@@ -53,7 +53,6 @@ METHODS get_monthly_run_date
     VALUE(rv_run_date) TYPE d.
 
 
-
 ENDCLASS.
 
 
@@ -61,9 +60,8 @@ CLASS lhc_MailJob IMPLEMENTATION.
 
   METHOD get_global_authorizations.
 
-    " Temporary authorization implementation for development.
-    " All CRUD operations are allowed at this stage.
-
+   " Mail BO does not currently enforce role-based authorization.
+  " All supported CRUD operations are allowed.
     IF requested_authorizations-%create = if_abap_behv=>mk-on.
       result-%create = if_abap_behv=>auth-allowed.
     ENDIF.
@@ -78,7 +76,7 @@ CLASS lhc_MailJob IMPLEMENTATION.
 
   ENDMETHOD.
 
-  "Method validateRequiredFields
+  " Validate mandatory job fields.
   METHOD validateRequiredFields.
 
   "Read the current values from the RAP transactional buffer.
@@ -172,7 +170,7 @@ CLASS lhc_MailJob IMPLEMENTATION.
   ENDLOOP.
 
 ENDMETHOD.
-"Method validateSchedule.
+" Validate scheduling configuration.
 METHOD validateSchedule.
 
   READ ENTITIES OF zi_mig_mail_job IN LOCAL MODE
@@ -300,7 +298,7 @@ METHOD validateSchedule.
   ENDLOOP.
 
 ENDMETHOD.
-"Method validateHasRecipient.
+" Ensure active jobs have at least one recipient.
 METHOD validateHasRecipient.
 
   "Read affected Mail Jobs from the RAP transactional buffer.
@@ -424,7 +422,8 @@ METHOD get_monthly_run_date.
   lv_requested_day   = iv_day_of_month.
   lv_last_day_number = lv_last_day+6(2).
 
-  "Ví dụ ngày 31 trong tháng 2 sẽ dùng ngày cuối tháng.
+ " If the requested day does not exist in the month,
+" use the month's last calendar day.
   IF lv_requested_day > lv_last_day_number.
     lv_requested_day = lv_last_day_number.
   ENDIF.
@@ -653,10 +652,7 @@ ENDMETHOD.
 METHOD sendNow.
 
   "Read selected Mail Jobs from the RAP transactional buffer.
-  READ ENTITIES OF zi_mig_mail_job IN LOCAL MODE
-    ENTITY MailJob
-      ALL FIELDS
-      WITH CORRESPONDING #( keys )
+  READ ENTITIES OF zi_mig_mail_job IN LOCAL MODE ENTITY MailJob ALL FIELDS WITH CORRESPONDING #( keys )
     RESULT DATA(lt_jobs)
     FAILED DATA(lt_read_failed)
     REPORTED DATA(lt_read_reported).

@@ -1,0 +1,166 @@
+@Metadata.layer: #CORE
+
+@UI.headerInfo: {
+  typeName:       'Comparison Run',
+  typeNamePlural: 'Comparison Runs',
+  title: {
+    type:  #STANDARD,
+    value: 'ProgramName'
+  },
+  description: {
+    type:  #STANDARD,
+    value: 'OverallStatus'
+  }
+}
+
+@UI.presentationVariant: [{
+  sortOrder: [{
+    by:        'CreatedAt',
+    direction: #DESC
+  }],
+  visualizations: [{
+    type: #AS_LINEITEM
+  }]
+}]
+
+annotate entity ZC_MIG_CMP_RUN with
+{
+  @UI.lineItem: [{
+    position: 1,
+    type: #FOR_ACTION,
+    dataAction: 'ExecuteComparison',
+    label: 'Run Comparison'
+  }]
+  @UI.facet: [{
+    id:            'ComparisonItems',
+    type:          #LINEITEM_REFERENCE,
+    label:         'Comparison Details',
+    position:      10,
+    targetElement: '_Items'
+  }]
+  CmpRunId;
+
+  @UI.lineItem: [{
+    position: 10,
+    importance: #HIGH
+  }]
+  @UI.identification: [{
+    position: 10
+  }]
+  @UI.selectionField: [{
+    position: 10
+  }]
+  ProgramName;
+
+  @UI.lineItem: [{
+    position: 20,
+    importance: #HIGH
+  }]
+  @UI.identification: [{
+    position: 20
+  }]
+  @UI.selectionField: [{
+    position: 20
+  }]
+  TargetStrategy;
+
+  @UI.lineItem: [{
+    position: 30
+  }]
+  @UI.identification: [{
+    position: 30
+  }]
+  TotalItems;
+
+  @UI.lineItem: [{
+    position: 40
+  }]
+  @UI.identification: [{
+    position: 40
+  }]
+  MappedCount;
+
+  @UI.lineItem: [{
+    position: 50
+  }]
+  @UI.identification: [{
+    position: 50
+  }]
+  RefactorCount;
+
+  @UI.lineItem: [{
+    position: 60
+  }]
+  @UI.identification: [{
+    position: 60
+  }]
+  ManualCount;
+
+  @UI.lineItem: [{
+    position: 70
+  }]
+  @UI.identification: [{
+    position: 70
+  }]
+  UnsupportedCount;
+
+  @UI.lineItem: [{
+    position: 80,
+    importance: #HIGH
+  }]
+  @UI.identification: [{
+    position: 80
+  }]
+  CompatibilityRate;
+
+  @UI.lineItem: [{
+    position: 90,
+    importance: #HIGH
+  }]
+  @UI.identification: [{
+    position: 90
+  }]
+  @UI.selectionField: [{
+    position: 30
+  }]
+  OverallStatus;
+
+  @UI.lineItem: [{
+    position: 100
+  }]
+  @UI.identification: [{
+    position: 100
+  }]
+  @UI.selectionField: [{
+    position: 40
+  }]
+  RunStatus;
+
+  @UI.identification: [{
+    position: 110
+  }]
+  ErrorMessage;
+
+  @UI.lineItem: [{
+    position: 110
+  }]
+  @UI.identification: [{
+    position: 120
+  }]
+  CreatedAt;
+
+  @UI.identification: [{
+    position: 130
+  }]
+  CreatedBy;
+
+  @UI.identification: [{
+    position: 140
+  }]
+  LastChangedAt;
+
+  @UI.identification: [{
+    position: 150
+  }]
+  LastChangedBy;
+}

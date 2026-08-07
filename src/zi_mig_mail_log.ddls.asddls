@@ -1,4 +1,4 @@
-@AccessControl.authorizationCheck: #CHECK
+@AccessControl.authorizationCheck: #NOT_REQUIRED
 @EndUserText.label: 'Migration Mail Execution Log Interface'
 @Metadata.ignorePropagatedAnnotations: true
 

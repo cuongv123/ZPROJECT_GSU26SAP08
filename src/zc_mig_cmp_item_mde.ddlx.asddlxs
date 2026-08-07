@@ -1,0 +1,105 @@
+@Metadata.layer: #CORE
+
+annotate entity ZC_MIG_CMP_ITEM with
+{
+  @UI.lineItem: [{
+    position: 10
+  }]
+  ItemNo;
+
+  @UI.lineItem: [{
+    position: 20,
+    importance: #HIGH
+  }]
+  @UI.identification: [{
+    position: 10
+  }]
+  Category;
+
+  @UI.lineItem: [{
+    position: 30,
+    importance: #HIGH
+  }]
+  @UI.identification: [{
+    position: 20
+  }]
+  SourceElement;
+
+  @UI.lineItem: [{
+    position: 40
+  }]
+  @UI.identification: [{
+    position: 30
+  }]
+  SourceType;
+
+  @UI.identification: [{
+    position: 40
+  }]
+  SourceValue;
+
+  @UI.lineItem: [{
+    position: 50,
+    importance: #HIGH
+  }]
+  @UI.identification: [{
+    position: 50
+  }]
+  TargetElement;
+
+  @UI.lineItem: [{
+    position: 60
+  }]
+  @UI.identification: [{
+    position: 60
+  }]
+  TargetType;
+
+  @UI.identification: [{
+    position: 70
+  }]
+  TargetValue;
+
+  @UI.identification: [{
+    position: 80
+  }]
+  MappingRule;
+
+  @UI.lineItem: [{
+    position: 70,
+    importance: #HIGH
+  }]
+  @UI.identification: [{
+    position: 90
+  }]
+  Status;
+
+  @UI.lineItem: [{
+    position: 80
+  }]
+  @UI.identification: [{
+    position: 100
+  }]
+  Severity;
+
+  @UI.lineItem: [{
+    position: 90
+  }]
+  @UI.identification: [{
+    position: 110
+  }]
+  Message;
+
+  @UI.lineItem: [{
+    position: 100
+  }]
+  @UI.identification: [{
+    position: 120
+  }]
+  Recommendation;
+
+  @UI.identification: [{
+    position: 130
+  }]
+  CreatedAt;
+}

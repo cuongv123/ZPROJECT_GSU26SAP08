@@ -1,0 +1,59 @@
+managed implementation in class zbp_i_mig_cmp_run unique;
+strict ( 2 );
+
+define behavior for ZI_MIG_CMP_RUN alias Run
+persistent table zmig_cmp_run
+lock master
+authorization master ( global )
+{
+  field ( readonly )
+    CmpRunId,
+    AnalysisId,
+    ProgramName,
+    TargetStrategy,
+    TotalItems,
+    MappedCount,
+    RefactorCount,
+    ManualCount,
+    UnsupportedCount,
+    CompatibilityRate,
+    OverallStatus,
+    RunStatus,
+    ErrorMessage,
+    CreatedBy,
+    CreatedAt,
+    LastChangedBy,
+    LastChangedAt;
+
+  static action ExecuteComparison
+    parameter ZI_MIG_CMP_REQUEST;
+
+
+  association _Items;
+}
+
+define behavior for ZI_MIG_CMP_ITEM alias Item
+persistent table zmig_cmp_item
+lock dependent by _Run
+authorization dependent by _Run
+{
+  field ( readonly )
+    CmpRunId,
+    ItemId,
+    ItemNo,
+    Category,
+    SourceElement,
+    SourceType,
+    SourceValue,
+    TargetElement,
+    TargetType,
+    TargetValue,
+    MappingRule,
+    Status,
+    Severity,
+    Message,
+    Recommendation,
+    CreatedAt;
+
+  association _Run;
+}
