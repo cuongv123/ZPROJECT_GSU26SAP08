@@ -2,9 +2,13 @@
 "BASEINFO":
 {
 "FROM":
-[],
+[
+"ZMIG_CMP_RUN"
+],
 "ASSOCIATED":
-[],
+[
+"ZI_MIG_CMP_ITEM"
+],
 "BASE":
 [],
 "ANNO_REF":

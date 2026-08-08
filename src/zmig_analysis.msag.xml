@@ -228,7 +228,19 @@
      <SPRSL>E</SPRSL>
      <ARBGB>ZMIG_ANALYSIS</ARBGB>
      <MSGNR>037</MSGNR>
-     <TEXT> Mail body is required</TEXT>
+     <TEXT>Mail body is required</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>038</MSGNR>
+     <TEXT>Analysis ID is required</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>039</MSGNR>
+     <TEXT>Analysis ID &amp;1 does not belong to report &amp;2</TEXT>
     </T100>
    </T100>
   </asx:values>

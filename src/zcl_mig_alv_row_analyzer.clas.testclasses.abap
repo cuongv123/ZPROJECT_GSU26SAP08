@@ -204,6 +204,12 @@ CLASS ltc_mig_alv_row_analyzer IMPLEMENTATION.
     ).
 
 
+    cl_abap_unit_assert=>assert_not_initial(
+      act = ls_result-alv_columns
+      msg = 'No inferred SALV columns were created'
+    ).
+
+
     LOOP AT ls_result-alv_columns
       ASSIGNING FIELD-SYMBOL(<column>).
 

@@ -120,208 +120,321 @@ CLASS zcl_mig_mail_runner IMPLEMENTATION.
   ENDMETHOD.
 
 
-  METHOD run_due_jobs.
+ METHOD run_due_jobs.
 
-    DATA(lt_due_jobs) = get_due_jobs( ).
+  DATA:
+    lt_due_jobs          TYPE tt_due_job,
+    ls_due_job           TYPE ty_due_job,
+    ls_run_result        TYPE ty_run_result,
 
-    DATA lo_export_provider TYPE REF TO zif_mig_export_provider.
+    lo_export_provider   TYPE REF TO zif_mig_export_provider,
 
-    lo_export_provider = NEW zcl_mig_export_engine( ).
+    ls_export_result     TYPE zif_mig_export_provider=>ty_export_result,
+    ls_attachment        TYPE zcl_mig_mail_service=>ty_attachment,
+    ls_template_context  TYPE zcl_mig_mail_template=>ty_context,
+    ls_template_result   TYPE zcl_mig_mail_template=>ty_mail_content,
+    ls_mail_content      TYPE zcl_mig_mail_service=>ty_mail_content,
+    ls_send_result       TYPE zcl_mig_mail_service=>ty_send_result,
 
-    LOOP AT lt_due_jobs INTO DATA(ls_due_job).
+    ls_start_result      TYPE zcl_mig_mail_log_service=>ty_start_result,
+    ls_finish_result     TYPE zcl_mig_mail_log_service=>ty_finish_result,
 
-      DATA:
-        lv_execution_success TYPE abap_bool,
-        lv_schedule_updated  TYPE abap_bool,
-        lv_run_id             TYPE sysuuid_x16,
-        lv_recipient_count    TYPE i,
-        lv_result_message     TYPE string,
-        lv_message_text       TYPE string,
-        lv_generated_at       TYPE timestampl.
+    lv_execution_success TYPE abap_bool,
+    lv_schedule_updated  TYPE abap_bool,
+    lv_overall_success   TYPE abap_bool,
+
+    lv_run_id            TYPE sysuuid_x16,
+    lv_recipient_count   TYPE i,
+
+    lv_result_message    TYPE string,
+    lv_message_text      TYPE string,
+
+    lv_generated_at      TYPE timestampl,
+    lv_changed_at        TYPE timestampl,
+    lv_new_next_run_at   TYPE timestampl,
+
+    lv_export_file_size  TYPE zmig_mail_log-file_size.
 
 
-      "----------------------------------------------------------
-      " Generate report attachment from existing Analysis ID
-      "----------------------------------------------------------
-      DATA(ls_export_result) =
-        lo_export_provider->generate(
-          iv_job_id         = ls_due_job-job_id
-          iv_analysis_id    = ls_due_job-analysis_id
-          iv_report_type    = ls_due_job-report_type
-          iv_file_format    = ls_due_job-file_format
-          iv_export_section = gc_export_section_all
+  "------------------------------------------------------------
+  " 1. Read jobs that are due
+  "------------------------------------------------------------
+  lt_due_jobs = get_due_jobs( ).
+
+  IF lt_due_jobs IS INITIAL.
+    RETURN.
+  ENDIF.
+
+
+  "------------------------------------------------------------
+  " 2. Prepare Export Engine
+  "------------------------------------------------------------
+  CREATE OBJECT lo_export_provider
+    TYPE zcl_mig_export_engine.
+
+
+  LOOP AT lt_due_jobs INTO ls_due_job.
+
+    CLEAR:
+      ls_run_result,
+      ls_export_result,
+      ls_attachment,
+      ls_template_context,
+      ls_template_result,
+      ls_mail_content,
+      ls_send_result,
+      ls_start_result,
+      ls_finish_result,
+
+      lv_execution_success,
+      lv_schedule_updated,
+      lv_overall_success,
+
+      lv_run_id,
+      lv_recipient_count,
+
+      lv_result_message,
+      lv_message_text,
+
+      lv_generated_at,
+      lv_changed_at,
+      lv_new_next_run_at,
+
+      lv_export_file_size.
+
+
+    "----------------------------------------------------------
+    " 3. Calculate next occurrence BEFORE sending
+    "----------------------------------------------------------
+    lv_new_next_run_at =
+      calculate_next_run_at(
+        is_due_job = ls_due_job
+      ).
+
+
+    IF lv_new_next_run_at IS INITIAL.
+
+      MESSAGE e032(zmig_analysis)
+        INTO lv_result_message.
+
+      ls_run_result-job_id =
+        ls_due_job-job_id.
+
+      ls_run_result-job_name =
+        ls_due_job-job_name.
+
+      ls_run_result-success =
+        abap_false.
+
+      ls_run_result-previous_next_run_at =
+        ls_due_job-next_run_at.
+
+      ls_run_result-message =
+        lv_result_message.
+
+      APPEND ls_run_result TO rt_results.
+
+      CONTINUE.
+
+    ENDIF.
+
+
+    "----------------------------------------------------------
+    " 4. Claim this scheduled occurrence
+    "
+    " Atomic optimistic update:
+    " only one runner can change the OLD NextRunAt value.
+    "----------------------------------------------------------
+    GET TIME STAMP FIELD lv_changed_at.
+
+    UPDATE zmig_mail_job
+      SET
+        next_run_at           = @lv_new_next_run_at,
+        last_changed_by       = @sy-uname,
+        local_last_changed_at = @lv_changed_at,
+        last_changed_at       = @lv_changed_at
+      WHERE job_id      = @ls_due_job-job_id
+        AND status      = @gc_status_active
+        AND next_run_at = @ls_due_job-next_run_at.
+
+
+    "----------------------------------------------------------
+    " Another runner already claimed it, or job was deactivated.
+    " Do NOT send the mail.
+    "----------------------------------------------------------
+    IF sy-subrc <> 0.
+      CONTINUE.
+    ENDIF.
+
+    lv_schedule_updated = abap_true.
+
+
+    "----------------------------------------------------------
+    " 5. Generate report attachment
+    "----------------------------------------------------------
+    ls_export_result =
+      lo_export_provider->generate(
+        iv_job_id         = ls_due_job-job_id
+        iv_analysis_id    = ls_due_job-analysis_id
+        iv_report_type    = ls_due_job-report_type
+        iv_file_format    = ls_due_job-file_format
+        iv_export_section = gc_export_section_all
+      ).
+
+
+    "----------------------------------------------------------
+    " 6. Export successful
+    "----------------------------------------------------------
+    IF ls_export_result-success = abap_true
+       AND ls_export_result-content IS NOT INITIAL.
+
+
+      "--------------------------------------------------------
+      " Build attachment
+      "--------------------------------------------------------
+      ls_attachment-content =
+        ls_export_result-content.
+
+      ls_attachment-file_name =
+        ls_export_result-file_name.
+
+      ls_attachment-file_type =
+        ls_export_result-file_type.
+
+      ls_attachment-file_format =
+        ls_export_result-file_format.
+
+
+      "--------------------------------------------------------
+      " Build mail template context
+      "--------------------------------------------------------
+      GET TIME STAMP FIELD lv_generated_at.
+
+      ls_template_context-job_name =
+        ls_due_job-job_name.
+
+      ls_template_context-analysis_id =
+        ls_due_job-analysis_id.
+
+      ls_template_context-report_type =
+        ls_due_job-report_type.
+
+      ls_template_context-file_format =
+        ls_export_result-file_format.
+
+      ls_template_context-file_name =
+        ls_export_result-file_name.
+
+      ls_template_context-generated_at =
+        lv_generated_at.
+
+
+      "--------------------------------------------------------
+      " Generate HTML mail template
+      "--------------------------------------------------------
+      ls_template_result =
+        zcl_mig_mail_template=>get_export_success(
+          is_context = ls_template_context
+        ).
+
+      ls_mail_content-subject =
+        ls_template_result-subject.
+
+      ls_mail_content-body =
+        ls_template_result-body.
+
+
+      "--------------------------------------------------------
+      " Send through SAP BCS
+      "--------------------------------------------------------
+      ls_send_result =
+        zcl_mig_mail_service=>send_job(
+          iv_job_id       = ls_due_job-job_id
+          iv_trigger_type = gc_trigger_scheduled
+          is_mail_content = ls_mail_content
+          is_attachment   = ls_attachment
         ).
 
 
-      "----------------------------------------------------------
-      " Export succeeded
-      "----------------------------------------------------------
-      IF ls_export_result-success = abap_true
-         AND ls_export_result-content IS NOT INITIAL.
+      IF ls_send_result-request_created = abap_true
+         AND ls_send_result-accepted_all = abap_true.
 
-        DATA(ls_attachment) =
-          VALUE zcl_mig_mail_service=>ty_attachment(
-            content     = ls_export_result-content
-            file_name   = ls_export_result-file_name
-            file_type   = ls_export_result-file_type
-            file_format = ls_export_result-file_format
-          ).
+        lv_execution_success = abap_true.
 
-
-        "--------------------------------------------------------
-        " Generate system-defined HTML email template
-        "--------------------------------------------------------
-        GET TIME STAMP FIELD lv_generated_at.
-
-        DATA(ls_template_result) =
-          zcl_mig_mail_template=>get_export_success(
-            is_context = VALUE #(
-              job_name     = ls_due_job-job_name
-              analysis_id  = ls_due_job-analysis_id
-              report_type  = ls_due_job-report_type
-              file_format  = ls_export_result-file_format
-              file_name    = ls_export_result-file_name
-              generated_at = lv_generated_at
-            )
-          ).
-
-        DATA(ls_mail_content) =
-          VALUE zcl_mig_mail_service=>ty_mail_content(
-            subject = ls_template_result-subject
-            body    = ls_template_result-body
-          ).
-
-
-        "--------------------------------------------------------
-        " Send generated report through SAP BCS
-        "--------------------------------------------------------
-        DATA(ls_send_result) =
-          zcl_mig_mail_service=>send_job(
-            iv_job_id       = ls_due_job-job_id
-            iv_trigger_type = gc_trigger_scheduled
-            is_mail_content = ls_mail_content
-            is_attachment   = ls_attachment
-          ).
-
-        lv_execution_success =
-          xsdbool(
-            ls_send_result-request_created = abap_true
-            AND ls_send_result-accepted_all = abap_true
-          ).
-
-        lv_run_id          = ls_send_result-run_id.
-        lv_recipient_count = ls_send_result-recipient_count.
-        lv_result_message  = ls_send_result-message.
-
-
-      "----------------------------------------------------------
-      " Export failed before Mail Service was called
-      "----------------------------------------------------------
       ELSE.
 
         lv_execution_success = abap_false.
-        lv_result_message     = ls_export_result-message.
-
-        IF lv_result_message IS INITIAL.
-
-          MESSAGE e031(zmig_msg)
-            INTO lv_result_message.
-
-        ENDIF.
-
-
-        "--------------------------------------------------------
-        " Create failed execution log
-        "--------------------------------------------------------
-        DATA(ls_start_result) =
-          zcl_mig_mail_log_service=>start_run(
-            iv_job_id       = ls_due_job-job_id
-            iv_trigger_type = gc_trigger_scheduled
-            iv_file_format  = ls_due_job-file_format
-          ).
-
-        IF ls_start_result-success = abap_true.
-
-          lv_run_id = ls_start_result-run_id.
-
-          DATA(lv_export_file_size) =
-            CONV zmig_mail_log-file_size(
-              xstrlen( ls_export_result-content )
-            ).
-
-          DATA(ls_finish_result) =
-            zcl_mig_mail_log_service=>finish_run(
-              iv_job_id          = ls_due_job-job_id
-              iv_run_id          = lv_run_id
-              iv_status          = gc_status_failed
-              iv_file_name       = ls_export_result-file_name
-              iv_file_format     = ls_due_job-file_format
-              iv_file_size       = lv_export_file_size
-              iv_recipient_count = 0
-              iv_log_message     = lv_result_message
-            ).
-
-          IF ls_finish_result-success = abap_false.
-
-            MESSAGE e035(zmig_msg)
-              WITH ls_finish_result-message
-              INTO lv_message_text.
-
-            lv_result_message =
-              |{ lv_result_message } { lv_message_text }|.
-
-          ENDIF.
-
-        ELSE.
-
-          MESSAGE e034(zmig_msg)
-            WITH ls_start_result-message
-            INTO lv_message_text.
-
-          lv_result_message =
-            |{ lv_result_message } { lv_message_text }|.
-
-        ENDIF.
 
       ENDIF.
 
 
-      "----------------------------------------------------------
-      " Calculate the following schedule occurrence
-      "----------------------------------------------------------
-      DATA(lv_new_next_run_at) =
-        calculate_next_run_at(
-          is_due_job = ls_due_job
+      lv_run_id =
+        ls_send_result-run_id.
+
+      lv_recipient_count =
+        ls_send_result-recipient_count.
+
+      lv_result_message =
+        ls_send_result-message.
+
+
+    "----------------------------------------------------------
+    " 7. Export failed before Mail Service was called
+    "----------------------------------------------------------
+    ELSE.
+
+      lv_execution_success = abap_false.
+
+      lv_result_message =
+        ls_export_result-message.
+
+
+      IF lv_result_message IS INITIAL.
+
+        MESSAGE e031(zmig_analysis)
+          INTO lv_result_message.
+
+      ENDIF.
+
+
+      "--------------------------------------------------------
+      " Mail Service was not called, therefore create
+      " the FAILED execution log here.
+      "--------------------------------------------------------
+      ls_start_result =
+        zcl_mig_mail_log_service=>start_run(
+          iv_job_id       = ls_due_job-job_id
+          iv_trigger_type = gc_trigger_scheduled
+          iv_file_format  = ls_due_job-file_format
         ).
 
-      lv_schedule_updated = abap_false.
+
+      IF ls_start_result-success = abap_true.
+
+        lv_run_id =
+          ls_start_result-run_id.
+
+        lv_export_file_size =
+          xstrlen( ls_export_result-content ).
 
 
-      "----------------------------------------------------------
-      " Update NextRunAt
-      "----------------------------------------------------------
-      IF lv_new_next_run_at IS NOT INITIAL.
+        ls_finish_result =
+          zcl_mig_mail_log_service=>finish_run(
+            iv_job_id          = ls_due_job-job_id
+            iv_run_id          = lv_run_id
+            iv_status          = gc_status_failed
+            iv_file_name       = ls_export_result-file_name
+            iv_file_format     = ls_due_job-file_format
+            iv_file_size       = lv_export_file_size
+            iv_recipient_count = 0
+            iv_log_message     = lv_result_message
+          ).
 
-        DATA lv_changed_at TYPE timestampl.
 
-        GET TIME STAMP FIELD lv_changed_at.
+        IF ls_finish_result-success = abap_false.
 
-        UPDATE zmig_mail_job
-          SET
-            next_run_at           = @lv_new_next_run_at,
-            last_changed_by       = @sy-uname,
-            local_last_changed_at = @lv_changed_at,
-            last_changed_at       = @lv_changed_at
-          WHERE job_id      = @ls_due_job-job_id
-            AND next_run_at = @ls_due_job-next_run_at.
-
-        IF sy-subrc = 0.
-
-          lv_schedule_updated = abap_true.
-
-        ELSE.
-
-          MESSAGE e033(zmig_msg)
+          MESSAGE e035(zmig_analysis)
+            WITH ls_finish_result-message
             INTO lv_message_text.
 
           lv_result_message =
@@ -329,9 +442,11 @@ CLASS zcl_mig_mail_runner IMPLEMENTATION.
 
         ENDIF.
 
+
       ELSE.
 
-        MESSAGE e032(zmig_msg)
+        MESSAGE e034(zmig_analysis)
+          WITH ls_start_result-message
           INTO lv_message_text.
 
         lv_result_message =
@@ -339,31 +454,60 @@ CLASS zcl_mig_mail_runner IMPLEMENTATION.
 
       ENDIF.
 
+    ENDIF.
 
-      "----------------------------------------------------------
-      " Build runner result
-      "----------------------------------------------------------
-      DATA(lv_overall_success) =
-        xsdbool(
-          lv_execution_success = abap_true
-          AND lv_schedule_updated = abap_true
-        ).
 
-      APPEND VALUE #(
-        job_id               = ls_due_job-job_id
-        job_name             = ls_due_job-job_name
-        success              = lv_overall_success
-        run_id               = lv_run_id
-        recipient_count      = lv_recipient_count
-        previous_next_run_at = ls_due_job-next_run_at
-        new_next_run_at      = lv_new_next_run_at
-        schedule_updated     = lv_schedule_updated
-        message              = lv_result_message
-      ) TO rt_results.
+    "----------------------------------------------------------
+    " 8. Overall execution result
+    "----------------------------------------------------------
+    IF lv_execution_success = abap_true
+       AND lv_schedule_updated = abap_true.
 
-    ENDLOOP.
+      lv_overall_success = abap_true.
 
-  ENDMETHOD.
+    ELSE.
+
+      lv_overall_success = abap_false.
+
+    ENDIF.
+
+
+    "----------------------------------------------------------
+    " 9. Return runner result
+    "----------------------------------------------------------
+    ls_run_result-job_id =
+      ls_due_job-job_id.
+
+    ls_run_result-job_name =
+      ls_due_job-job_name.
+
+    ls_run_result-success =
+      lv_overall_success.
+
+    ls_run_result-run_id =
+      lv_run_id.
+
+    ls_run_result-recipient_count =
+      lv_recipient_count.
+
+    ls_run_result-previous_next_run_at =
+      ls_due_job-next_run_at.
+
+    ls_run_result-new_next_run_at =
+      lv_new_next_run_at.
+
+    ls_run_result-schedule_updated =
+      lv_schedule_updated.
+
+    ls_run_result-message =
+      lv_result_message.
+
+
+    APPEND ls_run_result TO rt_results.
+
+  ENDLOOP.
+
+ENDMETHOD.
 
 
   METHOD calculate_next_run_at.

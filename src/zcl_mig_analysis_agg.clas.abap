@@ -266,7 +266,6 @@ CLASS zcl_mig_analysis_agg IMPLEMENTATION.
     rs_result-alv_columns =
       ls_fcat_result-alv_columns.
 
-     "Fallback for SALV / ALV without explicit field catalog
         DATA(ls_row_result) =
           lo_row_analyzer->zif_mig_alv_fcat_analyzer~analyze(
             iv_analysis_id  = lv_analysis_id
@@ -369,6 +368,14 @@ CLASS zcl_mig_analysis_agg IMPLEMENTATION.
 
     append_evidences(
       EXPORTING
+        it_source = ls_row_result-evidences
+      CHANGING
+        ct_target = rs_result-evidences
+        ct_seen   = lt_seen_evidence_ids
+    ).
+
+    append_evidences(
+      EXPORTING
         it_source = ls_sf_result-evidences
       CHANGING
         ct_target = rs_result-evidences
@@ -418,6 +425,13 @@ CLASS zcl_mig_analysis_agg IMPLEMENTATION.
     append_messages(
       EXPORTING
         it_source = ls_fcat_result-messages
+      CHANGING
+        ct_target = rs_result-messages
+    ).
+
+    append_messages(
+      EXPORTING
+        it_source = ls_row_result-messages
       CHANGING
         ct_target = rs_result-messages
     ).

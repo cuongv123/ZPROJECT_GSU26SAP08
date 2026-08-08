@@ -2,43 +2,43 @@ CLASS lhc_MailJob DEFINITION
   INHERITING FROM cl_abap_behavior_handler.
 
   PRIVATE SECTION.
-
-    CONSTANTS:
-      gc_frequency_on_demand TYPE zmig_e_frequency VALUE 'O',
-      gc_frequency_daily     TYPE zmig_e_frequency VALUE 'D',
-      gc_frequency_weekly    TYPE zmig_e_frequency VALUE 'W',
-      gc_frequency_monthly   TYPE zmig_e_frequency VALUE 'M',
-      gc_status_active       TYPE zmig_e_job_status VALUE 'A',
-      gc_monday_anchor TYPE d VALUE '19000101'.
+CONSTANTS:
+  gc_frequency_on_demand TYPE zmig_e_frequency VALUE 'O',
+  gc_frequency_daily     TYPE zmig_e_frequency VALUE 'D',
+  gc_frequency_weekly    TYPE zmig_e_frequency VALUE 'W',
+  gc_frequency_monthly   TYPE zmig_e_frequency VALUE 'M',
+  gc_status_active       TYPE zmig_e_job_status VALUE 'A',
+  gc_export_section_all  TYPE zmig_e_report_section VALUE 'ALL',
+  gc_monday_anchor       TYPE d VALUE '19000101'.
 " Declare methods validation"
-    METHODS get_global_authorizations
-      FOR GLOBAL AUTHORIZATION
-      IMPORTING
-        REQUEST requested_authorizations FOR MailJob
-      RESULT result.
+   METHODS get_global_authorizations
+  FOR GLOBAL AUTHORIZATION
+  IMPORTING
+    REQUEST requested_authorizations FOR MailJob
+  RESULT result.
 
-    METHODS validateRequiredFields
-      FOR VALIDATE ON SAVE
-      IMPORTING keys FOR MailJob~validateRequiredFields.
+METHODS validateRequiredFields
+  FOR VALIDATE ON SAVE
+  IMPORTING keys FOR MailJob~validateRequiredFields.
 
-    METHODS validateSchedule
-      FOR VALIDATE ON SAVE
-      IMPORTING keys FOR MailJob~validateSchedule.
+METHODS validateSchedule
+  FOR VALIDATE ON SAVE
+  IMPORTING keys FOR MailJob~validateSchedule.
 
-     METHODS validateHasRecipient
-      FOR VALIDATE ON SAVE
-      IMPORTING keys FOR MailJob~validateHasRecipient.
+METHODS validateHasRecipient
+  FOR VALIDATE ON SAVE
+  IMPORTING keys FOR MailJob~validateHasRecipient.
 
-     METHODS calculateNextRunAt
-      FOR DETERMINE ON MODIFY
-       IMPORTING keys FOR MailJob~calculateNextRunAt.
+METHODS calculateNextRunAt
+  FOR DETERMINE ON MODIFY
+  IMPORTING keys FOR MailJob~calculateNextRunAt.
 
-       METHODS sendNow
-       FOR MODIFY
-       IMPORTING keys FOR ACTION MailJob~sendNow
-       RESULT result.
+METHODS sendNow
+  FOR MODIFY
+  IMPORTING keys FOR ACTION MailJob~sendNow
+  RESULT result.
 
-       METHODS get_month_start
+METHODS get_month_start
   IMPORTING
     iv_date         TYPE d
     iv_month_offset TYPE i
@@ -53,7 +53,6 @@ METHODS get_monthly_run_date
     VALUE(rv_run_date) TYPE d.
 
 
-
 ENDCLASS.
 
 
@@ -61,9 +60,8 @@ CLASS lhc_MailJob IMPLEMENTATION.
 
   METHOD get_global_authorizations.
 
-    " Temporary authorization implementation for development.
-    " All CRUD operations are allowed at this stage.
-
+   " Mail BO does not currently enforce role-based authorization.
+  " All supported CRUD operations are allowed.
     IF requested_authorizations-%create = if_abap_behv=>mk-on.
       result-%create = if_abap_behv=>auth-allowed.
     ENDIF.
@@ -78,102 +76,231 @@ CLASS lhc_MailJob IMPLEMENTATION.
 
   ENDMETHOD.
 
-  "Method validateRequiredFields
+  " Validate mandatory job fields.
   METHOD validateRequiredFields.
 
-  "Read the current values from the RAP transactional buffer.
+  TYPES:
+    BEGIN OF ty_analysis_key,
+      analysis_id TYPE zmig_anl_h-analysis_id,
+      program_name TYPE zmig_anl_h-program_name,
+    END OF ty_analysis_key,
+
+    tt_analysis_key TYPE HASHED TABLE OF ty_analysis_key
+      WITH UNIQUE KEY analysis_id program_name,
+
+    tt_analysis_request TYPE SORTED TABLE OF ty_analysis_key
+      WITH UNIQUE KEY analysis_id program_name.
+
+  DATA:
+    lt_analysis_request TYPE tt_analysis_request,
+    lt_valid_analysis   TYPE tt_analysis_key,
+    lv_has_error        TYPE abap_bool,
+    lv_analysis_text    TYPE symsgv,
+    lv_report_text      TYPE symsgv.
+
+
+  " Read affected jobs once from RAP transactional buffer
   READ ENTITIES OF zi_mig_mail_job IN LOCAL MODE
     ENTITY MailJob
       FIELDS (
+        AnalysisId
         JobName
         ReportType
         FileFormat
         Frequency
-        MailSubject
       )
       WITH CORRESPONDING #( keys )
     RESULT DATA(lt_jobs).
 
+
+  " Collect unique AnalysisId + ReportType pairs for batch lookup
   LOOP AT lt_jobs INTO DATA(ls_job).
 
-    DATA(lv_has_error) = abap_false.
+    IF ls_job-AnalysisId IS NOT INITIAL
+       AND ls_job-ReportType IS NOT INITIAL.
+
+      INSERT VALUE #(
+        analysis_id = ls_job-AnalysisId
+        program_name = ls_job-ReportType
+      ) INTO TABLE lt_analysis_request.
+
+    ENDIF.
+
+  ENDLOOP.
+
+
+  " One database access for all affected jobs
+  IF lt_analysis_request IS NOT INITIAL.
+
+    SELECT
+      analysis_id,
+      program_name
+      FROM zmig_anl_h
+      FOR ALL ENTRIES IN @lt_analysis_request
+      WHERE analysis_id = @lt_analysis_request-analysis_id
+        AND program_name = @lt_analysis_request-program_name
+      INTO TABLE @DATA(lt_valid_analysis_db).
+
+    LOOP AT lt_valid_analysis_db INTO DATA(ls_valid_analysis).
+
+      INSERT VALUE #(
+        analysis_id = ls_valid_analysis-analysis_id
+        program_name = ls_valid_analysis-program_name
+      ) INTO TABLE lt_valid_analysis.
+
+    ENDLOOP.
+
+  ENDIF.
+
+
+  " Validate jobs in memory only
+  LOOP AT lt_jobs INTO ls_job.
+
+    CLEAR:
+      lv_has_error,
+      lv_analysis_text,
+      lv_report_text.
+
+    lv_has_error = abap_false.
+
+
+    IF ls_job-AnalysisId IS INITIAL.
+
+      lv_has_error = abap_true.
+
+      APPEND VALUE #(
+        %tky = ls_job-%tky
+        %msg = new_message(
+                 id       = 'ZMIG_ANALYSIS'
+                 number   = '038'
+                 severity = if_abap_behv_message=>severity-error
+               )
+        %element-AnalysisId = if_abap_behv=>mk-on
+      ) TO reported-MailJob.
+
+    ENDIF.
+
 
     IF ls_job-JobName IS INITIAL.
+
       lv_has_error = abap_true.
 
       APPEND VALUE #(
-        %tky             = ls_job-%tky
-        %msg             = new_message(
-                             id       = 'ZMIG_ANALYSIS'
-                             number   = '009'
-                             severity = if_abap_behv_message=>severity-error )
+        %tky = ls_job-%tky
+        %msg = new_message(
+                 id       = 'ZMIG_ANALYSIS'
+                 number   = '009'
+                 severity = if_abap_behv_message=>severity-error
+               )
         %element-JobName = if_abap_behv=>mk-on
       ) TO reported-MailJob.
+
     ENDIF.
+
 
     IF ls_job-ReportType IS INITIAL.
+
       lv_has_error = abap_true.
 
       APPEND VALUE #(
-        %tky                = ls_job-%tky
-        %msg                = new_message(
-                                  id       = 'ZMIG_ANALYSIS'
-                                  number   = '010'
-                                  severity = if_abap_behv_message=>severity-error )
+        %tky = ls_job-%tky
+        %msg = new_message(
+                 id       = 'ZMIG_ANALYSIS'
+                 number   = '010'
+                 severity = if_abap_behv_message=>severity-error
+               )
         %element-ReportType = if_abap_behv=>mk-on
       ) TO reported-MailJob.
+
     ENDIF.
+
 
     IF ls_job-FileFormat IS INITIAL.
+
       lv_has_error = abap_true.
 
       APPEND VALUE #(
-        %tky                = ls_job-%tky
-        %msg                = new_message(
-                                  id       = 'ZMIG_ANALYSIS'
-                                  number   = '011'
-                                  severity = if_abap_behv_message=>severity-error )
+        %tky = ls_job-%tky
+        %msg = new_message(
+                 id       = 'ZMIG_ANALYSIS'
+                 number   = '011'
+                 severity = if_abap_behv_message=>severity-error
+               )
         %element-FileFormat = if_abap_behv=>mk-on
       ) TO reported-MailJob.
+
     ENDIF.
+
 
     IF ls_job-Frequency IS INITIAL.
+
       lv_has_error = abap_true.
 
       APPEND VALUE #(
-        %tky               = ls_job-%tky
-        %msg               = new_message(
-                                 id       = 'ZMIG_ANALYSIS'
-                                 number   = '012'
-                                 severity = if_abap_behv_message=>severity-error )
+        %tky = ls_job-%tky
+        %msg = new_message(
+                 id       = 'ZMIG_ANALYSIS'
+                 number   = '012'
+                 severity = if_abap_behv_message=>severity-error
+               )
         %element-Frequency = if_abap_behv=>mk-on
       ) TO reported-MailJob.
+
     ENDIF.
 
-    IF ls_job-MailSubject IS INITIAL.
-      lv_has_error = abap_true.
 
-      APPEND VALUE #(
-        %tky                 = ls_job-%tky
-        %msg                 = new_message(
-                                   id       = 'ZMIG_ANALYSIS'
-                                   number   = '013'
-                                   severity = if_abap_behv_message=>severity-error )
-        %element-MailSubject = if_abap_behv=>mk-on
-      ) TO reported-MailJob.
+    " AnalysisId must belong to the selected report
+    IF ls_job-AnalysisId IS NOT INITIAL
+       AND ls_job-ReportType IS NOT INITIAL.
+
+      READ TABLE lt_valid_analysis
+        WITH TABLE KEY
+          analysis_id = ls_job-AnalysisId
+          program_name = ls_job-ReportType
+        TRANSPORTING NO FIELDS.
+
+      IF sy-subrc <> 0.
+
+        lv_has_error = abap_true.
+
+        lv_analysis_text = |{ ls_job-AnalysisId }|.
+        lv_report_text   = ls_job-ReportType.
+
+        APPEND VALUE #(
+          %tky = ls_job-%tky
+          %msg = new_message(
+                   id       = 'ZMIG_ANALYSIS'
+                   number   = '039'
+                   severity = if_abap_behv_message=>severity-error
+                   v1       = lv_analysis_text
+                   v2       = lv_report_text
+                 )
+          %element-AnalysisId = if_abap_behv=>mk-on
+          %element-ReportType = if_abap_behv=>mk-on
+        ) TO reported-MailJob.
+
+      ENDIF.
+
     ENDIF.
+
 
     IF lv_has_error = abap_true.
+
       APPEND VALUE #(
         %tky = ls_job-%tky
       ) TO failed-MailJob.
+
     ENDIF.
 
   ENDLOOP.
 
 ENDMETHOD.
-"Method validateSchedule.
+" Validate scheduling configuration.
 METHOD validateSchedule.
+
+  DATA:
+    lv_has_error TYPE abap_bool,
+    lv_frequency TYPE symsgv.
 
   READ ENTITIES OF zi_mig_mail_job IN LOCAL MODE
     ENTITY MailJob
@@ -189,15 +316,29 @@ METHOD validateSchedule.
 
   LOOP AT lt_jobs INTO DATA(ls_job).
 
-    DATA(lv_has_error) = abap_false.
+    CLEAR:
+      lv_has_error,
+      lv_frequency.
 
-    " Required-field validation already handles an empty frequency.
-    " Avoid returning duplicate messages here.
+    lv_has_error = abap_false.
+
+
+    "----------------------------------------------------------
+    " Frequency is validated by validateRequiredFields.
+    " Avoid duplicate messages here.
+    "----------------------------------------------------------
     IF ls_job-Frequency IS INITIAL.
       CONTINUE.
     ENDIF.
 
-    " Validate supported frequency codes.
+
+    "----------------------------------------------------------
+    " Validate supported frequency
+    " O = On Demand
+    " D = Daily
+    " W = Weekly
+    " M = Monthly
+    "----------------------------------------------------------
     IF ls_job-Frequency <> gc_frequency_on_demand
        AND ls_job-Frequency <> gc_frequency_daily
        AND ls_job-Frequency <> gc_frequency_weekly
@@ -205,102 +346,123 @@ METHOD validateSchedule.
 
       lv_has_error = abap_true.
 
+      lv_frequency =
+        CONV symsgv( ls_job-Frequency ).
+
       APPEND VALUE #(
-        %tky               = ls_job-%tky
-        %msg               = new_message(
-                               id       = 'ZMIG_ANALYSIS'
-                               number   = '019'
-                               severity = if_abap_behv_message=>severity-error
-                               v1       = ls_job-Frequency )
+        %tky = ls_job-%tky
+        %msg = new_message(
+                 id       = 'ZMIG_ANALYSIS'
+                 number   = '019'
+                 severity = if_abap_behv_message=>severity-error
+                 v1       = lv_frequency
+               )
         %element-Frequency = if_abap_behv=>mk-on
       ) TO reported-MailJob.
 
     ELSEIF ls_job-Frequency <> gc_frequency_on_demand.
 
-      " Daily, Weekly and Monthly jobs require a start date.
+
+      "--------------------------------------------------------
+      " Scheduled jobs require StartDate.
+      "
+      " Do NOT reject dates in the past.
+      " Existing recurring jobs naturally have historical
+      " StartDate values.
+      "--------------------------------------------------------
       IF ls_job-StartDate IS INITIAL.
+
         lv_has_error = abap_true.
 
         APPEND VALUE #(
-          %tky               = ls_job-%tky
-          %msg               = new_message(
-                                 id       = 'ZMIG_ANALYSIS'
-                                 number   = '014'
-                                 severity = if_abap_behv_message=>severity-error )
+          %tky = ls_job-%tky
+          %msg = new_message(
+                   id       = 'ZMIG_ANALYSIS'
+                   number   = '014'
+                   severity = if_abap_behv_message=>severity-error
+                 )
           %element-StartDate = if_abap_behv=>mk-on
         ) TO reported-MailJob.
 
-      ELSEIF ls_job-StartDate < sy-datum.
-        lv_has_error = abap_true.
-
-        APPEND VALUE #(
-          %tky               = ls_job-%tky
-          %msg               = new_message(
-                                 id       = 'ZMIG_ANALYSIS'
-                                 number   = '015'
-                                 severity = if_abap_behv_message=>severity-error )
-          %element-StartDate = if_abap_behv=>mk-on
-        ) TO reported-MailJob.
       ENDIF.
 
-      " 00:00:00 is treated as initial for the scheduling configuration.
-      IF ls_job-StartTime IS INITIAL.
-        lv_has_error = abap_true.
 
-        APPEND VALUE #(
-          %tky               = ls_job-%tky
-          %msg               = new_message(
-                                 id       = 'ZMIG_ANALYSIS'
-                                 number   = '016'
-                                 severity = if_abap_behv_message=>severity-error )
-          %element-StartTime = if_abap_behv=>mk-on
-        ) TO reported-MailJob.
+      "--------------------------------------------------------
+      " StartTime is intentionally NOT checked with IS INITIAL.
+      "
+      " ABAP TIMS value 000000 means 00:00:00 and is also the
+      " initial value. Therefore 000000 is accepted as midnight.
+      "--------------------------------------------------------
+
+
+      "--------------------------------------------------------
+      " Weekly schedule
+      " DayOfWeek: 1 = Monday ... 7 = Sunday
+      "--------------------------------------------------------
+      IF ls_job-Frequency = gc_frequency_weekly.
+
+        IF ls_job-DayOfWeek < '1'
+           OR ls_job-DayOfWeek > '7'.
+
+          lv_has_error = abap_true.
+
+          APPEND VALUE #(
+            %tky = ls_job-%tky
+            %msg = new_message(
+                     id       = 'ZMIG_ANALYSIS'
+                     number   = '017'
+                     severity = if_abap_behv_message=>severity-error
+                   )
+            %element-DayOfWeek = if_abap_behv=>mk-on
+          ) TO reported-MailJob.
+
+        ENDIF.
+
       ENDIF.
 
-      IF ls_job-Frequency = gc_frequency_weekly
-         AND ( ls_job-DayOfWeek < '1'
-               OR ls_job-DayOfWeek > '7' ).
 
-        lv_has_error = abap_true.
+      "--------------------------------------------------------
+      " Monthly schedule
+      "--------------------------------------------------------
+      IF ls_job-Frequency = gc_frequency_monthly.
 
-        APPEND VALUE #(
-          %tky                = ls_job-%tky
-          %msg                = new_message(
-                                  id       = 'ZMIG_ANALYSIS'
-                                  number   = '017'
-                                  severity = if_abap_behv_message=>severity-error )
-          %element-DayOfWeek = if_abap_behv=>mk-on
-        ) TO reported-MailJob.
-      ENDIF.
+        IF ls_job-DayOfMonth < '01'
+           OR ls_job-DayOfMonth > '31'.
 
-      IF ls_job-Frequency = gc_frequency_monthly
-         AND ( ls_job-DayOfMonth < '01'
-               OR ls_job-DayOfMonth > '31' ).
+          lv_has_error = abap_true.
 
-        lv_has_error = abap_true.
+          APPEND VALUE #(
+            %tky = ls_job-%tky
+            %msg = new_message(
+                     id       = 'ZMIG_ANALYSIS'
+                     number   = '018'
+                     severity = if_abap_behv_message=>severity-error
+                   )
+            %element-DayOfMonth = if_abap_behv=>mk-on
+          ) TO reported-MailJob.
 
-        APPEND VALUE #(
-          %tky                 = ls_job-%tky
-          %msg                 = new_message(
-                                   id       = 'ZMIG_ANALYSIS'
-                                   number   = '018'
-                                   severity = if_abap_behv_message=>severity-error )
-          %element-DayOfMonth = if_abap_behv=>mk-on
-        ) TO reported-MailJob.
+        ENDIF.
+
       ENDIF.
 
     ENDIF.
 
+
+    "----------------------------------------------------------
+    " Mark job as failed if validation found an error
+    "----------------------------------------------------------
     IF lv_has_error = abap_true.
+
       APPEND VALUE #(
         %tky = ls_job-%tky
       ) TO failed-MailJob.
+
     ENDIF.
 
   ENDLOOP.
 
 ENDMETHOD.
-"Method validateHasRecipient.
+" Ensure active jobs have at least one recipient.
 METHOD validateHasRecipient.
 
   "Read affected Mail Jobs from the RAP transactional buffer.
@@ -424,7 +586,8 @@ METHOD get_monthly_run_date.
   lv_requested_day   = iv_day_of_month.
   lv_last_day_number = lv_last_day+6(2).
 
-  "Ví dụ ngày 31 trong tháng 2 sẽ dùng ngày cuối tháng.
+ " If the requested day does not exist in the month,
+" use the month's last calendar day.
   IF lv_requested_day > lv_last_day_number.
     lv_requested_day = lv_last_day_number.
   ENDIF.
@@ -488,10 +651,9 @@ METHOD calculateNextRunAt.
       lv_day_offset.
 
     "Inactive and On-Demand jobs do not have a scheduled next run.
-    IF ls_job-Status = gc_status_active
-       AND ls_job-Frequency <> gc_frequency_on_demand
-       AND ls_job-StartDate IS NOT INITIAL
-       AND ls_job-StartTime IS NOT INITIAL.
+   IF ls_job-Status = gc_status_active
+   AND ls_job-Frequency <> gc_frequency_on_demand
+   AND ls_job-StartDate IS NOT INITIAL.
 
       CASE ls_job-Frequency.
 
@@ -652,7 +814,34 @@ ENDMETHOD.
 
 METHOD sendNow.
 
-  "Read selected Mail Jobs from the RAP transactional buffer.
+  CONSTANTS:
+    lc_trigger_manual TYPE zmig_e_trigger_type VALUE 'M',
+    lc_status_failed  TYPE zmig_e_run_status   VALUE 'F'.
+
+  DATA:
+    lo_export_provider TYPE REF TO zif_mig_export_provider,
+
+    ls_export_result   TYPE zif_mig_export_provider=>ty_export_result,
+    ls_attachment      TYPE zcl_mig_mail_service=>ty_attachment,
+    ls_template_context TYPE zcl_mig_mail_template=>ty_context,
+    ls_template_result TYPE zcl_mig_mail_template=>ty_mail_content,
+    ls_mail_content    TYPE zcl_mig_mail_service=>ty_mail_content,
+    ls_send_result     TYPE zcl_mig_mail_service=>ty_send_result,
+
+    ls_log_start       TYPE zcl_mig_mail_log_service=>ty_start_result,
+    ls_log_finish      TYPE zcl_mig_mail_log_service=>ty_finish_result,
+
+    lv_generated_at    TYPE timestampl,
+    lv_file_size       TYPE zmig_mail_log-file_size,
+    lv_success         TYPE abap_bool,
+    lv_result_message  TYPE string,
+    lv_log_message     TYPE string,
+    lv_message_variable TYPE symsgv.
+
+
+  "------------------------------------------------------------
+  " Read selected Mail Jobs from RAP transactional buffer
+  "------------------------------------------------------------
   READ ENTITIES OF zi_mig_mail_job IN LOCAL MODE
     ENTITY MailJob
       ALL FIELDS
@@ -661,57 +850,270 @@ METHOD sendNow.
     FAILED DATA(lt_read_failed)
     REPORTED DATA(lt_read_reported).
 
-  "Forward technical read failures.
+
+  "------------------------------------------------------------
+  " Forward read errors
+  "------------------------------------------------------------
   IF lt_read_failed-MailJob IS NOT INITIAL.
+
     APPEND LINES OF lt_read_failed-MailJob
       TO failed-MailJob.
+
   ENDIF.
 
   IF lt_read_reported-MailJob IS NOT INITIAL.
+
     APPEND LINES OF lt_read_reported-MailJob
       TO reported-MailJob.
+
   ENDIF.
+
+
+  "------------------------------------------------------------
+  " Export engine
+  "------------------------------------------------------------
+  CREATE OBJECT lo_export_provider
+    TYPE zcl_mig_export_engine.
+
 
   LOOP AT lt_jobs INTO DATA(ls_job).
 
-    "No COMMIT WORK here. RAP caller controls the transaction.
-    DATA(ls_send_result) =
-      zcl_mig_mail_service=>send_job(
-        iv_job_id       = ls_job-JobId
-        iv_trigger_type = 'M'
+    CLEAR:
+      ls_export_result,
+      ls_attachment,
+      ls_template_context,
+      ls_template_result,
+      ls_mail_content,
+      ls_send_result,
+      ls_log_start,
+      ls_log_finish,
+      lv_generated_at,
+      lv_file_size,
+      lv_success,
+      lv_result_message,
+      lv_log_message,
+      lv_message_variable.
+
+
+    "----------------------------------------------------------
+    " 1. Generate report file
+    "----------------------------------------------------------
+    ls_export_result =
+      lo_export_provider->generate(
+        iv_job_id         = ls_job-JobId
+        iv_analysis_id    = ls_job-AnalysisId
+        iv_report_type    = ls_job-ReportType
+        iv_file_format    = ls_job-FileFormat
+        iv_export_section = gc_export_section_all
       ).
 
-    IF ls_send_result-request_created = abap_true
-       AND ls_send_result-accepted_all = abap_true.
+
+    "----------------------------------------------------------
+    " 2. Export successful
+    "----------------------------------------------------------
+    IF ls_export_result-success = abap_true
+       AND ls_export_result-content IS NOT INITIAL.
+
+
+      "--------------------------------------------------------
+      " Build attachment
+      "--------------------------------------------------------
+      ls_attachment-content =
+        ls_export_result-content.
+
+      ls_attachment-file_name =
+        ls_export_result-file_name.
+
+      ls_attachment-file_type =
+        ls_export_result-file_type.
+
+      ls_attachment-file_format =
+        ls_export_result-file_format.
+
+
+      "--------------------------------------------------------
+      " Build template context
+      "--------------------------------------------------------
+      GET TIME STAMP FIELD lv_generated_at.
+
+      ls_template_context-job_name =
+        ls_job-JobName.
+
+      ls_template_context-analysis_id =
+        ls_job-AnalysisId.
+
+      ls_template_context-report_type =
+        ls_job-ReportType.
+
+      ls_template_context-file_format =
+        ls_export_result-file_format.
+
+      ls_template_context-file_name =
+        ls_export_result-file_name.
+
+      ls_template_context-generated_at =
+        lv_generated_at.
+
+
+      "--------------------------------------------------------
+      " Generate HTML mail template
+      "--------------------------------------------------------
+      ls_template_result =
+        zcl_mig_mail_template=>get_export_success(
+          is_context = ls_template_context
+        ).
+
+      ls_mail_content-subject =
+        ls_template_result-subject.
+
+      ls_mail_content-body =
+        ls_template_result-body.
+
+
+      "--------------------------------------------------------
+      " 3. Send mail with generated attachment
+      "--------------------------------------------------------
+      ls_send_result =
+        zcl_mig_mail_service=>send_job(
+          iv_job_id       = ls_job-JobId
+          iv_trigger_type = lc_trigger_manual
+          is_mail_content = ls_mail_content
+          is_attachment   = ls_attachment
+        ).
+
+
+      IF ls_send_result-request_created = abap_true
+         AND ls_send_result-accepted_all = abap_true.
+
+        lv_success = abap_true.
+
+      ELSE.
+
+        lv_success = abap_false.
+
+      ENDIF.
+
+      lv_result_message =
+        ls_send_result-message.
+
+
+    "----------------------------------------------------------
+    " 4. Export failed before Mail Service was called
+    "----------------------------------------------------------
+    ELSE.
+
+      lv_success = abap_false.
+
+      lv_result_message =
+        ls_export_result-message.
+
+
+      IF lv_result_message IS INITIAL.
+
+        MESSAGE ID 'ZMIG_ANALYSIS'
+          TYPE 'E'
+          NUMBER '031'
+          INTO lv_result_message.
+
+      ENDIF.
+
+
+      "--------------------------------------------------------
+      " Because Mail Service was never called,
+      " create the failed execution log here.
+      "--------------------------------------------------------
+      ls_log_start =
+        zcl_mig_mail_log_service=>start_run(
+          iv_job_id       = ls_job-JobId
+          iv_trigger_type = lc_trigger_manual
+          iv_file_format  = ls_job-FileFormat
+        ).
+
+
+      IF ls_log_start-success = abap_true.
+
+        lv_file_size =
+          xstrlen( ls_export_result-content ).
+
+        ls_log_finish =
+          zcl_mig_mail_log_service=>finish_run(
+            iv_job_id          = ls_job-JobId
+            iv_run_id          = ls_log_start-run_id
+            iv_status          = lc_status_failed
+            iv_file_name       = ls_export_result-file_name
+            iv_file_format     = ls_job-FileFormat
+            iv_file_size       = lv_file_size
+            iv_recipient_count = 0
+            iv_log_message     = lv_result_message
+          ).
+
+
+        IF ls_log_finish-success = abap_false.
+
+          MESSAGE ID 'ZMIG_ANALYSIS'
+            TYPE 'E'
+            NUMBER '035'
+            WITH ls_log_finish-message
+            INTO lv_log_message.
+
+          lv_result_message =
+            |{ lv_result_message } { lv_log_message }|.
+
+        ENDIF.
+
+
+      ELSE.
+
+        MESSAGE ID 'ZMIG_ANALYSIS'
+          TYPE 'E'
+          NUMBER '034'
+          WITH ls_log_start-message
+          INTO lv_log_message.
+
+        lv_result_message =
+          |{ lv_result_message } { lv_log_message }|.
+
+      ENDIF.
+
+    ENDIF.
+
+
+    "----------------------------------------------------------
+    " 5. Return RAP message
+    "----------------------------------------------------------
+    IF lv_success = abap_true.
 
       APPEND VALUE #(
         %tky = ls_job-%tky
         %msg = new_message(
                  id       = 'ZMIG_ANALYSIS'
                  number   = '027'
-                 severity = if_abap_behv_message=>severity-success )
+                 severity = if_abap_behv_message=>severity-success
+               )
       ) TO reported-MailJob.
+
 
     ELSE.
 
-      DATA lv_message_variable TYPE symsgv.
+      lv_message_variable =
+        CONV symsgv( lv_result_message ).
 
-      lv_message_variable = ls_send_result-message.
-
-      "Do not add to FAILED here.
-      "The execution log with status F must still be committed.
       APPEND VALUE #(
         %tky = ls_job-%tky
         %msg = new_message(
                  id       = 'ZMIG_ANALYSIS'
                  number   = '028'
                  severity = if_abap_behv_message=>severity-warning
-                 v1       = lv_message_variable )
+                 v1       = lv_message_variable
+               )
       ) TO reported-MailJob.
 
     ENDIF.
 
-    "Action result [1] $self.
+
+    "----------------------------------------------------------
+    " Action result [1] $self
+    "----------------------------------------------------------
     APPEND VALUE #(
       %tky   = ls_job-%tky
       %param = ls_job
@@ -728,10 +1130,11 @@ CLASS lhc_Recipient DEFINITION
 
   PRIVATE SECTION.
 
-    CONSTANTS:
-      gc_recipient_to  TYPE zmig_e_recip_type VALUE 'T',
-      gc_recipient_cc  TYPE zmig_e_recip_type VALUE 'C',
-      gc_recipient_bcc TYPE zmig_e_recip_type VALUE 'B'.
+   CONSTANTS:
+  gc_recipient_to  TYPE zmig_e_recip_type VALUE 'T',
+  gc_recipient_cc  TYPE zmig_e_recip_type VALUE 'C',
+  gc_recipient_bcc TYPE zmig_e_recip_type VALUE 'B',
+  gc_status_active TYPE zmig_e_job_status  VALUE 'A'.
 
     TYPES:
       tt_sap_user TYPE SORTED TABLE OF xubname
@@ -759,9 +1162,13 @@ CLASS lhc_Recipient DEFINITION
       RETURNING
         VALUE(rt_user_info) TYPE tt_user_info.
 
-    METHODS validateNoDuplicate
+METHODS validateNoDuplicate
   FOR VALIDATE ON SAVE
   IMPORTING keys FOR Recipient~validateNoDuplicate.
+
+METHODS validateParentHasRecipient
+  FOR VALIDATE ON SAVE
+  IMPORTING keys FOR Recipient~validateParentHasRecipient.
 
 ENDCLASS.
 
@@ -1111,6 +1518,162 @@ METHOD validateNoDuplicate.
       ) TO failed-Recipient.
 
     ENDIF.
+
+  ENDLOOP.
+
+ENDMETHOD.
+
+METHOD validateParentHasRecipient.
+
+  TYPES:
+    tt_job_id TYPE HASHED TABLE OF sysuuid_x16
+      WITH UNIQUE KEY table_line,
+
+    BEGIN OF ty_delete_recipient,
+      job_id       TYPE sysuuid_x16,
+      recipient_id TYPE sysuuid_x16,
+    END OF ty_delete_recipient,
+
+    tt_delete_recipient TYPE HASHED TABLE OF ty_delete_recipient
+      WITH UNIQUE KEY job_id recipient_id.
+
+  DATA:
+    lt_affected_job_ids   TYPE tt_job_id,
+    lt_invalid_job_ids    TYPE tt_job_id,
+    lt_jobs_with_recipient TYPE tt_job_id,
+    lt_delete_recipients  TYPE tt_delete_recipient.
+
+
+  " Collect affected jobs and recipients being deleted
+  LOOP AT keys INTO DATA(ls_key).
+
+    IF ls_key-JobId IS NOT INITIAL.
+
+      INSERT ls_key-JobId
+        INTO TABLE lt_affected_job_ids.
+
+    ENDIF.
+
+    IF ls_key-JobId IS NOT INITIAL
+       AND ls_key-RecipientId IS NOT INITIAL.
+
+      INSERT VALUE #(
+        job_id       = ls_key-JobId
+        recipient_id = ls_key-RecipientId
+      ) INTO TABLE lt_delete_recipients.
+
+    ENDIF.
+
+  ENDLOOP.
+
+
+  IF lt_affected_job_ids IS INITIAL.
+    RETURN.
+  ENDIF.
+
+
+  " Read all affected parent jobs in one EML operation
+  READ ENTITIES OF zi_mig_mail_job IN LOCAL MODE
+    ENTITY MailJob
+      FIELDS (
+        Status
+      )
+      WITH VALUE #(
+        FOR lv_job_id IN lt_affected_job_ids
+        ( JobId = lv_job_id )
+      )
+    RESULT DATA(lt_jobs).
+
+
+  " Only Active jobs require at least one recipient
+  DELETE lt_jobs
+    WHERE Status <> gc_status_active.
+
+
+  IF lt_jobs IS INITIAL.
+    RETURN.
+  ENDIF.
+
+
+  " Read recipients for all Active jobs in one EML operation
+  READ ENTITIES OF zi_mig_mail_job IN LOCAL MODE
+    ENTITY MailJob BY \_Recipients
+      FIELDS (
+        RecipientId
+      )
+      WITH CORRESPONDING #( lt_jobs )
+    RESULT DATA(lt_recipients).
+
+
+  " Determine which Active jobs still have a recipient
+  LOOP AT lt_recipients INTO DATA(ls_recipient).
+
+    " Explicitly ignore recipients being deleted in this request
+    READ TABLE lt_delete_recipients
+      WITH TABLE KEY
+        job_id       = ls_recipient-JobId
+        recipient_id = ls_recipient-RecipientId
+      TRANSPORTING NO FIELDS.
+
+    IF sy-subrc = 0.
+      CONTINUE.
+    ENDIF.
+
+    INSERT ls_recipient-JobId
+      INTO TABLE lt_jobs_with_recipient.
+
+  ENDLOOP.
+
+
+  " Identify Active jobs that would have zero recipients
+  LOOP AT lt_jobs INTO DATA(ls_job).
+
+    READ TABLE lt_jobs_with_recipient
+      WITH TABLE KEY
+        table_line = ls_job-JobId
+      TRANSPORTING NO FIELDS.
+
+    IF sy-subrc <> 0.
+
+      INSERT ls_job-JobId
+        INTO TABLE lt_invalid_job_ids.
+
+    ENDIF.
+
+  ENDLOOP.
+
+
+  IF lt_invalid_job_ids IS INITIAL.
+    RETURN.
+  ENDIF.
+
+
+  " Reject deletions that would leave an Active job without recipient
+  LOOP AT keys INTO ls_key.
+
+    READ TABLE lt_invalid_job_ids
+      WITH TABLE KEY
+        table_line = ls_key-JobId
+      TRANSPORTING NO FIELDS.
+
+    IF sy-subrc <> 0.
+      CONTINUE.
+    ENDIF.
+
+
+    APPEND VALUE #(
+      %tky = ls_key-%tky
+    ) TO failed-Recipient.
+
+
+    APPEND VALUE #(
+      %tky = ls_key-%tky
+      %msg = new_message(
+               id       = 'ZMIG_ANALYSIS'
+               number   = '026'
+               severity = if_abap_behv_message=>severity-error
+             )
+    ) TO reported-Recipient.
 
   ENDLOOP.
 

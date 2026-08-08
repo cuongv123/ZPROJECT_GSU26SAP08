@@ -95,7 +95,7 @@ CLASS lhc_Analysis DEFINITION INHERITING FROM cl_abap_behavior_handler.
     METHODS Analyze FOR MODIFY
       IMPORTING keys FOR ACTION Analysis~Analyze RESULT result.
 
-METHODS prepareselectedexport FOR MODIFY
+    METHODS prepareselectedexport FOR MODIFY
       IMPORTING keys FOR ACTION Analysis~PrepareSelectedExport RESULT result.
 
     METHODS validate_selected_fields
@@ -112,643 +112,634 @@ CLASS lhc_Analysis IMPLEMENTATION.
 
   METHOD get_global_authorizations.
 
-      result-%action-Analyze =
-        if_abap_behv=>auth-allowed.
+    result-%action-Analyze =
+      if_abap_behv=>auth-allowed.
 
-        result-%action-PrepareSelectedExport =
-        if_abap_behv=>auth-allowed.
+    result-%action-PrepareSelectedExport =
+    if_abap_behv=>auth-allowed.
 
   ENDMETHOD.
 
-METHOD read.
+  METHOD read.
 
-  IF keys IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys IS INITIAL.
+      RETURN.
+    ENDIF.
 
-  DATA lt_keys LIKE keys.
+    DATA lt_keys LIKE keys.
 
-  lt_keys = keys.
+    lt_keys = keys.
 
-  SORT lt_keys BY AnalysisId.
+    SORT lt_keys BY AnalysisId.
 
-  DELETE ADJACENT DUPLICATES FROM lt_keys
-    COMPARING AnalysisId.
+    DELETE ADJACENT DUPLICATES FROM lt_keys
+      COMPARING AnalysisId.
 
 
-  SELECT FROM zmig_anl_h AS header
-    INNER JOIN @lt_keys AS requested
-      ON header~analysis_id = requested~AnalysisId
+    SELECT FROM zmig_anl_h AS header
+      INNER JOIN @lt_keys AS requested
+        ON header~analysis_id = requested~AnalysisId
 
-    FIELDS
-      header~analysis_id             AS AnalysisId,
-      header~program_name            AS ProgramName,
-      header~program_description     AS ProgramDescription,
-      header~status                  AS Status,
+      FIELDS
+        header~analysis_id             AS AnalysisId,
+        header~program_name            AS ProgramName,
+        header~program_description     AS ProgramDescription,
+        header~status                  AS Status,
 
-      header~total_source_objects    AS TotalSourceObjects,
-      header~total_ui_filters        AS TotalUiFilters,
-      header~total_database_objects  AS TotalDatabaseObjects,
-      header~total_business_logic    AS TotalBusinessLogic,
-      header~total_alv_outputs       AS TotalAlvOutputs,
-      header~total_alv_columns       AS TotalAlvColumns,
-      header~total_recommendations   AS TotalRecommendations,
+        header~total_source_objects    AS TotalSourceObjects,
+        header~total_ui_filters        AS TotalUiFilters,
+        header~total_database_objects  AS TotalDatabaseObjects,
+        header~total_business_logic    AS TotalBusinessLogic,
+        header~total_alv_outputs       AS TotalAlvOutputs,
+        header~total_alv_columns       AS TotalAlvColumns,
+        header~total_recommendations   AS TotalRecommendations,
 
-      header~complexity_score        AS ComplexityScore,
-      header~readiness_score         AS ReadinessScore,
+        header~complexity_score        AS ComplexityScore,
+        header~readiness_score         AS ReadinessScore,
 
-      header~parser_version          AS ParserVersion,
-      header~rule_version            AS RuleVersion,
-      header~source_hash             AS SourceHash,
+        header~parser_version          AS ParserVersion,
+        header~rule_version            AS RuleVersion,
+        header~source_hash             AS SourceHash,
 
-      header~created_by              AS CreatedBy,
-      header~created_at              AS CreatedAt,
-      header~last_changed_by         AS LastChangedBy,
-      header~last_changed_at         AS LocalLastChangedAt
+        header~created_by              AS CreatedBy,
+        header~created_at              AS CreatedAt,
+        header~last_changed_by         AS LastChangedBy,
+        header~last_changed_at         AS LocalLastChangedAt
 
-    INTO CORRESPONDING FIELDS OF TABLE @result.
+      INTO CORRESPONDING FIELDS OF TABLE @result.
 
-ENDMETHOD.
+  ENDMETHOD.
 
   METHOD lock.
   ENDMETHOD.
 
   METHOD rba_Alvoutputs.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
-
-  DATA lt_keys LIKE keys_rba.
-
-  lt_keys = keys_rba.
-
-  SORT lt_keys BY AnalysisId.
-
-  DELETE ADJACENT DUPLICATES FROM lt_keys
-    COMPARING AnalysisId.
-
-
-  SELECT FROM zi_mig_anl_alv AS alv_output
-    INNER JOIN @lt_keys AS requested
-      ON alv_output~AnalysisId =
-         requested~AnalysisId
-    FIELDS alv_output~*
-    INTO CORRESPONDING FIELDS OF TABLE @result.
-
-
-  LOOP AT result
-    ASSIGNING FIELD-SYMBOL(<alv_output>).
-
-    READ TABLE lt_keys
-      ASSIGNING FIELD-SYMBOL(<source_key>)
-      WITH KEY
-        AnalysisId =
-          <alv_output>-AnalysisId
-      BINARY SEARCH.
-
-    IF sy-subrc <> 0.
-      CONTINUE.
+    IF keys_rba IS INITIAL.
+      RETURN.
     ENDIF.
 
-    APPEND VALUE #(
-      source-%tky =
-        <source_key>-%tky
+    DATA lt_keys LIKE keys_rba.
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <alv_output>-AnalysisId
+    lt_keys = keys_rba.
 
-        OutputId =
-          <alv_output>-OutputId
-      )
-    ) TO association_links.
+    SORT lt_keys BY AnalysisId.
 
-  ENDLOOP.
+    DELETE ADJACENT DUPLICATES FROM lt_keys
+      COMPARING AnalysisId.
 
-ENDMETHOD.
+
+    SELECT FROM zi_mig_anl_alv AS alv_output
+      INNER JOIN @lt_keys AS requested
+        ON alv_output~AnalysisId =
+           requested~AnalysisId
+      FIELDS alv_output~*
+      INTO CORRESPONDING FIELDS OF TABLE @result.
+
+
+    LOOP AT result
+      ASSIGNING FIELD-SYMBOL(<alv_output>).
+
+      READ TABLE lt_keys
+        ASSIGNING FIELD-SYMBOL(<source_key>)
+        WITH KEY
+          AnalysisId =
+            <alv_output>-AnalysisId
+        BINARY SEARCH.
+
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+
+      APPEND VALUE #(
+        source-%tky =
+          <source_key>-%tky
+
+        target-%tky = VALUE #(
+          AnalysisId =
+            <alv_output>-AnalysisId
+
+          OutputId =
+            <alv_output>-OutputId
+        )
+      ) TO association_links.
+
+    ENDLOOP.
+
+  ENDMETHOD.
 
   METHOD rba_Businesslogic.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
-
-  DATA lt_keys LIKE keys_rba.
-
-  lt_keys = keys_rba.
-
-  SORT lt_keys BY AnalysisId.
-
-  DELETE ADJACENT DUPLICATES FROM lt_keys
-    COMPARING AnalysisId.
-
-
-  SELECT FROM zi_mig_anl_logic AS business_logic
-    INNER JOIN @lt_keys AS requested
-      ON business_logic~AnalysisId =
-         requested~AnalysisId
-    FIELDS business_logic~*
-    INTO CORRESPONDING FIELDS OF TABLE @result.
-
-
-  LOOP AT result
-    ASSIGNING FIELD-SYMBOL(<business_logic>).
-
-    READ TABLE lt_keys
-      ASSIGNING FIELD-SYMBOL(<source_key>)
-      WITH KEY
-        AnalysisId =
-          <business_logic>-AnalysisId
-      BINARY SEARCH.
-
-    IF sy-subrc <> 0.
-      CONTINUE.
+    IF keys_rba IS INITIAL.
+      RETURN.
     ENDIF.
 
-    APPEND VALUE #(
-      source-%tky =
-        <source_key>-%tky
+    DATA lt_keys LIKE keys_rba.
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <business_logic>-AnalysisId
+    lt_keys = keys_rba.
 
-        ItemId =
-          <business_logic>-ItemId
-      )
-    ) TO association_links.
+    SORT lt_keys BY AnalysisId.
 
-  ENDLOOP.
+    DELETE ADJACENT DUPLICATES FROM lt_keys
+      COMPARING AnalysisId.
 
-ENDMETHOD.
+
+    SELECT FROM zi_mig_anl_logic AS business_logic
+      INNER JOIN @lt_keys AS requested
+        ON business_logic~AnalysisId =
+           requested~AnalysisId
+      FIELDS business_logic~*
+      INTO CORRESPONDING FIELDS OF TABLE @result.
+
+
+    LOOP AT result
+      ASSIGNING FIELD-SYMBOL(<business_logic>).
+
+      READ TABLE lt_keys
+        ASSIGNING FIELD-SYMBOL(<source_key>)
+        WITH KEY
+          AnalysisId =
+            <business_logic>-AnalysisId
+        BINARY SEARCH.
+
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+
+      APPEND VALUE #(
+        source-%tky =
+          <source_key>-%tky
+
+        target-%tky = VALUE #(
+          AnalysisId =
+            <business_logic>-AnalysisId
+
+          ItemId =
+            <business_logic>-ItemId
+        )
+      ) TO association_links.
+
+    ENDLOOP.
+
+  ENDMETHOD.
 
   METHOD rba_Databaseobjects.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
-
-  DATA lt_keys LIKE keys_rba.
-
-  lt_keys = keys_rba.
-
-  SORT lt_keys BY AnalysisId.
-
-  DELETE ADJACENT DUPLICATES FROM lt_keys
-    COMPARING AnalysisId.
-
-
-  SELECT FROM zi_mig_anl_db AS database_object
-    INNER JOIN @lt_keys AS requested
-      ON database_object~AnalysisId =
-         requested~AnalysisId
-    FIELDS database_object~*
-    INTO CORRESPONDING FIELDS OF TABLE @result.
-
-
-  LOOP AT result
-    ASSIGNING FIELD-SYMBOL(<database_object>).
-
-    READ TABLE lt_keys
-      ASSIGNING FIELD-SYMBOL(<source_key>)
-      WITH KEY
-        AnalysisId =
-          <database_object>-AnalysisId
-      BINARY SEARCH.
-
-    IF sy-subrc <> 0.
-      CONTINUE.
+    IF keys_rba IS INITIAL.
+      RETURN.
     ENDIF.
 
-    APPEND VALUE #(
-      source-%tky =
-        <source_key>-%tky
+    DATA lt_keys LIKE keys_rba.
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <database_object>-AnalysisId
+    lt_keys = keys_rba.
 
-        ItemId =
-          <database_object>-ItemId
-      )
-    ) TO association_links.
+    SORT lt_keys BY AnalysisId.
 
-  ENDLOOP.
+    DELETE ADJACENT DUPLICATES FROM lt_keys
+      COMPARING AnalysisId.
 
-ENDMETHOD.
+
+    SELECT FROM zi_mig_anl_db AS database_object
+      INNER JOIN @lt_keys AS requested
+        ON database_object~AnalysisId =
+           requested~AnalysisId
+      FIELDS database_object~*
+      INTO CORRESPONDING FIELDS OF TABLE @result.
+
+
+    LOOP AT result
+      ASSIGNING FIELD-SYMBOL(<database_object>).
+
+      READ TABLE lt_keys
+        ASSIGNING FIELD-SYMBOL(<source_key>)
+        WITH KEY
+          AnalysisId =
+            <database_object>-AnalysisId
+        BINARY SEARCH.
+
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+
+      APPEND VALUE #(
+        source-%tky =
+          <source_key>-%tky
+
+        target-%tky = VALUE #(
+          AnalysisId =
+            <database_object>-AnalysisId
+
+          ItemId =
+            <database_object>-ItemId
+        )
+      ) TO association_links.
+
+    ENDLOOP.
+
+  ENDMETHOD.
 
   METHOD rba_Evidences.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
-
-  DATA lt_keys LIKE keys_rba.
-
-  lt_keys = keys_rba.
-
-  SORT lt_keys BY AnalysisId.
-
-  DELETE ADJACENT DUPLICATES FROM lt_keys
-    COMPARING AnalysisId.
-
-
-  SELECT FROM zi_mig_anl_evd AS evidence
-    INNER JOIN @lt_keys AS requested
-      ON evidence~AnalysisId =
-         requested~AnalysisId
-    FIELDS evidence~*
-    INTO CORRESPONDING FIELDS OF TABLE @result.
-
-
-  LOOP AT result
-    ASSIGNING FIELD-SYMBOL(<evidence>).
-
-    READ TABLE lt_keys
-      ASSIGNING FIELD-SYMBOL(<source_key>)
-      WITH KEY
-        AnalysisId =
-          <evidence>-AnalysisId
-      BINARY SEARCH.
-
-    IF sy-subrc <> 0.
-      CONTINUE.
+    IF keys_rba IS INITIAL.
+      RETURN.
     ENDIF.
 
-    APPEND VALUE #(
-      source-%tky =
-        <source_key>-%tky
+    DATA lt_keys LIKE keys_rba.
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <evidence>-AnalysisId
+    lt_keys = keys_rba.
 
-        EvidenceId =
-          <evidence>-EvidenceId
-      )
-    ) TO association_links.
+    SORT lt_keys BY AnalysisId.
 
-  ENDLOOP.
+    DELETE ADJACENT DUPLICATES FROM lt_keys
+      COMPARING AnalysisId.
 
-ENDMETHOD.
+
+    SELECT FROM zi_mig_anl_evd AS evidence
+      INNER JOIN @lt_keys AS requested
+        ON evidence~AnalysisId =
+           requested~AnalysisId
+      FIELDS evidence~*
+      INTO CORRESPONDING FIELDS OF TABLE @result.
+
+
+    LOOP AT result
+      ASSIGNING FIELD-SYMBOL(<evidence>).
+
+      READ TABLE lt_keys
+        ASSIGNING FIELD-SYMBOL(<source_key>)
+        WITH KEY
+          AnalysisId =
+            <evidence>-AnalysisId
+        BINARY SEARCH.
+
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+
+      APPEND VALUE #(
+        source-%tky =
+          <source_key>-%tky
+
+        target-%tky = VALUE #(
+          AnalysisId =
+            <evidence>-AnalysisId
+
+          EvidenceId =
+            <evidence>-EvidenceId
+        )
+      ) TO association_links.
+
+    ENDLOOP.
+
+  ENDMETHOD.
 
   METHOD rba_Messages.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
-
-  DATA lt_keys LIKE keys_rba.
-
-  lt_keys = keys_rba.
-
-  SORT lt_keys BY AnalysisId.
-
-  DELETE ADJACENT DUPLICATES FROM lt_keys
-    COMPARING AnalysisId.
-
-
-  SELECT FROM zi_mig_anl_msg AS message
-    INNER JOIN @lt_keys AS requested
-      ON message~AnalysisId =
-         requested~AnalysisId
-    FIELDS message~*
-    INTO CORRESPONDING FIELDS OF TABLE @result.
-
-
-  LOOP AT result
-    ASSIGNING FIELD-SYMBOL(<message>).
-
-    READ TABLE lt_keys
-      ASSIGNING FIELD-SYMBOL(<source_key>)
-      WITH KEY
-        AnalysisId =
-          <message>-AnalysisId
-      BINARY SEARCH.
-
-    IF sy-subrc <> 0.
-      CONTINUE.
+    IF keys_rba IS INITIAL.
+      RETURN.
     ENDIF.
 
-    APPEND VALUE #(
-      source-%tky =
-        <source_key>-%tky
+    DATA lt_keys LIKE keys_rba.
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <message>-AnalysisId
+    lt_keys = keys_rba.
 
-        MessageNo =
-          <message>-MessageNo
-      )
-    ) TO association_links.
+    SORT lt_keys BY AnalysisId.
 
-  ENDLOOP.
+    DELETE ADJACENT DUPLICATES FROM lt_keys
+      COMPARING AnalysisId.
 
-ENDMETHOD.
+
+    SELECT FROM zi_mig_anl_msg AS message
+      INNER JOIN @lt_keys AS requested
+        ON message~AnalysisId =
+           requested~AnalysisId
+      FIELDS message~*
+      INTO CORRESPONDING FIELDS OF TABLE @result.
+
+
+    LOOP AT result
+      ASSIGNING FIELD-SYMBOL(<message>).
+
+      READ TABLE lt_keys
+        ASSIGNING FIELD-SYMBOL(<source_key>)
+        WITH KEY
+          AnalysisId =
+            <message>-AnalysisId
+        BINARY SEARCH.
+
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+
+      APPEND VALUE #(
+        source-%tky =
+          <source_key>-%tky
+
+        target-%tky = VALUE #(
+          AnalysisId =
+            <message>-AnalysisId
+
+          MessageNo =
+            <message>-MessageNo
+        )
+      ) TO association_links.
+
+    ENDLOOP.
+
+  ENDMETHOD.
 
   METHOD rba_Recommendations.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
-
-  DATA lt_keys LIKE keys_rba.
-
-  lt_keys = keys_rba.
-
-  SORT lt_keys BY AnalysisId.
-
-  DELETE ADJACENT DUPLICATES FROM lt_keys
-    COMPARING AnalysisId.
-
-
-  SELECT FROM zi_mig_anl_rec AS recommendation
-    INNER JOIN @lt_keys AS requested
-      ON recommendation~AnalysisId =
-         requested~AnalysisId
-    FIELDS recommendation~*
-    INTO CORRESPONDING FIELDS OF TABLE @result.
-
-
-  LOOP AT result
-    ASSIGNING FIELD-SYMBOL(<recommendation>).
-
-    READ TABLE lt_keys
-      ASSIGNING FIELD-SYMBOL(<source_key>)
-      WITH KEY
-        AnalysisId =
-          <recommendation>-AnalysisId
-      BINARY SEARCH.
-
-    IF sy-subrc <> 0.
-      CONTINUE.
+    IF keys_rba IS INITIAL.
+      RETURN.
     ENDIF.
 
-    APPEND VALUE #(
-      source-%tky =
-        <source_key>-%tky
+    DATA lt_keys LIKE keys_rba.
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <recommendation>-AnalysisId
+    lt_keys = keys_rba.
 
-        RecommendationId =
-          <recommendation>-RecommendationId
-      )
-    ) TO association_links.
+    SORT lt_keys BY AnalysisId.
 
-  ENDLOOP.
+    DELETE ADJACENT DUPLICATES FROM lt_keys
+      COMPARING AnalysisId.
 
-ENDMETHOD.
+
+    SELECT FROM zi_mig_anl_rec AS recommendation
+      INNER JOIN @lt_keys AS requested
+        ON recommendation~AnalysisId =
+           requested~AnalysisId
+      FIELDS recommendation~*
+      INTO CORRESPONDING FIELDS OF TABLE @result.
+
+
+    LOOP AT result
+      ASSIGNING FIELD-SYMBOL(<recommendation>).
+
+      READ TABLE lt_keys
+        ASSIGNING FIELD-SYMBOL(<source_key>)
+        WITH KEY
+          AnalysisId =
+            <recommendation>-AnalysisId
+        BINARY SEARCH.
+
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+
+      APPEND VALUE #(
+        source-%tky =
+          <source_key>-%tky
+
+        target-%tky = VALUE #(
+          AnalysisId =
+            <recommendation>-AnalysisId
+
+          RecommendationId =
+            <recommendation>-RecommendationId
+        )
+      ) TO association_links.
+
+    ENDLOOP.
+
+  ENDMETHOD.
 
   METHOD rba_Uifilters.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
-
-  DATA lt_keys LIKE keys_rba.
-
-  lt_keys = keys_rba.
-
-  SORT lt_keys BY AnalysisId.
-
-  DELETE ADJACENT DUPLICATES FROM lt_keys
-    COMPARING AnalysisId.
-
-
-  SELECT FROM zi_mig_anl_ui AS ui
-    INNER JOIN @lt_keys AS requested
-      ON ui~AnalysisId = requested~AnalysisId
-    FIELDS ui~*
-    INTO CORRESPONDING FIELDS OF TABLE @result.
-
-
-  LOOP AT result
-    ASSIGNING FIELD-SYMBOL(<ui_filter>).
-
-    READ TABLE lt_keys
-      ASSIGNING FIELD-SYMBOL(<source_key>)
-      WITH KEY
-        AnalysisId = <ui_filter>-AnalysisId
-      BINARY SEARCH.
-
-    IF sy-subrc <> 0.
-      CONTINUE.
+    IF keys_rba IS INITIAL.
+      RETURN.
     ENDIF.
 
-    APPEND VALUE #(
-      source-%tky =
-        <source_key>-%tky
+    DATA lt_keys LIKE keys_rba.
 
-      target-%tky = VALUE #(
-        AnalysisId = <ui_filter>-AnalysisId
-        ItemId     = <ui_filter>-ItemId
-      )
-    ) TO association_links.
+    lt_keys = keys_rba.
 
-  ENDLOOP.
+    SORT lt_keys BY AnalysisId.
 
-ENDMETHOD.
-
-METHOD rba_Sourceobjects.
-
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
-
-  DATA lt_keys LIKE keys_rba.
-
-  lt_keys = keys_rba.
-
-  SORT lt_keys BY AnalysisId.
-
-  DELETE ADJACENT DUPLICATES FROM lt_keys
-    COMPARING AnalysisId.
+    DELETE ADJACENT DUPLICATES FROM lt_keys
+      COMPARING AnalysisId.
 
 
-  SELECT FROM zi_mig_anl_src AS source_object
-    INNER JOIN @lt_keys AS requested
-      ON source_object~AnalysisId =
-         requested~AnalysisId
-
-    FIELDS source_object~*
-
-    INTO CORRESPONDING FIELDS OF TABLE @result.
+    SELECT FROM zi_mig_anl_ui AS ui
+      INNER JOIN @lt_keys AS requested
+        ON ui~AnalysisId = requested~AnalysisId
+      FIELDS ui~*
+      INTO CORRESPONDING FIELDS OF TABLE @result.
 
 
-  LOOP AT result
-    ASSIGNING FIELD-SYMBOL(<source_object>).
+    LOOP AT result
+      ASSIGNING FIELD-SYMBOL(<ui_filter>).
 
-    READ TABLE lt_keys
-      ASSIGNING FIELD-SYMBOL(<source_key>)
-      WITH KEY
-        AnalysisId =
-          <source_object>-AnalysisId
-      BINARY SEARCH.
+      READ TABLE lt_keys
+        ASSIGNING FIELD-SYMBOL(<source_key>)
+        WITH KEY
+          AnalysisId = <ui_filter>-AnalysisId
+        BINARY SEARCH.
 
-    IF sy-subrc <> 0.
-      CONTINUE.
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+
+      APPEND VALUE #(
+        source-%tky =
+          <source_key>-%tky
+
+        target-%tky = VALUE #(
+          AnalysisId = <ui_filter>-AnalysisId
+          ItemId     = <ui_filter>-ItemId
+        )
+      ) TO association_links.
+
+    ENDLOOP.
+
+  ENDMETHOD.
+
+  METHOD rba_Sourceobjects.
+
+    IF keys_rba IS INITIAL.
+      RETURN.
     ENDIF.
 
-    APPEND VALUE #(
-      source-%tky =
-        <source_key>-%tky
+    DATA lt_keys LIKE keys_rba.
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <source_object>-AnalysisId
+    lt_keys = keys_rba.
 
-        ItemId =
-          <source_object>-ItemId
-      )
-    ) TO association_links.
+    SORT lt_keys BY AnalysisId.
 
-  ENDLOOP.
+    DELETE ADJACENT DUPLICATES FROM lt_keys
+      COMPARING AnalysisId.
 
 
-ENDMETHOD.
+    SELECT FROM zi_mig_anl_src AS source_object
+      INNER JOIN @lt_keys AS requested
+        ON source_object~AnalysisId =
+           requested~AnalysisId
+
+      FIELDS source_object~*
+
+      INTO CORRESPONDING FIELDS OF TABLE @result.
+
+
+    LOOP AT result
+      ASSIGNING FIELD-SYMBOL(<source_object>).
+
+      READ TABLE lt_keys
+        ASSIGNING FIELD-SYMBOL(<source_key>)
+        WITH KEY
+          AnalysisId =
+            <source_object>-AnalysisId
+        BINARY SEARCH.
+
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+
+      APPEND VALUE #(
+        source-%tky =
+          <source_key>-%tky
+
+        target-%tky = VALUE #(
+          AnalysisId =
+            <source_object>-AnalysisId
+
+          ItemId =
+            <source_object>-ItemId
+        )
+      ) TO association_links.
+
+    ENDLOOP.
+
+
+  ENDMETHOD.
 
   METHOD Analyze.
 
 
-      DATA(lo_service) =
-        NEW zcl_mig_analysis_service( ).
+    DATA(lo_service) =
+      NEW zcl_mig_analysis_service( ).
 
-      LOOP AT keys
-        ASSIGNING FIELD-SYMBOL(<key>).
+    LOOP AT keys
+      ASSIGNING FIELD-SYMBOL(<key>).
 
-        DATA(lv_program_name) =
-            <key>-%param-ProgramName.
+      DATA(lv_program_name) =
+          <key>-%param-ProgramName.
 
-        TRY.
+      TRY.
 
-            "====================================================
-            " Chỉ chạy analysis, chưa ghi database
-            "====================================================
-            DATA(ls_analysis_result) =
-              lo_service->zif_mig_analysis_service~analyze_program(
-                iv_program_name = lv_program_name
-              ).
-
-            "====================================================
-            " Đưa vào RAP transactional buffer
-            "====================================================
-            lcl_mig_analysis_buffer=>add(
-              is_result = ls_analysis_result
+          "====================================================
+          " Chỉ chạy analysis, chưa ghi database
+          "====================================================
+          DATA(ls_analysis_result) =
+            lo_service->zif_mig_analysis_service~analyze_program(
+              iv_program_name = lv_program_name
             ).
 
-            "====================================================
-            " Trả kết quả root cho action caller
-            "====================================================
-            APPEND VALUE #(
-              %cid = <key>-%cid
+          "====================================================
+          " Đưa vào RAP transactional buffer
+          "====================================================
+          lcl_mig_analysis_buffer=>add(
+            is_result = ls_analysis_result
+          ).
 
-              %param = VALUE #(
-                AnalysisId =
-                  ls_analysis_result-analysis_id
+          "====================================================
+          " Trả kết quả root cho action caller
+          "====================================================
+          APPEND VALUE #(
+            %cid = <key>-%cid
 
-                ProgramName =
-                  ls_analysis_result-overview-program_name
+            %param = VALUE #(
+              AnalysisId =
+                ls_analysis_result-analysis_id
 
-                ProgramDescription =
-                  ls_analysis_result-overview-program_description
+              ProgramName =
+                ls_analysis_result-overview-program_name
 
-                Status =
-                  ls_analysis_result-overview-status
+              ProgramDescription =
+                ls_analysis_result-overview-program_description
 
-                TotalSourceObjects =
-                  ls_analysis_result-overview-total_source_objects
+              Status =
+                ls_analysis_result-overview-status
 
-                TotalUiFilters =
-                  ls_analysis_result-overview-total_ui_filters
+              TotalSourceObjects =
+                ls_analysis_result-overview-total_source_objects
 
-                TotalDatabaseObjects =
-                  ls_analysis_result-overview-total_database_objects
+              TotalUiFilters =
+                ls_analysis_result-overview-total_ui_filters
 
-                TotalBusinessLogic =
-                  ls_analysis_result-overview-total_business_logic
+              TotalDatabaseObjects =
+                ls_analysis_result-overview-total_database_objects
 
-                TotalAlvOutputs =
-                  ls_analysis_result-overview-total_alv_outputs
+              TotalBusinessLogic =
+                ls_analysis_result-overview-total_business_logic
 
-                TotalAlvColumns =
-                  ls_analysis_result-overview-total_alv_columns
+              TotalAlvOutputs =
+                ls_analysis_result-overview-total_alv_outputs
 
-                TotalRecommendations =
-                  ls_analysis_result-overview-total_recommendations
+              TotalAlvColumns =
+                ls_analysis_result-overview-total_alv_columns
 
-                ComplexityScore =
-                  ls_analysis_result-overview-complexity_score
+              TotalRecommendations =
+                ls_analysis_result-overview-total_recommendations
 
-                ReadinessScore =
-                  ls_analysis_result-overview-readiness_score
+              ComplexityScore =
+                ls_analysis_result-overview-complexity_score
 
-                ParserVersion =
-                  ls_analysis_result-overview-parser_version
+              ReadinessScore =
+                ls_analysis_result-overview-readiness_score
 
-                RuleVersion =
-                  ls_analysis_result-overview-rule_version
+              ParserVersion =
+                ls_analysis_result-overview-parser_version
 
-                SourceHash =
-                  ls_analysis_result-overview-source_hash
-              )
-            ) TO result.
+              RuleVersion =
+                ls_analysis_result-overview-rule_version
 
-          CATCH zcx_mig_analysis INTO DATA(lx_analysis).
+              SourceHash =
+                ls_analysis_result-overview-source_hash
+            )
+          ) TO result.
 
-            APPEND VALUE #(
-              %cid = <key>-%cid
-            ) TO failed-Analysis.
+        CATCH zcx_mig_analysis INTO DATA(lx_analysis).
 
-            APPEND VALUE #(
-              %cid = <key>-%cid
+          APPEND VALUE #(
+            %cid = <key>-%cid
+          ) TO failed-Analysis.
 
-              %msg = new_message_with_text(
-                severity =
-                  if_abap_behv_message=>severity-error
+          APPEND VALUE #(
+            %cid = <key>-%cid
 
-                text =
-                  lx_analysis->get_text( )
-              )
-            ) TO reported-Analysis.
+            %msg = new_message_with_text(
+              severity =
+                if_abap_behv_message=>severity-error
 
-        ENDTRY.
+              text =
+                lx_analysis->get_text( )
+            )
+          ) TO reported-Analysis.
 
-      ENDLOOP.
+      ENDTRY.
 
-    ENDMETHOD.
- METHOD prepareselectedexport.
+    ENDLOOP.
+
+  ENDMETHOD.
+  METHOD prepareselectedexport.
 
     LOOP AT keys ASSIGNING FIELD-SYMBOL(<key>).
-DATA(lv_created_at) = cl_abap_tstmp=>utclong2tstmp( utclong_current( ) ).
+      DATA(lv_created_at) = cl_abap_tstmp=>utclong2tstmp( utclong_current( ) ).
       DATA(lv_expires_at) = cl_abap_tstmp=>add( tstmp = lv_created_at secs = 24 * 60 * 60 ).
       DATA(lv_analysis_id) = <key>-AnalysisId.
       DATA(ls_param)       = <key>-%param.
-DATA(lv_section) = CONV zif_mig_export_provider=>ty_export_section(
-  to_upper( condense( CONV string( ls_param-ExportSection ) ) ) ).
+      DATA(lv_section) = CONV zif_mig_export_provider=>ty_export_section(
+        to_upper( condense( CONV string( ls_param-ExportSection ) ) ) ).
       DATA(lv_fields)      = ls_param-SelectedFields.
 
-      IF lv_section = 'ALL' AND lv_fields IS NOT INITIAL.
-        APPEND VALUE #( %tky = <key>-%tky ) TO failed-Analysis.
-        APPEND VALUE #(
-          %tky = <key>-%tky
-          %msg = new_message_with_text(
-                   severity = if_abap_behv_message=>severity-error
-                   text     = 'SelectedFields is not supported when ExportSection is ALL.' )
-        ) TO reported-Analysis.
-        CONTINUE.
-      ENDIF.
+
 
       DATA lt_invalid TYPE string_table.
-DATA(lv_all_valid) = validate_selected_fields(
-  EXPORTING
-    iv_export_section  = lv_section
-    iv_selected_fields = lv_fields
-  IMPORTING
-    et_invalid_fields  = lt_invalid ).
+      DATA(lv_all_valid) = validate_selected_fields(
+        EXPORTING
+          iv_export_section  = lv_section
+          iv_selected_fields = lv_fields
+        IMPORTING
+          et_invalid_fields  = lt_invalid ).
 
       IF lv_all_valid = abap_false.
         DATA(lv_invalid_list) = concat_lines_of( table = lt_invalid sep = `, ` ).
@@ -800,6 +791,10 @@ DATA(lv_all_valid) = validate_selected_fields(
         created_at      = lv_created_at
         expires_at      = lv_expires_at
       ) ).
+      DATA(lv_guid_hex) = |{ lv_export_id }|.
+      DATA(lv_guid_str) = to_lower(
+        |{ lv_guid_hex(8) }-{ lv_guid_hex+8(4) }-{ lv_guid_hex+12(4) }-{ lv_guid_hex+16(4) }-{ lv_guid_hex+20(12) }| ).
+
       APPEND VALUE #(
         %tky   = <key>-%tky
         %param = VALUE #(
@@ -807,7 +802,7 @@ DATA(lv_all_valid) = validate_selected_fields(
           Status      = 'READY'
           FileName    = ls_export_result-file_name
           MimeType    = ls_export_result-mime_type
-          DownloadUrl = |/ExportJobs({ lv_export_id })/Content|
+          DownloadUrl = |/ExportJobs({ lv_guid_str })/Content|
         )
       ) TO result.
 
@@ -816,14 +811,77 @@ DATA(lv_all_valid) = validate_selected_fields(
   ENDMETHOD.
 
 
-  METHOD validate_selected_fields.
+      METHOD validate_selected_fields.
     CLEAR: et_invalid_fields.
     rv_all_valid = abap_true.
 
     IF iv_selected_fields IS INITIAL.
+      RETURN. " rỗng -> dùng cấu hình mặc định, luôn hợp lệ
+    ENDIF.
+
+    IF iv_export_section = 'ALL'.
+      " Định dạng "SEC1:f1,f2;SEC2:f3" - validate riêng cho từng section
+      " được nhắc tới, theo đúng whitelist của CHÍNH section đó.
+      SPLIT iv_selected_fields AT ';' INTO TABLE DATA(lt_section_parts).
+
+      LOOP AT lt_section_parts INTO DATA(lv_section_part).
+        lv_section_part = condense( lv_section_part ).
+        IF lv_section_part IS INITIAL.
+          CONTINUE.
+        ENDIF.
+
+        FIND FIRST OCCURRENCE OF ':' IN lv_section_part MATCH OFFSET DATA(lv_colon_pos).
+        IF sy-subrc <> 0.
+          CONTINUE.
+        ENDIF.
+
+        DATA(lv_sec_code)    = to_upper( condense( lv_section_part(lv_colon_pos) ) ).
+        DATA(lv_field_start) = lv_colon_pos + 1.
+        DATA(lv_fields_part) = lv_section_part+lv_field_start.
+
+        IF lv_sec_code IS INITIAL.
+          CONTINUE.
+        ENDIF.
+
+        " --- Kiểm tra section có tồn tại trong registry không (1 SELECT
+        "     cho section này - số section tối đa ~9, không phải data row) ---
+        SELECT SINGLE section_code
+          FROM ztb_exp_section
+          WHERE section_code = @lv_sec_code
+            AND is_active = 'X'
+          INTO @DATA(lv_dummy_section).
+
+        IF sy-subrc <> 0.
+          APPEND |{ lv_sec_code } (unknown section)| TO et_invalid_fields.
+          rv_all_valid = abap_false.
+          CONTINUE.
+        ENDIF.
+
+        " --- 1 SELECT lấy toàn bộ property hợp lệ của ĐÚNG section này ---
+        SELECT odata_property
+          FROM ztb_exp_col
+          WHERE section_code = @lv_sec_code
+          INTO TABLE @DATA(lt_valid_props_section).
+
+        SPLIT lv_fields_part AT ',' INTO TABLE DATA(lt_field_names).
+        LOOP AT lt_field_names INTO DATA(lv_field_name).
+          DATA(lv_trimmed) = condense( lv_field_name ).
+          IF lv_trimmed IS INITIAL.
+            CONTINUE.
+          ENDIF.
+          READ TABLE lt_valid_props_section WITH KEY table_line = lv_trimmed TRANSPORTING NO FIELDS.
+          IF sy-subrc <> 0.
+            APPEND |{ lv_sec_code }:{ lv_trimmed }| TO et_invalid_fields.
+            rv_all_valid = abap_false.
+          ENDIF.
+        ENDLOOP.
+
+      ENDLOOP.
+
       RETURN.
     ENDIF.
 
+    " --- Trường hợp 1 section cụ thể: giữ nguyên logic cũ ---
     SPLIT iv_selected_fields AT ',' INTO TABLE DATA(lt_raw).
 
     SELECT odata_property
@@ -832,17 +890,18 @@ DATA(lv_all_valid) = validate_selected_fields(
       INTO TABLE @DATA(lt_valid_props).
 
     LOOP AT lt_raw INTO DATA(lv_raw).
-      DATA(lv_trimmed) = condense( lv_raw ).
-      IF lv_trimmed IS INITIAL.
+      DATA(lv_trimmed2) = condense( lv_raw ).
+      IF lv_trimmed2 IS INITIAL.
         CONTINUE.
       ENDIF.
-      READ TABLE lt_valid_props WITH KEY odata_property = lv_trimmed TRANSPORTING NO FIELDS.
+      READ TABLE lt_valid_props WITH KEY odata_property = lv_trimmed2 TRANSPORTING NO FIELDS.
       IF sy-subrc <> 0.
-        APPEND lv_trimmed TO et_invalid_fields.
+        APPEND lv_trimmed2 TO et_invalid_fields.
         rv_all_valid = abap_false.
       ENDIF.
     ENDLOOP.
   ENDMETHOD.
+
 ENDCLASS.
 
 CLASS lhc_UiFilter DEFINITION INHERITING FROM cl_abap_behavior_handler.
@@ -858,89 +917,89 @@ ENDCLASS.
 
 CLASS lhc_UiFilter IMPLEMENTATION.
 
-    METHOD read.
+  METHOD read.
 
-      IF keys IS INITIAL.
-        RETURN.
-      ENDIF.
+    IF keys IS INITIAL.
+      RETURN.
+    ENDIF.
 
-      DATA lt_keys LIKE keys.
+    DATA lt_keys LIKE keys.
 
-      lt_keys = keys.
+    lt_keys = keys.
 
-      SORT lt_keys
-        BY AnalysisId
-           ItemId.
+    SORT lt_keys
+      BY AnalysisId
+         ItemId.
 
-      DELETE ADJACENT DUPLICATES FROM lt_keys
-        COMPARING
-          AnalysisId
-          ItemId.
+    DELETE ADJACENT DUPLICATES FROM lt_keys
+      COMPARING
+        AnalysisId
+        ItemId.
 
 
-      SELECT FROM zi_mig_anl_ui AS ui
-        INNER JOIN @lt_keys AS requested
-          ON  ui~AnalysisId = requested~AnalysisId
-          AND ui~ItemId     = requested~ItemId
-        FIELDS ui~*
-        INTO CORRESPONDING FIELDS OF TABLE @result.
+    SELECT FROM zi_mig_anl_ui AS ui
+      INNER JOIN @lt_keys AS requested
+        ON  ui~AnalysisId = requested~AnalysisId
+        AND ui~ItemId     = requested~ItemId
+      FIELDS ui~*
+      INTO CORRESPONDING FIELDS OF TABLE @result.
 
-    ENDMETHOD.
+  ENDMETHOD.
 
   METHOD rba_Analysis.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
 
 
-  "==========================================================
-  " Association links:
-  " source child → target Analysis
-  "==========================================================
-  LOOP AT keys_rba
-    ASSIGNING FIELD-SYMBOL(<key>).
+    "==========================================================
+    " Association links:
+    " source child → target Analysis
+    "==========================================================
+    LOOP AT keys_rba
+      ASSIGNING FIELD-SYMBOL(<key>).
 
-    APPEND VALUE #(
-      source-%tky =
-        <key>-%tky
+      APPEND VALUE #(
+        source-%tky =
+          <key>-%tky
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <key>-AnalysisId
-      )
-    ) TO association_links.
-
-  ENDLOOP.
-
-
-  "==========================================================
-  " Chỉ đọc parent data khi caller yêu cầu RESULT
-  "==========================================================
-  IF result_requested = abap_true.
-
-    READ ENTITIES OF zi_mig_analysis
-      IN LOCAL MODE
-
-      ENTITY Analysis
-      ALL FIELDS
-
-      WITH VALUE #(
-        FOR ls_key IN keys_rba
-        (
+        target-%tky = VALUE #(
           AnalysisId =
-            ls_key-AnalysisId
+            <key>-AnalysisId
         )
-      )
+      ) TO association_links.
 
-      RESULT DATA(lt_analysis).
+    ENDLOOP.
 
-    result =
-      lt_analysis.
 
-  ENDIF.
+    "==========================================================
+    " Chỉ đọc parent data khi caller yêu cầu RESULT
+    "==========================================================
+    IF result_requested = abap_true.
 
-ENDMETHOD.
+      READ ENTITIES OF zi_mig_analysis
+        IN LOCAL MODE
+
+        ENTITY Analysis
+        ALL FIELDS
+
+        WITH VALUE #(
+          FOR ls_key IN keys_rba
+          (
+            AnalysisId =
+              ls_key-AnalysisId
+          )
+        )
+
+        RESULT DATA(lt_analysis).
+
+      result =
+        lt_analysis.
+
+    ENDIF.
+
+  ENDMETHOD.
 
 ENDCLASS.
 
@@ -957,75 +1016,75 @@ ENDCLASS.
 
 CLASS lhc_DatabaseObject IMPLEMENTATION.
 
-    METHOD read.
+  METHOD read.
 
-      IF keys IS INITIAL.
-        RETURN.
-      ENDIF.
+    IF keys IS INITIAL.
+      RETURN.
+    ENDIF.
 
-      SELECT FROM zi_mig_anl_db
-        FIELDS *
-        FOR ALL ENTRIES IN @keys
-        WHERE AnalysisId = @keys-AnalysisId
-          AND ItemId     = @keys-ItemId
-        INTO CORRESPONDING FIELDS OF TABLE @result.
+    SELECT FROM zi_mig_anl_db
+      FIELDS *
+      FOR ALL ENTRIES IN @keys
+      WHERE AnalysisId = @keys-AnalysisId
+        AND ItemId     = @keys-ItemId
+      INTO CORRESPONDING FIELDS OF TABLE @result.
 
-    ENDMETHOD.
+  ENDMETHOD.
 
   METHOD rba_Analysis.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
 
 
-  "==========================================================
-  " Association links:
-  " source child → target Analysis
-  "==========================================================
-  LOOP AT keys_rba
-    ASSIGNING FIELD-SYMBOL(<key>).
+    "==========================================================
+    " Association links:
+    " source child → target Analysis
+    "==========================================================
+    LOOP AT keys_rba
+      ASSIGNING FIELD-SYMBOL(<key>).
 
-    APPEND VALUE #(
-      source-%tky =
-        <key>-%tky
+      APPEND VALUE #(
+        source-%tky =
+          <key>-%tky
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <key>-AnalysisId
-      )
-    ) TO association_links.
-
-  ENDLOOP.
-
-
-  "==========================================================
-  " Chỉ đọc parent data khi caller yêu cầu RESULT
-  "==========================================================
-  IF result_requested = abap_true.
-
-    READ ENTITIES OF zi_mig_analysis
-      IN LOCAL MODE
-
-      ENTITY Analysis
-      ALL FIELDS
-
-      WITH VALUE #(
-        FOR ls_key IN keys_rba
-        (
+        target-%tky = VALUE #(
           AnalysisId =
-            ls_key-AnalysisId
+            <key>-AnalysisId
         )
-      )
+      ) TO association_links.
 
-      RESULT DATA(lt_analysis).
+    ENDLOOP.
 
-    result =
-      lt_analysis.
 
-  ENDIF.
+    "==========================================================
+    " Chỉ đọc parent data khi caller yêu cầu RESULT
+    "==========================================================
+    IF result_requested = abap_true.
 
-ENDMETHOD.
+      READ ENTITIES OF zi_mig_analysis
+        IN LOCAL MODE
+
+        ENTITY Analysis
+        ALL FIELDS
+
+        WITH VALUE #(
+          FOR ls_key IN keys_rba
+          (
+            AnalysisId =
+              ls_key-AnalysisId
+          )
+        )
+
+        RESULT DATA(lt_analysis).
+
+      result =
+        lt_analysis.
+
+    ENDIF.
+
+  ENDMETHOD.
 
 ENDCLASS.
 
@@ -1042,75 +1101,75 @@ ENDCLASS.
 
 CLASS lhc_BusinessLogic IMPLEMENTATION.
 
-    METHOD read.
+  METHOD read.
 
-      IF keys IS INITIAL.
-        RETURN.
-      ENDIF.
+    IF keys IS INITIAL.
+      RETURN.
+    ENDIF.
 
-      SELECT FROM zi_mig_anl_logic
-        FIELDS *
-        FOR ALL ENTRIES IN @keys
-        WHERE AnalysisId = @keys-AnalysisId
-          AND ItemId     = @keys-ItemId
-        INTO CORRESPONDING FIELDS OF TABLE @result.
+    SELECT FROM zi_mig_anl_logic
+      FIELDS *
+      FOR ALL ENTRIES IN @keys
+      WHERE AnalysisId = @keys-AnalysisId
+        AND ItemId     = @keys-ItemId
+      INTO CORRESPONDING FIELDS OF TABLE @result.
 
-    ENDMETHOD.
+  ENDMETHOD.
 
   METHOD rba_Analysis.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
 
 
-  "==========================================================
-  " Association links:
-  " source child → target Analysis
-  "==========================================================
-  LOOP AT keys_rba
-    ASSIGNING FIELD-SYMBOL(<key>).
+    "==========================================================
+    " Association links:
+    " source child → target Analysis
+    "==========================================================
+    LOOP AT keys_rba
+      ASSIGNING FIELD-SYMBOL(<key>).
 
-    APPEND VALUE #(
-      source-%tky =
-        <key>-%tky
+      APPEND VALUE #(
+        source-%tky =
+          <key>-%tky
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <key>-AnalysisId
-      )
-    ) TO association_links.
-
-  ENDLOOP.
-
-
-  "==========================================================
-  " Chỉ đọc parent data khi caller yêu cầu RESULT
-  "==========================================================
-  IF result_requested = abap_true.
-
-    READ ENTITIES OF zi_mig_analysis
-      IN LOCAL MODE
-
-      ENTITY Analysis
-      ALL FIELDS
-
-      WITH VALUE #(
-        FOR ls_key IN keys_rba
-        (
+        target-%tky = VALUE #(
           AnalysisId =
-            ls_key-AnalysisId
+            <key>-AnalysisId
         )
-      )
+      ) TO association_links.
 
-      RESULT DATA(lt_analysis).
+    ENDLOOP.
 
-    result =
-      lt_analysis.
 
-  ENDIF.
+    "==========================================================
+    " Chỉ đọc parent data khi caller yêu cầu RESULT
+    "==========================================================
+    IF result_requested = abap_true.
 
-ENDMETHOD.
+      READ ENTITIES OF zi_mig_analysis
+        IN LOCAL MODE
+
+        ENTITY Analysis
+        ALL FIELDS
+
+        WITH VALUE #(
+          FOR ls_key IN keys_rba
+          (
+            AnalysisId =
+              ls_key-AnalysisId
+          )
+        )
+
+        RESULT DATA(lt_analysis).
+
+      result =
+        lt_analysis.
+
+    ENDIF.
+
+  ENDMETHOD.
 
 ENDCLASS.
 
@@ -1139,355 +1198,355 @@ ENDCLASS.
 
 CLASS lhc_AlvOutput IMPLEMENTATION.
 
-    METHOD read.
+  METHOD read.
 
-      IF keys IS INITIAL.
-        RETURN.
-      ENDIF.
+    IF keys IS INITIAL.
+      RETURN.
+    ENDIF.
 
-      SELECT FROM zi_mig_anl_alv
-        FIELDS *
-        FOR ALL ENTRIES IN @keys
-        WHERE AnalysisId = @keys-AnalysisId
-          AND OutputId   = @keys-OutputId
-        INTO CORRESPONDING FIELDS OF TABLE @result.
+    SELECT FROM zi_mig_anl_alv
+      FIELDS *
+      FOR ALL ENTRIES IN @keys
+      WHERE AnalysisId = @keys-AnalysisId
+        AND OutputId   = @keys-OutputId
+      INTO CORRESPONDING FIELDS OF TABLE @result.
 
-    ENDMETHOD.
+  ENDMETHOD.
 
   METHOD rba_Analysis.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
 
 
-  "==========================================================
-  " Association links:
-  " source child → target Analysis
-  "==========================================================
-  LOOP AT keys_rba
-    ASSIGNING FIELD-SYMBOL(<key>).
+    "==========================================================
+    " Association links:
+    " source child → target Analysis
+    "==========================================================
+    LOOP AT keys_rba
+      ASSIGNING FIELD-SYMBOL(<key>).
 
-    APPEND VALUE #(
-      source-%tky =
-        <key>-%tky
+      APPEND VALUE #(
+        source-%tky =
+          <key>-%tky
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <key>-AnalysisId
-      )
-    ) TO association_links.
-
-  ENDLOOP.
-
-
-  "==========================================================
-  " Chỉ đọc parent data khi caller yêu cầu RESULT
-  "==========================================================
-  IF result_requested = abap_true.
-
-    READ ENTITIES OF zi_mig_analysis
-      IN LOCAL MODE
-
-      ENTITY Analysis
-      ALL FIELDS
-
-      WITH VALUE #(
-        FOR ls_key IN keys_rba
-        (
+        target-%tky = VALUE #(
           AnalysisId =
-            ls_key-AnalysisId
+            <key>-AnalysisId
         )
-      )
+      ) TO association_links.
 
-      RESULT DATA(lt_analysis).
+    ENDLOOP.
 
-    result =
-      lt_analysis.
 
-  ENDIF.
+    "==========================================================
+    " Chỉ đọc parent data khi caller yêu cầu RESULT
+    "==========================================================
+    IF result_requested = abap_true.
 
-ENDMETHOD.
+      READ ENTITIES OF zi_mig_analysis
+        IN LOCAL MODE
+
+        ENTITY Analysis
+        ALL FIELDS
+
+        WITH VALUE #(
+          FOR ls_key IN keys_rba
+          (
+            AnalysisId =
+              ls_key-AnalysisId
+          )
+        )
+
+        RESULT DATA(lt_analysis).
+
+      result =
+        lt_analysis.
+
+    ENDIF.
+
+  ENDMETHOD.
 
   METHOD rba_Columns.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
 
-  TYPES:
-    BEGIN OF ty_requested_key,
-      analysis_id TYPE zmig_anl_col-analysis_id,
-      output_id   TYPE zmig_anl_col-output_id,
-    END OF ty_requested_key,
+    TYPES:
+      BEGIN OF ty_requested_key,
+        analysis_id TYPE zmig_anl_col-analysis_id,
+        output_id   TYPE zmig_anl_col-output_id,
+      END OF ty_requested_key,
 
-    tt_requested_key TYPE SORTED TABLE OF ty_requested_key
-      WITH UNIQUE KEY analysis_id output_id.
+      tt_requested_key TYPE SORTED TABLE OF ty_requested_key
+        WITH UNIQUE KEY analysis_id output_id.
 
-  DATA lt_source_keys   LIKE keys_rba.
-  DATA lt_requested_keys TYPE tt_requested_key.
-  DATA lt_rows           LIKE result.
+    DATA lt_source_keys   LIKE keys_rba.
+    DATA lt_requested_keys TYPE tt_requested_key.
+    DATA lt_rows           LIKE result.
 
-  lt_source_keys = keys_rba.
+    lt_source_keys = keys_rba.
 
-  SORT lt_source_keys BY
-    AnalysisId
-    OutputId.
-
-  DELETE ADJACENT DUPLICATES FROM lt_source_keys
-    COMPARING
+    SORT lt_source_keys BY
       AnalysisId
       OutputId.
 
-  lt_requested_keys = VALUE #(
-    FOR ls_key IN lt_source_keys
-    (
-      analysis_id = ls_key-AnalysisId
-      output_id   = ls_key-OutputId
-    )
-  ).
+    DELETE ADJACENT DUPLICATES FROM lt_source_keys
+      COMPARING
+        AnalysisId
+        OutputId.
 
-  SELECT FROM zi_mig_anl_col AS alv_column
-    INNER JOIN @lt_requested_keys AS requested
-      ON  alv_column~AnalysisId = requested~analysis_id
-      AND alv_column~OutputId   = requested~output_id
-    FIELDS alv_column~*
-    INTO CORRESPONDING FIELDS OF TABLE @lt_rows.
+    lt_requested_keys = VALUE #(
+      FOR ls_key IN lt_source_keys
+      (
+        analysis_id = ls_key-AnalysisId
+        output_id   = ls_key-OutputId
+      )
+    ).
 
-  LOOP AT lt_rows
-    ASSIGNING FIELD-SYMBOL(<column>).
+    SELECT FROM zi_mig_anl_col AS alv_column
+      INNER JOIN @lt_requested_keys AS requested
+        ON  alv_column~AnalysisId = requested~analysis_id
+        AND alv_column~OutputId   = requested~output_id
+      FIELDS alv_column~*
+      INTO CORRESPONDING FIELDS OF TABLE @lt_rows.
 
-    READ TABLE lt_source_keys
-      ASSIGNING FIELD-SYMBOL(<source_key>)
-      WITH KEY
-        AnalysisId = <column>-AnalysisId
-        OutputId   = <column>-OutputId
-      BINARY SEARCH.
+    LOOP AT lt_rows
+      ASSIGNING FIELD-SYMBOL(<column>).
 
-    IF sy-subrc <> 0.
-      CONTINUE.
+      READ TABLE lt_source_keys
+        ASSIGNING FIELD-SYMBOL(<source_key>)
+        WITH KEY
+          AnalysisId = <column>-AnalysisId
+          OutputId   = <column>-OutputId
+        BINARY SEARCH.
+
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+
+      APPEND VALUE #(
+        source-%tky = <source_key>-%tky
+
+        target-%tky = VALUE #(
+          AnalysisId = <column>-AnalysisId
+          OutputId   = <column>-OutputId
+          ItemId     = <column>-ItemId
+        )
+      ) TO association_links.
+
+    ENDLOOP.
+
+    IF result_requested = abap_true.
+      result = lt_rows.
     ENDIF.
 
-    APPEND VALUE #(
-      source-%tky = <source_key>-%tky
-
-      target-%tky = VALUE #(
-        AnalysisId = <column>-AnalysisId
-        OutputId   = <column>-OutputId
-        ItemId     = <column>-ItemId
-      )
-    ) TO association_links.
-
-  ENDLOOP.
-
-  IF result_requested = abap_true.
-    result = lt_rows.
-  ENDIF.
-
-ENDMETHOD.
+  ENDMETHOD.
 
   METHOD rba_Events.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
 
-  DATA lt_keys LIKE keys_rba.
-  DATA lt_rows LIKE result.
+    DATA lt_keys LIKE keys_rba.
+    DATA lt_rows LIKE result.
 
-  lt_keys = keys_rba.
+    lt_keys = keys_rba.
 
-  SORT lt_keys BY
-    AnalysisId
-    OutputId.
-
-  DELETE ADJACENT DUPLICATES FROM lt_keys
-    COMPARING
+    SORT lt_keys BY
       AnalysisId
       OutputId.
 
-
-  SELECT FROM zi_mig_anl_evt AS alv_event
-    INNER JOIN @lt_keys AS requested
-      ON  alv_event~AnalysisId = requested~AnalysisId
-      AND alv_event~OutputId   = requested~OutputId
-    FIELDS alv_event~*
-    INTO CORRESPONDING FIELDS OF TABLE @lt_rows.
+    DELETE ADJACENT DUPLICATES FROM lt_keys
+      COMPARING
+        AnalysisId
+        OutputId.
 
 
-  LOOP AT lt_rows
-    ASSIGNING FIELD-SYMBOL(<event>).
+    SELECT FROM zi_mig_anl_evt AS alv_event
+      INNER JOIN @lt_keys AS requested
+        ON  alv_event~AnalysisId = requested~AnalysisId
+        AND alv_event~OutputId   = requested~OutputId
+      FIELDS alv_event~*
+      INTO CORRESPONDING FIELDS OF TABLE @lt_rows.
 
-    READ TABLE lt_keys
-      ASSIGNING FIELD-SYMBOL(<source_key>)
-      WITH KEY
-        AnalysisId = <event>-AnalysisId
-        OutputId   = <event>-OutputId
-      BINARY SEARCH.
 
-    IF sy-subrc <> 0.
-      CONTINUE.
+    LOOP AT lt_rows
+      ASSIGNING FIELD-SYMBOL(<event>).
+
+      READ TABLE lt_keys
+        ASSIGNING FIELD-SYMBOL(<source_key>)
+        WITH KEY
+          AnalysisId = <event>-AnalysisId
+          OutputId   = <event>-OutputId
+        BINARY SEARCH.
+
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+
+      APPEND VALUE #(
+        source-%tky =
+          <source_key>-%tky
+
+        target-%tky = VALUE #(
+          AnalysisId = <event>-AnalysisId
+          OutputId   = <event>-OutputId
+          ItemId     = <event>-ItemId
+        )
+      ) TO association_links.
+
+    ENDLOOP.
+
+
+    IF result_requested = abap_true.
+      result = lt_rows.
     ENDIF.
 
-    APPEND VALUE #(
-      source-%tky =
-        <source_key>-%tky
-
-      target-%tky = VALUE #(
-        AnalysisId = <event>-AnalysisId
-        OutputId   = <event>-OutputId
-        ItemId     = <event>-ItemId
-      )
-    ) TO association_links.
-
-  ENDLOOP.
-
-
-  IF result_requested = abap_true.
-    result = lt_rows.
-  ENDIF.
-
-ENDMETHOD.
+  ENDMETHOD.
 
   METHOD rba_Filters.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
 
-  DATA lt_keys LIKE keys_rba.
-  DATA lt_rows LIKE result.
+    DATA lt_keys LIKE keys_rba.
+    DATA lt_rows LIKE result.
 
-  lt_keys = keys_rba.
+    lt_keys = keys_rba.
 
-  SORT lt_keys BY
-    AnalysisId
-    OutputId.
-
-  DELETE ADJACENT DUPLICATES FROM lt_keys
-    COMPARING
+    SORT lt_keys BY
       AnalysisId
       OutputId.
 
-
-  SELECT FROM zi_mig_anl_flt AS alv_filter
-    INNER JOIN @lt_keys AS requested
-      ON  alv_filter~AnalysisId = requested~AnalysisId
-      AND alv_filter~OutputId   = requested~OutputId
-    FIELDS alv_filter~*
-    INTO CORRESPONDING FIELDS OF TABLE @lt_rows.
+    DELETE ADJACENT DUPLICATES FROM lt_keys
+      COMPARING
+        AnalysisId
+        OutputId.
 
 
-  LOOP AT lt_rows
-    ASSIGNING FIELD-SYMBOL(<filter>).
+    SELECT FROM zi_mig_anl_flt AS alv_filter
+      INNER JOIN @lt_keys AS requested
+        ON  alv_filter~AnalysisId = requested~AnalysisId
+        AND alv_filter~OutputId   = requested~OutputId
+      FIELDS alv_filter~*
+      INTO CORRESPONDING FIELDS OF TABLE @lt_rows.
 
-    READ TABLE lt_keys
-      ASSIGNING FIELD-SYMBOL(<source_key>)
-      WITH KEY
-        AnalysisId = <filter>-AnalysisId
-        OutputId   = <filter>-OutputId
-      BINARY SEARCH.
 
-    IF sy-subrc <> 0.
-      CONTINUE.
+    LOOP AT lt_rows
+      ASSIGNING FIELD-SYMBOL(<filter>).
+
+      READ TABLE lt_keys
+        ASSIGNING FIELD-SYMBOL(<source_key>)
+        WITH KEY
+          AnalysisId = <filter>-AnalysisId
+          OutputId   = <filter>-OutputId
+        BINARY SEARCH.
+
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+
+      APPEND VALUE #(
+        source-%tky =
+          <source_key>-%tky
+
+        target-%tky = VALUE #(
+          AnalysisId = <filter>-AnalysisId
+          OutputId   = <filter>-OutputId
+          ItemId     = <filter>-ItemId
+        )
+      ) TO association_links.
+
+    ENDLOOP.
+
+
+    IF result_requested = abap_true.
+      result = lt_rows.
     ENDIF.
 
-    APPEND VALUE #(
-      source-%tky =
-        <source_key>-%tky
-
-      target-%tky = VALUE #(
-        AnalysisId = <filter>-AnalysisId
-        OutputId   = <filter>-OutputId
-        ItemId     = <filter>-ItemId
-      )
-    ) TO association_links.
-
-  ENDLOOP.
-
-
-  IF result_requested = abap_true.
-    result = lt_rows.
-  ENDIF.
-
-ENDMETHOD.
+  ENDMETHOD.
 
   METHOD rba_Sorts.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
 
-  TYPES:
-    BEGIN OF ty_requested_key,
-      analysis_id TYPE zmig_anl_srt-analysis_id,
-      output_id   TYPE zmig_anl_srt-output_id,
-    END OF ty_requested_key,
+    TYPES:
+      BEGIN OF ty_requested_key,
+        analysis_id TYPE zmig_anl_srt-analysis_id,
+        output_id   TYPE zmig_anl_srt-output_id,
+      END OF ty_requested_key,
 
-    tt_requested_key TYPE SORTED TABLE OF ty_requested_key
-      WITH UNIQUE KEY analysis_id output_id.
+      tt_requested_key TYPE SORTED TABLE OF ty_requested_key
+        WITH UNIQUE KEY analysis_id output_id.
 
-  DATA lt_source_keys    LIKE keys_rba.
-  DATA lt_requested_keys TYPE tt_requested_key.
-  DATA lt_rows            LIKE result.
+    DATA lt_source_keys    LIKE keys_rba.
+    DATA lt_requested_keys TYPE tt_requested_key.
+    DATA lt_rows            LIKE result.
 
-  lt_source_keys = keys_rba.
+    lt_source_keys = keys_rba.
 
-  SORT lt_source_keys BY
-    AnalysisId
-    OutputId.
-
-  DELETE ADJACENT DUPLICATES FROM lt_source_keys
-    COMPARING
+    SORT lt_source_keys BY
       AnalysisId
       OutputId.
 
-  lt_requested_keys = VALUE #(
-    FOR ls_key IN lt_source_keys
-    (
-      analysis_id = ls_key-AnalysisId
-      output_id   = ls_key-OutputId
-    )
-  ).
+    DELETE ADJACENT DUPLICATES FROM lt_source_keys
+      COMPARING
+        AnalysisId
+        OutputId.
 
-  SELECT FROM zi_mig_anl_srt AS alv_sort
-    INNER JOIN @lt_requested_keys AS requested
-      ON  alv_sort~AnalysisId = requested~analysis_id
-      AND alv_sort~OutputId   = requested~output_id
-    FIELDS alv_sort~*
-    INTO CORRESPONDING FIELDS OF TABLE @lt_rows.
+    lt_requested_keys = VALUE #(
+      FOR ls_key IN lt_source_keys
+      (
+        analysis_id = ls_key-AnalysisId
+        output_id   = ls_key-OutputId
+      )
+    ).
 
-  LOOP AT lt_rows
-    ASSIGNING FIELD-SYMBOL(<sort>).
+    SELECT FROM zi_mig_anl_srt AS alv_sort
+      INNER JOIN @lt_requested_keys AS requested
+        ON  alv_sort~AnalysisId = requested~analysis_id
+        AND alv_sort~OutputId   = requested~output_id
+      FIELDS alv_sort~*
+      INTO CORRESPONDING FIELDS OF TABLE @lt_rows.
 
-    READ TABLE lt_source_keys
-      ASSIGNING FIELD-SYMBOL(<source_key>)
-      WITH KEY
-        AnalysisId = <sort>-AnalysisId
-        OutputId   = <sort>-OutputId
-      BINARY SEARCH.
+    LOOP AT lt_rows
+      ASSIGNING FIELD-SYMBOL(<sort>).
 
-    IF sy-subrc <> 0.
-      CONTINUE.
+      READ TABLE lt_source_keys
+        ASSIGNING FIELD-SYMBOL(<source_key>)
+        WITH KEY
+          AnalysisId = <sort>-AnalysisId
+          OutputId   = <sort>-OutputId
+        BINARY SEARCH.
+
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+
+      APPEND VALUE #(
+        source-%tky = <source_key>-%tky
+
+        target-%tky = VALUE #(
+          AnalysisId = <sort>-AnalysisId
+          OutputId   = <sort>-OutputId
+          ItemId     = <sort>-ItemId
+        )
+      ) TO association_links.
+
+    ENDLOOP.
+
+    IF result_requested = abap_true.
+      result = lt_rows.
     ENDIF.
 
-    APPEND VALUE #(
-      source-%tky = <source_key>-%tky
-
-      target-%tky = VALUE #(
-        AnalysisId = <sort>-AnalysisId
-        OutputId   = <sort>-OutputId
-        ItemId     = <sort>-ItemId
-      )
-    ) TO association_links.
-
-  ENDLOOP.
-
-  IF result_requested = abap_true.
-    result = lt_rows.
-  ENDIF.
-
-ENDMETHOD.
+  ENDMETHOD.
 
 ENDCLASS.
 
@@ -1507,186 +1566,186 @@ ENDCLASS.
 
 CLASS lhc_AlvColumn IMPLEMENTATION.
 
-METHOD read.
+  METHOD read.
 
-  IF keys IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys IS INITIAL.
+      RETURN.
+    ENDIF.
 
-  DATA lt_keys LIKE keys.
+    DATA lt_keys LIKE keys.
 
-  lt_keys = keys.
+    lt_keys = keys.
 
-  SORT lt_keys
-    BY AnalysisId
-       OutputId
-       ItemId.
+    SORT lt_keys
+      BY AnalysisId
+         OutputId
+         ItemId.
 
-  DELETE ADJACENT DUPLICATES FROM lt_keys
-    COMPARING
-      AnalysisId
-      OutputId
-      ItemId.
+    DELETE ADJACENT DUPLICATES FROM lt_keys
+      COMPARING
+        AnalysisId
+        OutputId
+        ItemId.
 
 
-  SELECT FROM zmig_anl_col AS alv_column
-    INNER JOIN @lt_keys AS requested
-      ON  alv_column~analysis_id = requested~AnalysisId
-      AND alv_column~output_id   = requested~OutputId
-      AND alv_column~item_id     = requested~ItemId
+    SELECT FROM zmig_anl_col AS alv_column
+      INNER JOIN @lt_keys AS requested
+        ON  alv_column~analysis_id = requested~AnalysisId
+        AND alv_column~output_id   = requested~OutputId
+        AND alv_column~item_id     = requested~ItemId
 
-    FIELDS
-      alv_column~analysis_id       AS AnalysisId,
-      alv_column~output_id         AS OutputId,
-      alv_column~item_id           AS ItemId,
-      alv_column~evidence_id       AS EvidenceId,
+      FIELDS
+        alv_column~analysis_id       AS AnalysisId,
+        alv_column~output_id         AS OutputId,
+        alv_column~item_id           AS ItemId,
+        alv_column~evidence_id       AS EvidenceId,
 
-      alv_column~field_name        AS FieldName,
-      alv_column~column_label      AS ColumnLabel,
-      alv_column~column_position   AS ColumnPosition,
+        alv_column~field_name        AS FieldName,
+        alv_column~column_label      AS ColumnLabel,
+        alv_column~column_position   AS ColumnPosition,
 
-      alv_column~data_type         AS DataType,
-      alv_column~data_element      AS DataElement,
-      alv_column~reference_table   AS ReferenceTable,
-      alv_column~reference_field   AS ReferenceField,
+        alv_column~data_type         AS DataType,
+        alv_column~data_element      AS DataElement,
+        alv_column~reference_table   AS ReferenceTable,
+        alv_column~reference_field   AS ReferenceField,
 
-      alv_column~field_length      AS FieldLength,
-      alv_column~decimals          AS Decimals,
+        alv_column~field_length      AS FieldLength,
+        alv_column~decimals          AS Decimals,
 
-      alv_column~visible           AS Visible,
-      alv_column~key_field         AS KeyField,
-      alv_column~technical         AS Technical,
-      alv_column~editable          AS Editable,
-      alv_column~hotspot           AS Hotspot,
-      alv_column~checkbox          AS Checkbox,
-      alv_column~icon              AS Icon,
+        alv_column~visible           AS Visible,
+        alv_column~key_field         AS KeyField,
+        alv_column~technical         AS Technical,
+        alv_column~editable          AS Editable,
+        alv_column~hotspot           AS Hotspot,
+        alv_column~checkbox          AS Checkbox,
+        alv_column~icon              AS Icon,
 
-      alv_column~currency_field    AS CurrencyField,
-      alv_column~unit_field        AS UnitField,
-      alv_column~aggregation       AS Aggregation,
+        alv_column~currency_field    AS CurrencyField,
+        alv_column~unit_field        AS UnitField,
+        alv_column~aggregation       AS Aggregation,
 
-      alv_column~source_mapping    AS SourceMapping,
-      alv_column~confidence        AS Confidence
+        alv_column~source_mapping    AS SourceMapping,
+        alv_column~confidence        AS Confidence
 
-    INTO CORRESPONDING FIELDS OF TABLE @result.
+      INTO CORRESPONDING FIELDS OF TABLE @result.
 
-ENDMETHOD.
+  ENDMETHOD.
 
   METHOD rba_Alvoutput.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
 
 
-  "==========================================================
-  " Association links:
-  " source ALV detail → target ALV Output
-  "==========================================================
-  LOOP AT keys_rba
-    ASSIGNING FIELD-SYMBOL(<key>).
+    "==========================================================
+    " Association links:
+    " source ALV detail → target ALV Output
+    "==========================================================
+    LOOP AT keys_rba
+      ASSIGNING FIELD-SYMBOL(<key>).
 
-    APPEND VALUE #(
-      source-%tky =
-        <key>-%tky
+      APPEND VALUE #(
+        source-%tky =
+          <key>-%tky
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <key>-AnalysisId
-
-        OutputId =
-          <key>-OutputId
-      )
-    ) TO association_links.
-
-  ENDLOOP.
-
-
-  "==========================================================
-  " Đọc ALV Output parent khi caller yêu cầu
-  "==========================================================
-  IF result_requested = abap_true.
-
-    READ ENTITIES OF zi_mig_analysis
-      IN LOCAL MODE
-
-      ENTITY AlvOutput
-      ALL FIELDS
-
-      WITH VALUE #(
-        FOR ls_key IN keys_rba
-        (
+        target-%tky = VALUE #(
           AnalysisId =
-            ls_key-AnalysisId
+            <key>-AnalysisId
 
           OutputId =
-            ls_key-OutputId
+            <key>-OutputId
         )
-      )
+      ) TO association_links.
 
-      RESULT DATA(lt_alv_outputs).
+    ENDLOOP.
 
-    result =
-      lt_alv_outputs.
 
-  ENDIF.
+    "==========================================================
+    " Đọc ALV Output parent khi caller yêu cầu
+    "==========================================================
+    IF result_requested = abap_true.
 
-ENDMETHOD.
+      READ ENTITIES OF zi_mig_analysis
+        IN LOCAL MODE
+
+        ENTITY AlvOutput
+        ALL FIELDS
+
+        WITH VALUE #(
+          FOR ls_key IN keys_rba
+          (
+            AnalysisId =
+              ls_key-AnalysisId
+
+            OutputId =
+              ls_key-OutputId
+          )
+        )
+
+        RESULT DATA(lt_alv_outputs).
+
+      result =
+        lt_alv_outputs.
+
+    ENDIF.
+
+  ENDMETHOD.
 
   METHOD rba_Analysis.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
 
 
-  "==========================================================
-  " Association links:
-  " source child → target Analysis
-  "==========================================================
-  LOOP AT keys_rba
-    ASSIGNING FIELD-SYMBOL(<key>).
+    "==========================================================
+    " Association links:
+    " source child → target Analysis
+    "==========================================================
+    LOOP AT keys_rba
+      ASSIGNING FIELD-SYMBOL(<key>).
 
-    APPEND VALUE #(
-      source-%tky =
-        <key>-%tky
+      APPEND VALUE #(
+        source-%tky =
+          <key>-%tky
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <key>-AnalysisId
-      )
-    ) TO association_links.
-
-  ENDLOOP.
-
-
-  "==========================================================
-  " Chỉ đọc parent data khi caller yêu cầu RESULT
-  "==========================================================
-  IF result_requested = abap_true.
-
-    READ ENTITIES OF zi_mig_analysis
-      IN LOCAL MODE
-
-      ENTITY Analysis
-      ALL FIELDS
-
-      WITH VALUE #(
-        FOR ls_key IN keys_rba
-        (
+        target-%tky = VALUE #(
           AnalysisId =
-            ls_key-AnalysisId
+            <key>-AnalysisId
         )
-      )
+      ) TO association_links.
 
-      RESULT DATA(lt_analysis).
+    ENDLOOP.
 
-    result =
-      lt_analysis.
 
-  ENDIF.
+    "==========================================================
+    " Chỉ đọc parent data khi caller yêu cầu RESULT
+    "==========================================================
+    IF result_requested = abap_true.
 
-ENDMETHOD.
+      READ ENTITIES OF zi_mig_analysis
+        IN LOCAL MODE
+
+        ENTITY Analysis
+        ALL FIELDS
+
+        WITH VALUE #(
+          FOR ls_key IN keys_rba
+          (
+            AnalysisId =
+              ls_key-AnalysisId
+          )
+        )
+
+        RESULT DATA(lt_analysis).
+
+      result =
+        lt_analysis.
+
+    ENDIF.
+
+  ENDMETHOD.
 
 ENDCLASS.
 
@@ -1706,137 +1765,137 @@ ENDCLASS.
 
 CLASS lhc_AlvSort IMPLEMENTATION.
 
-    METHOD read.
+  METHOD read.
 
-      IF keys IS INITIAL.
-        RETURN.
-      ENDIF.
+    IF keys IS INITIAL.
+      RETURN.
+    ENDIF.
 
-      SELECT FROM zi_mig_anl_srt
-        FIELDS *
-        FOR ALL ENTRIES IN @keys
-        WHERE AnalysisId = @keys-AnalysisId
-          AND OutputId   = @keys-OutputId
-          AND ItemId     = @keys-ItemId
-        INTO CORRESPONDING FIELDS OF TABLE @result.
+    SELECT FROM zi_mig_anl_srt
+      FIELDS *
+      FOR ALL ENTRIES IN @keys
+      WHERE AnalysisId = @keys-AnalysisId
+        AND OutputId   = @keys-OutputId
+        AND ItemId     = @keys-ItemId
+      INTO CORRESPONDING FIELDS OF TABLE @result.
 
-    ENDMETHOD.
+  ENDMETHOD.
 
   METHOD rba_Alvoutput.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
 
 
-  "==========================================================
-  " Association links:
-  " source ALV detail → target ALV Output
-  "==========================================================
-  LOOP AT keys_rba
-    ASSIGNING FIELD-SYMBOL(<key>).
+    "==========================================================
+    " Association links:
+    " source ALV detail → target ALV Output
+    "==========================================================
+    LOOP AT keys_rba
+      ASSIGNING FIELD-SYMBOL(<key>).
 
-    APPEND VALUE #(
-      source-%tky =
-        <key>-%tky
+      APPEND VALUE #(
+        source-%tky =
+          <key>-%tky
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <key>-AnalysisId
-
-        OutputId =
-          <key>-OutputId
-      )
-    ) TO association_links.
-
-  ENDLOOP.
-
-
-  "==========================================================
-  " Đọc ALV Output parent khi caller yêu cầu
-  "==========================================================
-  IF result_requested = abap_true.
-
-    READ ENTITIES OF zi_mig_analysis
-      IN LOCAL MODE
-
-      ENTITY AlvOutput
-      ALL FIELDS
-
-      WITH VALUE #(
-        FOR ls_key IN keys_rba
-        (
+        target-%tky = VALUE #(
           AnalysisId =
-            ls_key-AnalysisId
+            <key>-AnalysisId
 
           OutputId =
-            ls_key-OutputId
+            <key>-OutputId
         )
-      )
+      ) TO association_links.
 
-      RESULT DATA(lt_alv_outputs).
+    ENDLOOP.
 
-    result =
-      lt_alv_outputs.
 
-  ENDIF.
+    "==========================================================
+    " Đọc ALV Output parent khi caller yêu cầu
+    "==========================================================
+    IF result_requested = abap_true.
 
-ENDMETHOD.
+      READ ENTITIES OF zi_mig_analysis
+        IN LOCAL MODE
+
+        ENTITY AlvOutput
+        ALL FIELDS
+
+        WITH VALUE #(
+          FOR ls_key IN keys_rba
+          (
+            AnalysisId =
+              ls_key-AnalysisId
+
+            OutputId =
+              ls_key-OutputId
+          )
+        )
+
+        RESULT DATA(lt_alv_outputs).
+
+      result =
+        lt_alv_outputs.
+
+    ENDIF.
+
+  ENDMETHOD.
 
   METHOD rba_Analysis.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
 
 
-  "==========================================================
-  " Association links:
-  " source child → target Analysis
-  "==========================================================
-  LOOP AT keys_rba
-    ASSIGNING FIELD-SYMBOL(<key>).
+    "==========================================================
+    " Association links:
+    " source child → target Analysis
+    "==========================================================
+    LOOP AT keys_rba
+      ASSIGNING FIELD-SYMBOL(<key>).
 
-    APPEND VALUE #(
-      source-%tky =
-        <key>-%tky
+      APPEND VALUE #(
+        source-%tky =
+          <key>-%tky
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <key>-AnalysisId
-      )
-    ) TO association_links.
-
-  ENDLOOP.
-
-
-  "==========================================================
-  " Chỉ đọc parent data khi caller yêu cầu RESULT
-  "==========================================================
-  IF result_requested = abap_true.
-
-    READ ENTITIES OF zi_mig_analysis
-      IN LOCAL MODE
-
-      ENTITY Analysis
-      ALL FIELDS
-
-      WITH VALUE #(
-        FOR ls_key IN keys_rba
-        (
+        target-%tky = VALUE #(
           AnalysisId =
-            ls_key-AnalysisId
+            <key>-AnalysisId
         )
-      )
+      ) TO association_links.
 
-      RESULT DATA(lt_analysis).
+    ENDLOOP.
 
-    result =
-      lt_analysis.
 
-  ENDIF.
+    "==========================================================
+    " Chỉ đọc parent data khi caller yêu cầu RESULT
+    "==========================================================
+    IF result_requested = abap_true.
 
-ENDMETHOD.
+      READ ENTITIES OF zi_mig_analysis
+        IN LOCAL MODE
+
+        ENTITY Analysis
+        ALL FIELDS
+
+        WITH VALUE #(
+          FOR ls_key IN keys_rba
+          (
+            AnalysisId =
+              ls_key-AnalysisId
+          )
+        )
+
+        RESULT DATA(lt_analysis).
+
+      result =
+        lt_analysis.
+
+    ENDIF.
+
+  ENDMETHOD.
 
 ENDCLASS.
 
@@ -1856,137 +1915,137 @@ ENDCLASS.
 
 CLASS lhc_AlvFilter IMPLEMENTATION.
 
-    METHOD read.
+  METHOD read.
 
-      IF keys IS INITIAL.
-        RETURN.
-      ENDIF.
+    IF keys IS INITIAL.
+      RETURN.
+    ENDIF.
 
-      SELECT FROM zi_mig_anl_flt
-        FIELDS *
-        FOR ALL ENTRIES IN @keys
-        WHERE AnalysisId = @keys-AnalysisId
-          AND OutputId   = @keys-OutputId
-          AND ItemId     = @keys-ItemId
-        INTO CORRESPONDING FIELDS OF TABLE @result.
+    SELECT FROM zi_mig_anl_flt
+      FIELDS *
+      FOR ALL ENTRIES IN @keys
+      WHERE AnalysisId = @keys-AnalysisId
+        AND OutputId   = @keys-OutputId
+        AND ItemId     = @keys-ItemId
+      INTO CORRESPONDING FIELDS OF TABLE @result.
 
-    ENDMETHOD.
+  ENDMETHOD.
 
   METHOD rba_Alvoutput.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
 
 
-  "==========================================================
-  " Association links:
-  " source ALV detail → target ALV Output
-  "==========================================================
-  LOOP AT keys_rba
-    ASSIGNING FIELD-SYMBOL(<key>).
+    "==========================================================
+    " Association links:
+    " source ALV detail → target ALV Output
+    "==========================================================
+    LOOP AT keys_rba
+      ASSIGNING FIELD-SYMBOL(<key>).
 
-    APPEND VALUE #(
-      source-%tky =
-        <key>-%tky
+      APPEND VALUE #(
+        source-%tky =
+          <key>-%tky
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <key>-AnalysisId
-
-        OutputId =
-          <key>-OutputId
-      )
-    ) TO association_links.
-
-  ENDLOOP.
-
-
-  "==========================================================
-  " Đọc ALV Output parent khi caller yêu cầu
-  "==========================================================
-  IF result_requested = abap_true.
-
-    READ ENTITIES OF zi_mig_analysis
-      IN LOCAL MODE
-
-      ENTITY AlvOutput
-      ALL FIELDS
-
-      WITH VALUE #(
-        FOR ls_key IN keys_rba
-        (
+        target-%tky = VALUE #(
           AnalysisId =
-            ls_key-AnalysisId
+            <key>-AnalysisId
 
           OutputId =
-            ls_key-OutputId
+            <key>-OutputId
         )
-      )
+      ) TO association_links.
 
-      RESULT DATA(lt_alv_outputs).
+    ENDLOOP.
 
-    result =
-      lt_alv_outputs.
 
-  ENDIF.
+    "==========================================================
+    " Đọc ALV Output parent khi caller yêu cầu
+    "==========================================================
+    IF result_requested = abap_true.
 
-ENDMETHOD.
+      READ ENTITIES OF zi_mig_analysis
+        IN LOCAL MODE
+
+        ENTITY AlvOutput
+        ALL FIELDS
+
+        WITH VALUE #(
+          FOR ls_key IN keys_rba
+          (
+            AnalysisId =
+              ls_key-AnalysisId
+
+            OutputId =
+              ls_key-OutputId
+          )
+        )
+
+        RESULT DATA(lt_alv_outputs).
+
+      result =
+        lt_alv_outputs.
+
+    ENDIF.
+
+  ENDMETHOD.
 
   METHOD rba_Analysis.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
 
 
-  "==========================================================
-  " Association links:
-  " source child → target Analysis
-  "==========================================================
-  LOOP AT keys_rba
-    ASSIGNING FIELD-SYMBOL(<key>).
+    "==========================================================
+    " Association links:
+    " source child → target Analysis
+    "==========================================================
+    LOOP AT keys_rba
+      ASSIGNING FIELD-SYMBOL(<key>).
 
-    APPEND VALUE #(
-      source-%tky =
-        <key>-%tky
+      APPEND VALUE #(
+        source-%tky =
+          <key>-%tky
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <key>-AnalysisId
-      )
-    ) TO association_links.
-
-  ENDLOOP.
-
-
-  "==========================================================
-  " Chỉ đọc parent data khi caller yêu cầu RESULT
-  "==========================================================
-  IF result_requested = abap_true.
-
-    READ ENTITIES OF zi_mig_analysis
-      IN LOCAL MODE
-
-      ENTITY Analysis
-      ALL FIELDS
-
-      WITH VALUE #(
-        FOR ls_key IN keys_rba
-        (
+        target-%tky = VALUE #(
           AnalysisId =
-            ls_key-AnalysisId
+            <key>-AnalysisId
         )
-      )
+      ) TO association_links.
 
-      RESULT DATA(lt_analysis).
+    ENDLOOP.
 
-    result =
-      lt_analysis.
 
-  ENDIF.
+    "==========================================================
+    " Chỉ đọc parent data khi caller yêu cầu RESULT
+    "==========================================================
+    IF result_requested = abap_true.
 
-ENDMETHOD.
+      READ ENTITIES OF zi_mig_analysis
+        IN LOCAL MODE
+
+        ENTITY Analysis
+        ALL FIELDS
+
+        WITH VALUE #(
+          FOR ls_key IN keys_rba
+          (
+            AnalysisId =
+              ls_key-AnalysisId
+          )
+        )
+
+        RESULT DATA(lt_analysis).
+
+      result =
+        lt_analysis.
+
+    ENDIF.
+
+  ENDMETHOD.
 
 ENDCLASS.
 
@@ -2006,137 +2065,137 @@ ENDCLASS.
 
 CLASS lhc_AlvEvent IMPLEMENTATION.
 
-    METHOD read.
+  METHOD read.
 
-      IF keys IS INITIAL.
-        RETURN.
-      ENDIF.
+    IF keys IS INITIAL.
+      RETURN.
+    ENDIF.
 
-      SELECT FROM zi_mig_anl_evt
-        FIELDS *
-        FOR ALL ENTRIES IN @keys
-        WHERE AnalysisId = @keys-AnalysisId
-          AND OutputId   = @keys-OutputId
-          AND ItemId     = @keys-ItemId
-        INTO CORRESPONDING FIELDS OF TABLE @result.
+    SELECT FROM zi_mig_anl_evt
+      FIELDS *
+      FOR ALL ENTRIES IN @keys
+      WHERE AnalysisId = @keys-AnalysisId
+        AND OutputId   = @keys-OutputId
+        AND ItemId     = @keys-ItemId
+      INTO CORRESPONDING FIELDS OF TABLE @result.
 
-    ENDMETHOD.
+  ENDMETHOD.
 
   METHOD rba_Alvoutput.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
 
 
-  "==========================================================
-  " Association links:
-  " source ALV detail → target ALV Output
-  "==========================================================
-  LOOP AT keys_rba
-    ASSIGNING FIELD-SYMBOL(<key>).
+    "==========================================================
+    " Association links:
+    " source ALV detail → target ALV Output
+    "==========================================================
+    LOOP AT keys_rba
+      ASSIGNING FIELD-SYMBOL(<key>).
 
-    APPEND VALUE #(
-      source-%tky =
-        <key>-%tky
+      APPEND VALUE #(
+        source-%tky =
+          <key>-%tky
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <key>-AnalysisId
-
-        OutputId =
-          <key>-OutputId
-      )
-    ) TO association_links.
-
-  ENDLOOP.
-
-
-  "==========================================================
-  " Đọc ALV Output parent khi caller yêu cầu
-  "==========================================================
-  IF result_requested = abap_true.
-
-    READ ENTITIES OF zi_mig_analysis
-      IN LOCAL MODE
-
-      ENTITY AlvOutput
-      ALL FIELDS
-
-      WITH VALUE #(
-        FOR ls_key IN keys_rba
-        (
+        target-%tky = VALUE #(
           AnalysisId =
-            ls_key-AnalysisId
+            <key>-AnalysisId
 
           OutputId =
-            ls_key-OutputId
+            <key>-OutputId
         )
-      )
+      ) TO association_links.
 
-      RESULT DATA(lt_alv_outputs).
+    ENDLOOP.
 
-    result =
-      lt_alv_outputs.
 
-  ENDIF.
+    "==========================================================
+    " Đọc ALV Output parent khi caller yêu cầu
+    "==========================================================
+    IF result_requested = abap_true.
 
-ENDMETHOD.
+      READ ENTITIES OF zi_mig_analysis
+        IN LOCAL MODE
+
+        ENTITY AlvOutput
+        ALL FIELDS
+
+        WITH VALUE #(
+          FOR ls_key IN keys_rba
+          (
+            AnalysisId =
+              ls_key-AnalysisId
+
+            OutputId =
+              ls_key-OutputId
+          )
+        )
+
+        RESULT DATA(lt_alv_outputs).
+
+      result =
+        lt_alv_outputs.
+
+    ENDIF.
+
+  ENDMETHOD.
 
   METHOD rba_Analysis.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
 
 
-  "==========================================================
-  " Association links:
-  " source child → target Analysis
-  "==========================================================
-  LOOP AT keys_rba
-    ASSIGNING FIELD-SYMBOL(<key>).
+    "==========================================================
+    " Association links:
+    " source child → target Analysis
+    "==========================================================
+    LOOP AT keys_rba
+      ASSIGNING FIELD-SYMBOL(<key>).
 
-    APPEND VALUE #(
-      source-%tky =
-        <key>-%tky
+      APPEND VALUE #(
+        source-%tky =
+          <key>-%tky
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <key>-AnalysisId
-      )
-    ) TO association_links.
-
-  ENDLOOP.
-
-
-  "==========================================================
-  " Chỉ đọc parent data khi caller yêu cầu RESULT
-  "==========================================================
-  IF result_requested = abap_true.
-
-    READ ENTITIES OF zi_mig_analysis
-      IN LOCAL MODE
-
-      ENTITY Analysis
-      ALL FIELDS
-
-      WITH VALUE #(
-        FOR ls_key IN keys_rba
-        (
+        target-%tky = VALUE #(
           AnalysisId =
-            ls_key-AnalysisId
+            <key>-AnalysisId
         )
-      )
+      ) TO association_links.
 
-      RESULT DATA(lt_analysis).
+    ENDLOOP.
 
-    result =
-      lt_analysis.
 
-  ENDIF.
+    "==========================================================
+    " Chỉ đọc parent data khi caller yêu cầu RESULT
+    "==========================================================
+    IF result_requested = abap_true.
 
-ENDMETHOD.
+      READ ENTITIES OF zi_mig_analysis
+        IN LOCAL MODE
+
+        ENTITY Analysis
+        ALL FIELDS
+
+        WITH VALUE #(
+          FOR ls_key IN keys_rba
+          (
+            AnalysisId =
+              ls_key-AnalysisId
+          )
+        )
+
+        RESULT DATA(lt_analysis).
+
+      result =
+        lt_analysis.
+
+    ENDIF.
+
+  ENDMETHOD.
 
 ENDCLASS.
 
@@ -2153,75 +2212,75 @@ ENDCLASS.
 
 CLASS lhc_Evidence IMPLEMENTATION.
 
-    METHOD read.
+  METHOD read.
 
-      IF keys IS INITIAL.
-        RETURN.
-      ENDIF.
+    IF keys IS INITIAL.
+      RETURN.
+    ENDIF.
 
-      SELECT FROM zi_mig_anl_evd
-        FIELDS *
-        FOR ALL ENTRIES IN @keys
-        WHERE AnalysisId = @keys-AnalysisId
-          AND EvidenceId = @keys-EvidenceId
-        INTO CORRESPONDING FIELDS OF TABLE @result.
+    SELECT FROM zi_mig_anl_evd
+      FIELDS *
+      FOR ALL ENTRIES IN @keys
+      WHERE AnalysisId = @keys-AnalysisId
+        AND EvidenceId = @keys-EvidenceId
+      INTO CORRESPONDING FIELDS OF TABLE @result.
 
-    ENDMETHOD.
+  ENDMETHOD.
 
   METHOD rba_Analysis.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
 
 
-  "==========================================================
-  " Association links:
-  " source child → target Analysis
-  "==========================================================
-  LOOP AT keys_rba
-    ASSIGNING FIELD-SYMBOL(<key>).
+    "==========================================================
+    " Association links:
+    " source child → target Analysis
+    "==========================================================
+    LOOP AT keys_rba
+      ASSIGNING FIELD-SYMBOL(<key>).
 
-    APPEND VALUE #(
-      source-%tky =
-        <key>-%tky
+      APPEND VALUE #(
+        source-%tky =
+          <key>-%tky
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <key>-AnalysisId
-      )
-    ) TO association_links.
-
-  ENDLOOP.
-
-
-  "==========================================================
-  " Chỉ đọc parent data khi caller yêu cầu RESULT
-  "==========================================================
-  IF result_requested = abap_true.
-
-    READ ENTITIES OF zi_mig_analysis
-      IN LOCAL MODE
-
-      ENTITY Analysis
-      ALL FIELDS
-
-      WITH VALUE #(
-        FOR ls_key IN keys_rba
-        (
+        target-%tky = VALUE #(
           AnalysisId =
-            ls_key-AnalysisId
+            <key>-AnalysisId
         )
-      )
+      ) TO association_links.
 
-      RESULT DATA(lt_analysis).
+    ENDLOOP.
 
-    result =
-      lt_analysis.
 
-  ENDIF.
+    "==========================================================
+    " Chỉ đọc parent data khi caller yêu cầu RESULT
+    "==========================================================
+    IF result_requested = abap_true.
 
-ENDMETHOD.
+      READ ENTITIES OF zi_mig_analysis
+        IN LOCAL MODE
+
+        ENTITY Analysis
+        ALL FIELDS
+
+        WITH VALUE #(
+          FOR ls_key IN keys_rba
+          (
+            AnalysisId =
+              ls_key-AnalysisId
+          )
+        )
+
+        RESULT DATA(lt_analysis).
+
+      result =
+        lt_analysis.
+
+    ENDIF.
+
+  ENDMETHOD.
 
 ENDCLASS.
 
@@ -2241,149 +2300,149 @@ ENDCLASS.
 
 CLASS lhc_Recommendation IMPLEMENTATION.
 
-    METHOD read.
+  METHOD read.
 
-      IF keys IS INITIAL.
-        RETURN.
-      ENDIF.
+    IF keys IS INITIAL.
+      RETURN.
+    ENDIF.
 
-      SELECT FROM zi_mig_anl_rec
-        FIELDS *
-        FOR ALL ENTRIES IN @keys
-        WHERE AnalysisId       = @keys-AnalysisId
-          AND RecommendationId = @keys-RecommendationId
-        INTO CORRESPONDING FIELDS OF TABLE @result.
+    SELECT FROM zi_mig_anl_rec
+      FIELDS *
+      FOR ALL ENTRIES IN @keys
+      WHERE AnalysisId       = @keys-AnalysisId
+        AND RecommendationId = @keys-RecommendationId
+      INTO CORRESPONDING FIELDS OF TABLE @result.
 
-    ENDMETHOD.
+  ENDMETHOD.
 
   METHOD rba_Analysis.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
 
 
-  "==========================================================
-  " Association links:
-  " source child → target Analysis
-  "==========================================================
-  LOOP AT keys_rba
-    ASSIGNING FIELD-SYMBOL(<key>).
+    "==========================================================
+    " Association links:
+    " source child → target Analysis
+    "==========================================================
+    LOOP AT keys_rba
+      ASSIGNING FIELD-SYMBOL(<key>).
 
-    APPEND VALUE #(
-      source-%tky =
-        <key>-%tky
+      APPEND VALUE #(
+        source-%tky =
+          <key>-%tky
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <key>-AnalysisId
-      )
-    ) TO association_links.
-
-  ENDLOOP.
-
-
-  "==========================================================
-  " Chỉ đọc parent data khi caller yêu cầu RESULT
-  "==========================================================
-  IF result_requested = abap_true.
-
-    READ ENTITIES OF zi_mig_analysis
-      IN LOCAL MODE
-
-      ENTITY Analysis
-      ALL FIELDS
-
-      WITH VALUE #(
-        FOR ls_key IN keys_rba
-        (
+        target-%tky = VALUE #(
           AnalysisId =
-            ls_key-AnalysisId
+            <key>-AnalysisId
         )
-      )
+      ) TO association_links.
 
-      RESULT DATA(lt_analysis).
+    ENDLOOP.
 
-    result =
-      lt_analysis.
 
-  ENDIF.
+    "==========================================================
+    " Chỉ đọc parent data khi caller yêu cầu RESULT
+    "==========================================================
+    IF result_requested = abap_true.
 
-ENDMETHOD.
+      READ ENTITIES OF zi_mig_analysis
+        IN LOCAL MODE
+
+        ENTITY Analysis
+        ALL FIELDS
+
+        WITH VALUE #(
+          FOR ls_key IN keys_rba
+          (
+            AnalysisId =
+              ls_key-AnalysisId
+          )
+        )
+
+        RESULT DATA(lt_analysis).
+
+      result =
+        lt_analysis.
+
+    ENDIF.
+
+  ENDMETHOD.
 
   METHOD rba_Annotations.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
 
-  DATA lt_keys LIKE keys_rba.
-  DATA lt_rows LIKE result.
+    DATA lt_keys LIKE keys_rba.
+    DATA lt_rows LIKE result.
 
-  lt_keys = keys_rba.
+    lt_keys = keys_rba.
 
-  SORT lt_keys BY
-    AnalysisId
-    RecommendationId.
-
-  DELETE ADJACENT DUPLICATES FROM lt_keys
-    COMPARING
+    SORT lt_keys BY
       AnalysisId
       RecommendationId.
 
-
-  SELECT FROM zi_mig_anl_ann AS annotation
-    INNER JOIN @lt_keys AS requested
-      ON  annotation~AnalysisId =
-            requested~AnalysisId
-
-      AND annotation~RecommendationId =
-            requested~RecommendationId
-    FIELDS annotation~*
-    INTO CORRESPONDING FIELDS OF TABLE @lt_rows.
+    DELETE ADJACENT DUPLICATES FROM lt_keys
+      COMPARING
+        AnalysisId
+        RecommendationId.
 
 
-  LOOP AT lt_rows
-    ASSIGNING FIELD-SYMBOL(<annotation>).
+    SELECT FROM zi_mig_anl_ann AS annotation
+      INNER JOIN @lt_keys AS requested
+        ON  annotation~AnalysisId =
+              requested~AnalysisId
 
-    READ TABLE lt_keys
-      ASSIGNING FIELD-SYMBOL(<source_key>)
-      WITH KEY
-        AnalysisId =
-          <annotation>-AnalysisId
+        AND annotation~RecommendationId =
+              requested~RecommendationId
+      FIELDS annotation~*
+      INTO CORRESPONDING FIELDS OF TABLE @lt_rows.
 
-        RecommendationId =
-          <annotation>-RecommendationId
-      BINARY SEARCH.
 
-    IF sy-subrc <> 0.
-      CONTINUE.
+    LOOP AT lt_rows
+      ASSIGNING FIELD-SYMBOL(<annotation>).
+
+      READ TABLE lt_keys
+        ASSIGNING FIELD-SYMBOL(<source_key>)
+        WITH KEY
+          AnalysisId =
+            <annotation>-AnalysisId
+
+          RecommendationId =
+            <annotation>-RecommendationId
+        BINARY SEARCH.
+
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+
+      APPEND VALUE #(
+        source-%tky =
+          <source_key>-%tky
+
+        target-%tky = VALUE #(
+          AnalysisId =
+            <annotation>-AnalysisId
+
+          RecommendationId =
+            <annotation>-RecommendationId
+
+          ItemId =
+            <annotation>-ItemId
+        )
+      ) TO association_links.
+
+    ENDLOOP.
+
+
+    IF result_requested = abap_true.
+      result = lt_rows.
     ENDIF.
 
-    APPEND VALUE #(
-      source-%tky =
-        <source_key>-%tky
-
-      target-%tky = VALUE #(
-        AnalysisId =
-          <annotation>-AnalysisId
-
-        RecommendationId =
-          <annotation>-RecommendationId
-
-        ItemId =
-          <annotation>-ItemId
-      )
-    ) TO association_links.
-
-  ENDLOOP.
-
-
-  IF result_requested = abap_true.
-    result = lt_rows.
-  ENDIF.
-
-ENDMETHOD.
+  ENDMETHOD.
 
 ENDCLASS.
 
@@ -2403,137 +2462,137 @@ ENDCLASS.
 
 CLASS lhc_Annotation IMPLEMENTATION.
 
-     METHOD read.
+  METHOD read.
 
-      IF keys IS INITIAL.
-        RETURN.
-      ENDIF.
+    IF keys IS INITIAL.
+      RETURN.
+    ENDIF.
 
-      SELECT FROM zi_mig_anl_ann
-        FIELDS *
-        FOR ALL ENTRIES IN @keys
-        WHERE AnalysisId       = @keys-AnalysisId
-          AND RecommendationId = @keys-RecommendationId
-          AND ItemId           = @keys-ItemId
-        INTO CORRESPONDING FIELDS OF TABLE @result.
+    SELECT FROM zi_mig_anl_ann
+      FIELDS *
+      FOR ALL ENTRIES IN @keys
+      WHERE AnalysisId       = @keys-AnalysisId
+        AND RecommendationId = @keys-RecommendationId
+        AND ItemId           = @keys-ItemId
+      INTO CORRESPONDING FIELDS OF TABLE @result.
 
-    ENDMETHOD.
+  ENDMETHOD.
 
   METHOD rba_Analysis.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
 
 
-  "==========================================================
-  " Association links:
-  " source child → target Analysis
-  "==========================================================
-  LOOP AT keys_rba
-    ASSIGNING FIELD-SYMBOL(<key>).
+    "==========================================================
+    " Association links:
+    " source child → target Analysis
+    "==========================================================
+    LOOP AT keys_rba
+      ASSIGNING FIELD-SYMBOL(<key>).
 
-    APPEND VALUE #(
-      source-%tky =
-        <key>-%tky
+      APPEND VALUE #(
+        source-%tky =
+          <key>-%tky
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <key>-AnalysisId
-      )
-    ) TO association_links.
-
-  ENDLOOP.
-
-
-  "==========================================================
-  " Chỉ đọc parent data khi caller yêu cầu RESULT
-  "==========================================================
-  IF result_requested = abap_true.
-
-    READ ENTITIES OF zi_mig_analysis
-      IN LOCAL MODE
-
-      ENTITY Analysis
-      ALL FIELDS
-
-      WITH VALUE #(
-        FOR ls_key IN keys_rba
-        (
+        target-%tky = VALUE #(
           AnalysisId =
-            ls_key-AnalysisId
+            <key>-AnalysisId
         )
-      )
+      ) TO association_links.
 
-      RESULT DATA(lt_analysis).
+    ENDLOOP.
 
-    result =
-      lt_analysis.
 
-  ENDIF.
+    "==========================================================
+    " Chỉ đọc parent data khi caller yêu cầu RESULT
+    "==========================================================
+    IF result_requested = abap_true.
 
-ENDMETHOD.
+      READ ENTITIES OF zi_mig_analysis
+        IN LOCAL MODE
+
+        ENTITY Analysis
+        ALL FIELDS
+
+        WITH VALUE #(
+          FOR ls_key IN keys_rba
+          (
+            AnalysisId =
+              ls_key-AnalysisId
+          )
+        )
+
+        RESULT DATA(lt_analysis).
+
+      result =
+        lt_analysis.
+
+    ENDIF.
+
+  ENDMETHOD.
 
   METHOD rba_Recommendation.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
 
 
-  "==========================================================
-  " Association links:
-  " Annotation → Recommendation
-  "==========================================================
-  LOOP AT keys_rba
-    ASSIGNING FIELD-SYMBOL(<key>).
+    "==========================================================
+    " Association links:
+    " Annotation → Recommendation
+    "==========================================================
+    LOOP AT keys_rba
+      ASSIGNING FIELD-SYMBOL(<key>).
 
-    APPEND VALUE #(
-      source-%tky =
-        <key>-%tky
+      APPEND VALUE #(
+        source-%tky =
+          <key>-%tky
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <key>-AnalysisId
-
-        RecommendationId =
-          <key>-RecommendationId
-      )
-    ) TO association_links.
-
-  ENDLOOP.
-
-
-  "==========================================================
-  " Đọc Recommendation parent khi caller yêu cầu
-  "==========================================================
-  IF result_requested = abap_true.
-
-    READ ENTITIES OF zi_mig_analysis
-      IN LOCAL MODE
-
-      ENTITY Recommendation
-      ALL FIELDS
-
-      WITH VALUE #(
-        FOR ls_key IN keys_rba
-        (
+        target-%tky = VALUE #(
           AnalysisId =
-            ls_key-AnalysisId
+            <key>-AnalysisId
 
           RecommendationId =
-            ls_key-RecommendationId
+            <key>-RecommendationId
         )
-      )
+      ) TO association_links.
 
-      RESULT DATA(lt_recommendations).
+    ENDLOOP.
 
-    result =
-      lt_recommendations.
 
-  ENDIF.
+    "==========================================================
+    " Đọc Recommendation parent khi caller yêu cầu
+    "==========================================================
+    IF result_requested = abap_true.
 
-ENDMETHOD.
+      READ ENTITIES OF zi_mig_analysis
+        IN LOCAL MODE
+
+        ENTITY Recommendation
+        ALL FIELDS
+
+        WITH VALUE #(
+          FOR ls_key IN keys_rba
+          (
+            AnalysisId =
+              ls_key-AnalysisId
+
+            RecommendationId =
+              ls_key-RecommendationId
+          )
+        )
+
+        RESULT DATA(lt_recommendations).
+
+      result =
+        lt_recommendations.
+
+    ENDIF.
+
+  ENDMETHOD.
 
 ENDCLASS.
 
@@ -2550,75 +2609,75 @@ ENDCLASS.
 
 CLASS lhc_AnalysisMessage IMPLEMENTATION.
 
-    METHOD read.
+  METHOD read.
 
-      IF keys IS INITIAL.
-        RETURN.
-      ENDIF.
+    IF keys IS INITIAL.
+      RETURN.
+    ENDIF.
 
-      SELECT FROM zi_mig_anl_msg
-        FIELDS *
-        FOR ALL ENTRIES IN @keys
-        WHERE AnalysisId = @keys-AnalysisId
-          AND MessageNo  = @keys-MessageNo
-        INTO CORRESPONDING FIELDS OF TABLE @result.
+    SELECT FROM zi_mig_anl_msg
+      FIELDS *
+      FOR ALL ENTRIES IN @keys
+      WHERE AnalysisId = @keys-AnalysisId
+        AND MessageNo  = @keys-MessageNo
+      INTO CORRESPONDING FIELDS OF TABLE @result.
 
-    ENDMETHOD.
+  ENDMETHOD.
 
   METHOD rba_Analysis.
 
-  IF keys_rba IS INITIAL.
-    RETURN.
-  ENDIF.
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
 
 
-  "==========================================================
-  " Association links:
-  " source child → target Analysis
-  "==========================================================
-  LOOP AT keys_rba
-    ASSIGNING FIELD-SYMBOL(<key>).
+    "==========================================================
+    " Association links:
+    " source child → target Analysis
+    "==========================================================
+    LOOP AT keys_rba
+      ASSIGNING FIELD-SYMBOL(<key>).
 
-    APPEND VALUE #(
-      source-%tky =
-        <key>-%tky
+      APPEND VALUE #(
+        source-%tky =
+          <key>-%tky
 
-      target-%tky = VALUE #(
-        AnalysisId =
-          <key>-AnalysisId
-      )
-    ) TO association_links.
-
-  ENDLOOP.
-
-
-  "==========================================================
-  " Chỉ đọc parent data khi caller yêu cầu RESULT
-  "==========================================================
-  IF result_requested = abap_true.
-
-    READ ENTITIES OF zi_mig_analysis
-      IN LOCAL MODE
-
-      ENTITY Analysis
-      ALL FIELDS
-
-      WITH VALUE #(
-        FOR ls_key IN keys_rba
-        (
+        target-%tky = VALUE #(
           AnalysisId =
-            ls_key-AnalysisId
+            <key>-AnalysisId
         )
-      )
+      ) TO association_links.
 
-      RESULT DATA(lt_analysis).
+    ENDLOOP.
 
-    result =
-      lt_analysis.
 
-  ENDIF.
+    "==========================================================
+    " Chỉ đọc parent data khi caller yêu cầu RESULT
+    "==========================================================
+    IF result_requested = abap_true.
 
-ENDMETHOD.
+      READ ENTITIES OF zi_mig_analysis
+        IN LOCAL MODE
+
+        ENTITY Analysis
+        ALL FIELDS
+
+        WITH VALUE #(
+          FOR ls_key IN keys_rba
+          (
+            AnalysisId =
+              ls_key-AnalysisId
+          )
+        )
+
+        RESULT DATA(lt_analysis).
+
+      result =
+        lt_analysis.
+
+    ENDIF.
+
+  ENDMETHOD.
 
 ENDCLASS.
 
@@ -2629,15 +2688,15 @@ CLASS lhc_SourceObject DEFINITION
 
     METHODS read FOR READ
       IMPORTING
-        keys FOR READ SourceObject
-      RESULT result.
+                keys   FOR READ SourceObject
+      RESULT    result.
 
     METHODS rba_Analysis FOR READ
       IMPORTING
-        keys_rba FOR READ SourceObject\_Analysis
-        FULL result_requested
-      RESULT result
-      LINK association_links.
+                keys_rba FOR READ SourceObject\_Analysis
+                  FULL result_requested
+      RESULT    result
+                  LINK association_links.
 
 ENDCLASS.
 
@@ -2684,7 +2743,7 @@ CLASS lhc_SourceObject IMPLEMENTATION.
 
   ENDMETHOD.
 
-    METHOD rba_Analysis.
+  METHOD rba_Analysis.
 
     IF keys_rba IS INITIAL.
       RETURN.
@@ -2754,57 +2813,54 @@ CLASS lsc_ZI_MIG_ANALYSIS IMPLEMENTATION.
 
   METHOD save.
 
-      DATA(lt_results) =
-        lcl_mig_analysis_buffer=>get_all( ).
+    DATA(lt_results) =
+      lcl_mig_analysis_buffer=>get_all( ).
 
-      IF lt_results IS INITIAL.
-        RETURN.
-      ENDIF.
+    IF lt_results IS INITIAL.
+      RETURN.
+    ENDIF.
 
-      DATA(lo_store) =
-        NEW zcl_mig_analysis_store( ).
+    DATA(lo_store) =
+      NEW zcl_mig_analysis_store( ).
 
-      LOOP AT lt_results
-        ASSIGNING FIELD-SYMBOL(<analysis_result>).
+    LOOP AT lt_results
+      ASSIGNING FIELD-SYMBOL(<analysis_result>).
 
-        TRY.
+      TRY.
 
-            lo_store->zif_mig_analysis_store~save(
-              is_result = <analysis_result>
-            ).
+          lo_store->zif_mig_analysis_store~save(
+            is_result = <analysis_result>
+          ).
 
-          CATCH zcx_mig_analysis INTO DATA(lx_save).
+        CATCH zcx_mig_analysis INTO DATA(lx_save).
 
-            "Lỗi trong SAVE là lỗi kỹ thuật vì interaction phase
-            "đã hoàn thành và CHECK_BEFORE_SAVE đã được chạy.
-            RAISE SHORTDUMP NEW zcx_mig_analysis(
-              textid =
-                zcx_mig_analysis=>analysis_failed
+          "Lỗi trong SAVE là lỗi kỹ thuật vì interaction phase
+          "đã hoàn thành và CHECK_BEFORE_SAVE đã được chạy.
+          RAISE SHORTDUMP NEW zcx_mig_analysis( textid       =
+                                                               zcx_mig_analysis=>analysis_failed
+                                                previous     =
+                                                               lx_save
+                                                program_name =
+                                                               <analysis_result>-overview-program_name
+                                                ).
 
-              previous =
-                lx_save
+      ENDTRY.
 
-              program_name =
-                <analysis_result>-overview-program_name
-            ).
+    ENDLOOP.
 
-        ENDTRY.
+  ENDMETHOD.
 
-      ENDLOOP.
+  METHOD cleanup.
 
-    ENDMETHOD.
+    lcl_mig_analysis_buffer=>clear( ).
 
-    METHOD cleanup.
-
-      lcl_mig_analysis_buffer=>clear( ).
-
-    ENDMETHOD.
+  ENDMETHOD.
 
 
-    METHOD cleanup_finalize.
+  METHOD cleanup_finalize.
 
-      lcl_mig_analysis_buffer=>clear( ).
+    lcl_mig_analysis_buffer=>clear( ).
 
-    ENDMETHOD.
+  ENDMETHOD.
 
 ENDCLASS.

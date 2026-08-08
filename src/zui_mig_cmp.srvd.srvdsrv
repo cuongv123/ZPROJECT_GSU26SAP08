@@ -1,0 +1,5 @@
+@EndUserText.label: 'Migration Comparison RAP Service'
+define service ZUI_MIG_CMP {
+  expose ZC_MIG_CMP_RUN as ComparisonRuns;
+  expose ZC_MIG_CMP_ITEM as ComparisonItems;
+}

@@ -1,0 +1,13 @@
+projection;
+strict ( 2 );
+
+define behavior for ZC_MIG_CMP_RUN alias Run
+{
+  use action ExecuteComparison;
+  use association _Items;
+}
+
+define behavior for ZC_MIG_CMP_ITEM alias Item
+{
+  use association _Run;
+}

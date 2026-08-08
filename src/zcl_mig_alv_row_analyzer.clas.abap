@@ -66,10 +66,12 @@ CLASS zcl_mig_alv_row_analyzer DEFINITION
 
     METHODS parse_types_statement
       IMPORTING
-        is_statement   TYPE zif_mig_types=>ty_statement
+        is_statement         TYPE zif_mig_types=>ty_statement
       CHANGING
-        ct_table_types TYPE tt_table_type
-        ct_components  TYPE tt_component.
+        cv_current_structure TYPE ty_identifier
+        cv_position          TYPE i
+        ct_table_types       TYPE tt_table_type
+        ct_components        TYPE tt_component.
 
     METHODS parse_data_statement
       IMPORTING
@@ -258,8 +260,18 @@ CLASS zcl_mig_alv_row_analyzer IMPLEMENTATION.
       et_components.
 
 
+    DATA:
+      lv_current_structure TYPE ty_identifier,
+      lv_position          TYPE i.
+
+
     LOOP AT it_source_units
       ASSIGNING FIELD-SYMBOL(<source_unit>).
+
+
+      CLEAR:
+        lv_current_structure,
+        lv_position.
 
 
       LOOP AT <source_unit>-scan_result-statements
@@ -273,26 +285,83 @@ CLASS zcl_mig_alv_row_analyzer IMPLEMENTATION.
           ).
 
 
-        IF lv_statement_text CP 'TYPES*'.
+        CASE to_upper( <statement>-statement_type ).
 
-          parse_types_statement(
-            EXPORTING
-              is_statement   = <statement>
-            CHANGING
-              ct_table_types = et_table_types
-              ct_components  = et_components
-          ).
+          WHEN 'TYPES'.
 
-        ELSEIF lv_statement_text CP 'DATA*'.
+            parse_types_statement(
+              EXPORTING
+                is_statement =
+                  <statement>
 
-          parse_data_statement(
-            EXPORTING
-              is_statement = <statement>
-            CHANGING
-              ct_data_decls = et_data_decls
-          ).
+              CHANGING
+                cv_current_structure =
+                  lv_current_structure
 
-        ENDIF.
+                cv_position =
+                  lv_position
+
+                ct_table_types =
+                  et_table_types
+
+                ct_components =
+                  et_components
+            ).
+
+
+          WHEN 'DATA'.
+
+            parse_data_statement(
+              EXPORTING
+                is_statement =
+                  <statement>
+
+              CHANGING
+                ct_data_decls =
+                  et_data_decls
+            ).
+
+
+          WHEN OTHERS.
+
+            "Compatibility fallback when statement_type
+            "has not been normalized.
+            IF lv_statement_text CP 'TYPES*'.
+
+              parse_types_statement(
+                EXPORTING
+                  is_statement =
+                    <statement>
+
+                CHANGING
+                  cv_current_structure =
+                    lv_current_structure
+
+                  cv_position =
+                    lv_position
+
+                  ct_table_types =
+                    et_table_types
+
+                  ct_components =
+                    et_components
+              ).
+
+            ELSEIF lv_statement_text CP 'DATA*'.
+
+              parse_data_statement(
+                EXPORTING
+                  is_statement =
+                    <statement>
+
+                CHANGING
+                  ct_data_decls =
+                    et_data_decls
+              ).
+
+            ENDIF.
+
+        ENDCASE.
 
       ENDLOOP.
 
@@ -310,11 +379,15 @@ CLASS zcl_mig_alv_row_analyzer IMPLEMENTATION.
       ).
 
 
-    REPLACE FIRST OCCURRENCE OF 'TYPES'
-      IN lv_text
-      WITH ''.
+    IF lv_text CP 'TYPES*'.
 
-    CONDENSE lv_text.
+      REPLACE FIRST OCCURRENCE OF 'TYPES'
+        IN lv_text
+        WITH ''.
+
+      CONDENSE lv_text.
+
+    ENDIF.
 
 
     IF lv_text IS NOT INITIAL
@@ -339,11 +412,6 @@ CLASS zcl_mig_alv_row_analyzer IMPLEMENTATION.
     SPLIT lv_text
       AT ','
       INTO TABLE lt_segments.
-
-
-    DATA:
-      lv_current_structure TYPE ty_identifier,
-      lv_position          TYPE i.
 
 
     LOOP AT lt_segments
@@ -372,16 +440,17 @@ CLASS zcl_mig_alv_row_analyzer IMPLEMENTATION.
         CONDENSE lv_begin_text.
 
 
-        lv_current_structure =
+        cv_current_structure =
           normalize_identifier(
             iv_value =
               get_first_word(
-                iv_text = lv_begin_text
+                iv_text =
+                  lv_begin_text
               )
           ).
 
 
-        CLEAR lv_position.
+        CLEAR cv_position.
 
         CONTINUE.
 
@@ -391,15 +460,15 @@ CLASS zcl_mig_alv_row_analyzer IMPLEMENTATION.
       IF lv_segment CP 'END OF *'.
 
         CLEAR:
-          lv_current_structure,
-          lv_position.
+          cv_current_structure,
+          cv_position.
 
         CONTINUE.
 
       ENDIF.
 
 
-      IF lv_current_structure IS NOT INITIAL.
+      IF cv_current_structure IS NOT INITIAL.
 
         IF lv_segment NS ' TYPE '.
 
@@ -409,8 +478,8 @@ CLASS zcl_mig_alv_row_analyzer IMPLEMENTATION.
 
 
         DATA:
-          lv_field_left       TYPE string,
-          lv_type_expression  TYPE string.
+          lv_field_left      TYPE string,
+          lv_type_expression TYPE string.
 
 
         SPLIT lv_segment
@@ -423,7 +492,8 @@ CLASS zcl_mig_alv_row_analyzer IMPLEMENTATION.
           normalize_identifier(
             iv_value =
               get_first_word(
-                iv_text = lv_field_left
+                iv_text =
+                  lv_field_left
               )
           ).
 
@@ -435,7 +505,7 @@ CLASS zcl_mig_alv_row_analyzer IMPLEMENTATION.
         ENDIF.
 
 
-        lv_position += 10.
+        cv_position += 10.
 
 
         DATA ls_component
@@ -446,13 +516,13 @@ CLASS zcl_mig_alv_row_analyzer IMPLEMENTATION.
 
 
         ls_component-struct_name =
-          lv_current_structure.
+          cv_current_structure.
 
         ls_component-field_name =
           lv_field_name.
 
         ls_component-position =
-          lv_position.
+          cv_position.
 
         ls_component-label =
           lv_field_name.
@@ -477,6 +547,7 @@ CLASS zcl_mig_alv_row_analyzer IMPLEMENTATION.
           EXPORTING
             iv_type_expression =
               lv_type_expression
+
           CHANGING
             cs_component =
               ls_component
@@ -514,7 +585,8 @@ CLASS zcl_mig_alv_row_analyzer IMPLEMENTATION.
         normalize_identifier(
           iv_value =
             get_first_word(
-              iv_text = lv_alias_left
+              iv_text =
+                lv_alias_left
             )
         ).
 
@@ -536,12 +608,16 @@ CLASS zcl_mig_alv_row_analyzer IMPLEMENTATION.
 
       DELETE TABLE ct_table_types
         WITH TABLE KEY
-          type_name = lv_alias_name.
+          type_name =
+            lv_alias_name.
 
 
       INSERT VALUE #(
-        type_name = lv_alias_name
-        row_type  = lv_alias_row_type
+        type_name =
+          lv_alias_name
+
+        row_type =
+          lv_alias_row_type
       ) INTO TABLE ct_table_types.
 
     ENDLOOP.

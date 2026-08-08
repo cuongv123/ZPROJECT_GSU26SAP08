@@ -243,6 +243,63 @@ CLASS zcl_mig_provider_contract IMPLEMENTATION.
 
     ENDIF.
 
+    IF is_logic-object_name CP 'CONVERSION_EXIT_*'.
+
+      rs_candidate-provider_kind =
+        zif_mig_types=>gc_provider_none.
+
+      RETURN.
+
+    ENDIF.
+
+    IF is_logic-container_name CP 'CL_SALV_*'
+       OR is_logic-container_name CP 'CL_GUI_ALV_*'
+       OR is_logic-object_name = 'FACTORY'
+       OR is_logic-object_name = 'DISPLAY'
+       OR is_logic-object_name = 'GET_COLUMNS'
+       OR is_logic-object_name = 'SET_OPTIMIZE'
+       OR is_logic-object_name = 'GET_TEXT'.
+
+      rs_candidate-provider_kind =
+        zif_mig_types=>gc_provider_none.
+
+      RETURN.
+
+    ENDIF.
+
+    DATA(lv_calling_routine) =
+  to_upper(
+    CONV string(
+      is_logic-calling_routine
+    )
+  ).
+
+    IF is_logic-object_type = 'BAPI'
+       AND
+       ( lv_calling_routine CP 'ENRICH*'
+         OR lv_calling_routine CP 'CONVERT*'
+         OR lv_calling_routine CP 'NORMALIZE*'
+         OR lv_calling_routine CP 'FORMAT*'
+         OR lv_calling_routine CP 'DISPLAY*'
+         OR lv_calling_routine CP 'VALIDATE*'
+         OR lv_calling_routine CP 'WRITE*' ).
+
+      rs_candidate-provider_kind =
+        zif_mig_types=>gc_provider_none.
+
+      RETURN.
+
+    ENDIF.
+    IF is_logic-object_name CP 'Z_*'
+       OR is_logic-object_name CP 'Y_*'.
+
+      rs_candidate-priority = 10.
+
+    ELSE.
+
+      rs_candidate-priority = 30.
+
+    ENDIF.
 
     CASE is_logic-object_type.
 

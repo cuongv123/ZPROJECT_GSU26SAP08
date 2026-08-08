@@ -27,8 +27,18 @@ CLASS zcl_mig_export_engine DEFINITION
              section_code TYPE zif_mig_export_provider=>ty_export_section,
              view_name    TYPE tabname,
              sheet_title  TYPE string,
+             sort_spec    TYPE string,
            END OF ty_section_registry,
            tt_section_registry TYPE STANDARD TABLE OF ty_section_registry WITH NON-UNIQUE DEFAULT KEY.
+
+    " Bản đồ field đã chọn theo TỪNG section - dùng khi ExportSection=ALL
+    " để mỗi section lấy đúng field riêng đã được tick, không dùng chung
+    " 1 danh sách phẳng cho tất cả section.
+    TYPES: BEGIN OF ty_section_fields,
+             section_code TYPE zif_mig_export_provider=>ty_export_section,
+             fields       TYPE string_table,
+           END OF ty_section_fields,
+           tt_section_fields TYPE STANDARD TABLE OF ty_section_fields WITH NON-UNIQUE DEFAULT KEY.
 
     " ------------------------------------------------------------
     " Helpers dùng chung cho cả 3 định dạng
@@ -36,6 +46,26 @@ CLASS zcl_mig_export_engine DEFINITION
     METHODS get_section_registry
       RETURNING
         VALUE(rt_registry) TYPE tt_section_registry.
+
+    " Sort động theo cấu hình sort_spec của section (VD: "TARGET_LAYER:D,SEVERITY:A")
+    " - không hardcode tên section/field nào trong engine.
+    METHODS apply_dynamic_sort
+      IMPORTING
+        iv_sort_spec TYPE string
+      CHANGING
+        ct_data      TYPE ANY TABLE.
+
+    " Xây tên file động chứa ProgramName + ExportSection, đúng yêu cầu
+    " spec mục 6 - hoạt động đúng cho cả 2 luồng gọi (GET theo report_type
+    " và POST action chỉ có analysis_id, report_type rỗng).
+    METHODS resolve_export_filename
+      IMPORTING
+        iv_analysis_id    TYPE sysuuid_x16
+        iv_report_type    TYPE zmig_mail_job-report_type
+        iv_export_section TYPE zif_mig_export_provider=>ty_export_section
+        iv_extension      TYPE string
+      RETURNING
+        VALUE(rv_filename) TYPE string.
 
     METHODS get_analysis_id
       IMPORTING
@@ -63,6 +93,16 @@ CLASS zcl_mig_export_engine DEFINITION
         iv_selected_fields TYPE string
       RETURNING
         VALUE(rt_fields)   TYPE string_table.
+
+    " Parse SelectedFields dạng nhiều section khi ExportSection=ALL:
+    " "SECTION1:Field1,Field2;SECTION2:Field3" -> map section -> field list.
+    " Định dạng phẳng cũ (không có dấu ':') vẫn hoạt động bình thường cho
+    " trường hợp 1 section cụ thể (không đi qua method này).
+    METHODS parse_section_field_map
+      IMPORTING
+        iv_selected_fields TYPE string
+      RETURNING
+        VALUE(rt_map)      TYPE tt_section_fields.
 
     " 1 SELECT duy nhất để đọc dữ liệu của 1 section theo analysis_id.
     METHODS read_section_data
@@ -139,7 +179,9 @@ CLASS zcl_mig_export_engine DEFINITION
         iv_export_section  TYPE zif_mig_export_provider=>ty_export_section
         iv_selected_fields TYPE string
       RETURNING
-        VALUE(rs_result)   TYPE zif_mig_export_provider=>ty_export_result.
+        VALUE(rs_result)   TYPE zif_mig_export_provider=>ty_export_result
+      RAISING
+        zcx_excel.
 
     METHODS export_csv
       IMPORTING
@@ -172,13 +214,9 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
         DATA(lv_section) = CONV zif_mig_export_provider=>ty_export_section(
           to_upper( condense( CONV string( iv_export_section ) ) ) ).
 
-        " Rule (spec mục 5): ALL + SelectedFields không được đi cùng nhau.
-        IF lv_section = 'ALL' AND iv_selected_fields IS NOT INITIAL.
-          rs_result-success = abap_false.
-          rs_result-message = 'SelectedFields is not supported when ExportSection is ALL. '
-                            && 'Please choose a specific section.'.
-          RETURN.
-        ENDIF.
+        " ExportSection=ALL + SelectedFields: giờ được hỗ trợ qua định dạng
+        " "SECTION1:Field1,Field2;SECTION2:Field3" - mỗi section tự lấy
+        " đúng field đã tick, không còn bị chặn như trước.
 
         CASE lv_format.
           WHEN gc_format_excel OR 'EXCEL' OR 'E' OR 'XLSX'.
@@ -227,26 +265,64 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
   METHOD get_section_registry.
     CLEAR rt_registry.
 
-    " 1 SELECT duy nhất, không nằm trong loop.
-    SELECT section_code, view_name, sheet_title
+    " 1 SELECT duy nhất, không nằm trong loop. Không còn fallback hardcode
+    " - registry hoàn toàn phụ thuộc dữ liệu thật trong ZTB_EXP_SECTION.
+    SELECT section_code, view_name, sheet_title, sort_spec
       FROM ztb_exp_section
       WHERE is_active = 'X'
       ORDER BY sort_order ASCENDING
       INTO CORRESPONDING FIELDS OF TABLE @rt_registry.
+  ENDMETHOD.
 
-    IF rt_registry IS INITIAL.
-      rt_registry = VALUE #(
-        ( section_code = 'OVERVIEW'    view_name = 'ZMIG_ANL_H'   sheet_title = 'Overview' )
-        ( section_code = 'SRC_STRUCT'  view_name = 'ZMIG_ANL_SRC' sheet_title = 'Source Structure' )
-        ( section_code = 'UI_FILTER'   view_name = 'ZMIG_ANL_UI'  sheet_title = 'UI Filters' )
-        ( section_code = 'DB_OBJ'      view_name = 'ZMIG_ANL_DB'  sheet_title = 'Database Objects' )
-        ( section_code = 'BUS_LOGIC'   view_name = 'ZMIG_ANL_LOG' sheet_title = 'Business Logic' )
-        ( section_code = 'ALV_OUTPUT'  view_name = 'ZMIG_ANL_ALV' sheet_title = 'ALV Outputs' )
-        ( section_code = 'SRC_EVIDEN'  view_name = 'ZMIG_ANL_EVD' sheet_title = 'Source Evidences' )
-        ( section_code = 'RECOMMEN'    view_name = 'ZMIG_ANL_REC' sheet_title = 'Recommendations' )
-        ( section_code = 'MESSAGE'     view_name = 'ZMIG_ANL_MSG' sheet_title = 'Messages' )
-      ).
+
+  METHOD apply_dynamic_sort.
+    " iv_sort_spec dạng: "FIELD1:D,FIELD2:A" (D=Descending, A=Ascending)
+    " Parse hoàn toàn động, không hardcode tên field/section nào ở đây.
+    DATA lt_sort_order TYPE abap_sortorder_tab.
+
+    SPLIT iv_sort_spec AT ',' INTO TABLE DATA(lt_parts).
+    LOOP AT lt_parts INTO DATA(lv_part).
+      SPLIT lv_part AT ':' INTO DATA(lv_field) DATA(lv_dir).
+      lv_field = to_upper( condense( lv_field ) ).
+      IF lv_field IS INITIAL.
+        CONTINUE.
+      ENDIF.
+      APPEND VALUE #(
+        name       = lv_field
+        descending = xsdbool( to_upper( condense( lv_dir ) ) = 'D' )
+      ) TO lt_sort_order.
+    ENDLOOP.
+
+    IF lt_sort_order IS NOT INITIAL.
+      TRY.
+          SORT ct_data BY (lt_sort_order).
+        CATCH cx_root.
+          " sort_spec cấu hình sai field name -> bỏ qua sort, không chặn export.
+      ENDTRY.
     ENDIF.
+  ENDMETHOD.
+
+
+  METHOD resolve_export_filename.
+    DATA(lv_prefix) = CONV string( iv_report_type ).
+
+    IF lv_prefix IS INITIAL AND iv_analysis_id IS NOT INITIAL.
+      " Luồng POST action chỉ có analysis_id, report_type rỗng ->
+      " lấy ProgramName trực tiếp từ bảng để tên file luôn đúng yêu cầu.
+      SELECT SINGLE program_name
+        FROM zmig_anl_h
+        WHERE analysis_id = @iv_analysis_id
+        INTO @lv_prefix.
+    ENDIF.
+
+    IF lv_prefix IS INITIAL.
+      lv_prefix = 'migration_report'.
+    ENDIF.
+
+    " Loại ký tự không hợp lệ trong tên file (khoảng trắng, / \ : * ? " < > |)
+    lv_prefix = replace( regex = '[^A-Za-z0-9_\-]' val = lv_prefix with = '_' occ = 0 ).
+
+    rv_filename = |{ lv_prefix }_{ iv_export_section }.{ iv_extension }|.
   ENDMETHOD.
 
 
@@ -285,6 +361,47 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       IF sy-subrc <> 0.
         APPEND lv_trimmed TO rt_fields.
       ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+
+  METHOD parse_section_field_map.
+    CLEAR rt_map.
+    IF iv_selected_fields IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    " Định dạng: "SECTION1:Field1,Field2;SECTION2:Field3"
+    SPLIT iv_selected_fields AT ';' INTO TABLE DATA(lt_parts).
+
+    LOOP AT lt_parts INTO DATA(lv_part).
+      lv_part = condense( lv_part ).
+      IF lv_part IS INITIAL.
+        CONTINUE.
+      ENDIF.
+
+      FIND FIRST OCCURRENCE OF ':' IN lv_part MATCH OFFSET DATA(lv_colon_pos).
+      IF sy-subrc <> 0.
+        CONTINUE. " thiếu dấu ':' -> định dạng sai, bỏ qua phần này
+      ENDIF.
+
+      DATA(lv_section_code) = to_upper( condense( lv_part(lv_colon_pos) ) ).
+      DATA(lv_field_start)  = lv_colon_pos + 1.
+      DATA(lv_fields_str)   = lv_part+lv_field_start.
+
+      IF lv_section_code IS INITIAL.
+        CONTINUE.
+      ENDIF.
+
+      READ TABLE rt_map WITH KEY section_code = lv_section_code TRANSPORTING NO FIELDS.
+      IF sy-subrc = 0.
+        CONTINUE. " section khai báo trùng -> chỉ giữ lần đầu tiên
+      ENDIF.
+
+      APPEND VALUE #(
+        section_code = lv_section_code
+        fields       = parse_selected_fields( lv_fields_str )
+      ) TO rt_map.
     ENDLOOP.
   ENDMETHOD.
 
@@ -370,7 +487,14 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
 
   METHOD export_excel.
     DATA(lt_registry) = get_section_registry( ).
-    DATA(lt_sel_fields) = parse_selected_fields( iv_selected_fields ).
+    DATA(lv_is_all) = xsdbool( to_upper( condense( CONV string( iv_export_section ) ) ) = 'ALL' ).
+
+    " ALL: field theo từng section (định dạng "SEC:f1,f2;SEC2:f3").
+    " Khác ALL: field phẳng áp dụng cho đúng 1 section được chọn.
+    DATA(lt_sel_fields) = COND string_table(
+      WHEN lv_is_all = abap_false THEN parse_selected_fields( iv_selected_fields ) ).
+    DATA(lt_section_map) = COND #(
+      WHEN lv_is_all = abap_true THEN parse_section_field_map( iv_selected_fields ) ).
 
     TRY.
         DATA(lv_analysis_id) = get_analysis_id(
@@ -383,13 +507,19 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     DATA(lo_excel) = NEW zcl_excel( ).
     DATA(lv_sheet_count) = 0.
 
-    DATA(lo_style_bold) = lo_excel->add_new_style( ).
-    lo_style_bold->font->bold = abap_true.
+    TRY.
+        DATA(lo_style_bold) = lo_excel->add_new_style( ).
+        lo_style_bold->font->bold = abap_true.
 
-    DATA(lo_style_total) = lo_excel->add_new_style( ).
-    lo_style_total->font->bold = abap_true.
-    lo_style_total->fill->fgcolor-rgb = 'FFF2F2F2'.
-    lo_style_total->fill->filltype = zcl_excel_style_fill=>c_fill_solid.
+        DATA(lo_style_total) = lo_excel->add_new_style( ).
+        lo_style_total->font->bold = abap_true.
+        lo_style_total->fill->fgcolor-rgb = 'FFF2F2F2'.
+        lo_style_total->fill->filltype = zcl_excel_style_fill=>c_fill_solid.
+      CATCH cx_root INTO DATA(lx_style_error).
+        rs_result-success = abap_false.
+        rs_result-message = |Excel style init error: { lx_style_error->get_text( ) }.|.
+        RETURN.
+    ENDTRY.
 
     TRY.
         LOOP AT lt_registry INTO DATA(ls_section).
@@ -404,11 +534,26 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
               CONTINUE.
           ENDTRY.
 
+          " Field áp dụng cho section đang xử lý: nếu ALL, tra trong map
+          " (section nào không có trong map -> dùng cột mặc định); nếu
+          " không phải ALL, dùng danh sách phẳng của chính section đó.
+          DATA lt_fields_for_section TYPE string_table.
+          CLEAR lt_fields_for_section.
+          IF lv_is_all = abap_true.
+            READ TABLE lt_section_map INTO DATA(ls_section_map)
+              WITH KEY section_code = ls_section-section_code.
+            IF sy-subrc = 0.
+              lt_fields_for_section = ls_section_map-fields.
+            ENDIF.
+          ELSE.
+            lt_fields_for_section = lt_sel_fields.
+          ENDIF.
+
           " 1 SELECT cho cột + 1 SELECT cho dữ liệu, cả hai nằm ngoài
           " mọi loop dòng dữ liệu (chỉ lặp theo số section, tối đa ~9).
           DATA(lt_columns) = get_columns_for_section(
             iv_section_code    = ls_section-section_code
-            it_selected_fields = lt_sel_fields
+            it_selected_fields = lt_fields_for_section
             io_struct          = lo_struct ).
 
           DATA(lo_sheet) = COND #(
@@ -424,13 +569,26 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
             CONTINUE.
           ENDIF.
 
-          DATA(lr_data) = read_section_data(
-            iv_view_name   = ls_section-view_name
-            iv_analysis_id = lv_analysis_id ).
+          TRY.
+              DATA(lr_data) = read_section_data(
+                iv_view_name   = ls_section-view_name
+                iv_analysis_id = lv_analysis_id ).
+            CATCH cx_root.
+              lo_sheet->set_cell( ip_column = 1 ip_row = 1
+                ip_value = |Error reading data for section { ls_section-sheet_title }.| ).
+              lv_sheet_count = lv_sheet_count + 1.
+              CONTINUE.
+          ENDTRY.
           ASSIGN lr_data->* TO FIELD-SYMBOL(<lt_data>).
 
-          IF ls_section-section_code = 'RECOMMEN' AND <lt_data> IS NOT INITIAL.
-            SORT <lt_data> BY ('TARGET_LAYER') DESCENDING ('SEVERITY') ASCENDING.
+          IF ls_section-sort_spec IS NOT INITIAL AND <lt_data> IS NOT INITIAL.
+            TRY.
+                apply_dynamic_sort(
+                  EXPORTING iv_sort_spec = ls_section-sort_spec
+                  CHANGING  ct_data      = <lt_data> ).
+              CATCH cx_root.
+                " sort lỗi -> bỏ qua sort, vẫn xuất dữ liệu chưa sort.
+            ENDTRY.
           ENDIF.
 
           IF <lt_data> IS INITIAL.
@@ -453,19 +611,18 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
           " --- Data rows + gom tổng cho cột số (1 lượt duyệt dữ liệu) ---
           DATA lt_is_numeric TYPE STANDARD TABLE OF abap_bool WITH EMPTY KEY.
           DATA lt_totals     TYPE STANDARD TABLE OF decfloat34 WITH EMPTY KEY.
+          DATA(lt_struct_components) = lo_struct->get_components( ).
           LOOP AT lt_columns INTO ls_col.
             DATA(lv_is_num) = abap_false.
-            TRY.
-                DATA(lo_comp_descr) = lo_struct->get_component_type( CONV #( ls_col-fieldname ) ).
-                IF lo_comp_descr->kind = cl_abap_typedescr=>kind_elem.
-                  DATA(lv_type_kind) = CAST cl_abap_elemdescr( lo_comp_descr )->type_kind.
-                  IF lv_type_kind CA 'ibsI8PaFe'.  " int/packed/float/decfloat kinds
-                    lv_is_num = abap_true.
-                  ENDIF.
-                ENDIF.
-              CATCH cx_root.
-                lv_is_num = abap_false.
-            ENDTRY.
+            READ TABLE lt_struct_components INTO DATA(ls_struct_comp)
+              WITH KEY name = CONV abap_compname( ls_col-fieldname ).
+            IF sy-subrc = 0 AND ls_struct_comp-type IS BOUND
+               AND ls_struct_comp-type->kind = cl_abap_typedescr=>kind_elem.
+              DATA(lv_type_kind) = CAST cl_abap_elemdescr( ls_struct_comp-type )->type_kind.
+              IF lv_type_kind CA 'ibsI8PaFe'.  " int/packed/float/decfloat kinds
+                lv_is_num = abap_true.
+              ENDIF.
+            ENDIF.
             APPEND lv_is_num TO lt_is_numeric.
             APPEND 0 TO lt_totals.
           ENDLOOP.
@@ -516,6 +673,10 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
         rs_result-success = abap_false.
         rs_result-message = |Excel build error: { lx_excel_build->get_text( ) }.|.
         RETURN.
+      CATCH cx_root INTO DATA(lx_unexpected).
+        rs_result-success = abap_false.
+        rs_result-message = |Unexpected error: { lx_unexpected->get_text( ) }.|.
+        RETURN.
     ENDTRY.
 
     IF lv_sheet_count = 0.
@@ -536,7 +697,11 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
 
     rs_result-success     = abap_true.
     rs_result-content     = lv_content.
-    rs_result-file_name   = |{ gc_excel_name }.xlsx|.
+    rs_result-file_name   = resolve_export_filename(
+                               iv_analysis_id    = lv_analysis_id
+                               iv_report_type    = iv_report_type
+                               iv_export_section = iv_export_section
+                               iv_extension      = 'xlsx' ).
     rs_result-file_type   = 'BIN'.
     rs_result-file_format = gc_format_excel.
     rs_result-mime_type   = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'.
@@ -556,8 +721,11 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     ENDTRY.
 
     DATA(lt_registry) = get_section_registry( ).
-    DATA(lt_sel_fields) = parse_selected_fields( iv_selected_fields ).
     DATA(lv_is_all) = xsdbool( to_upper( condense( CONV string( iv_export_section ) ) ) = 'ALL' ).
+    DATA(lt_sel_fields) = COND string_table(
+      WHEN lv_is_all = abap_false THEN parse_selected_fields( iv_selected_fields ) ).
+    DATA(lt_section_map) = COND #(
+      WHEN lv_is_all = abap_true THEN parse_section_field_map( iv_selected_fields ) ).
 
     " Danh sách section cần xuất: ALL -> toàn bộ registry (~9, không phụ
     " thuộc số dòng dữ liệu), khác ALL -> đúng 1 section được chọn.
@@ -586,9 +754,21 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
           CONTINUE.
       ENDTRY.
 
+      DATA lt_fields_for_section TYPE string_table.
+      CLEAR lt_fields_for_section.
+      IF lv_is_all = abap_true.
+        READ TABLE lt_section_map INTO DATA(ls_section_map)
+          WITH KEY section_code = ls_section-section_code.
+        IF sy-subrc = 0.
+          lt_fields_for_section = ls_section_map-fields.
+        ENDIF.
+      ELSE.
+        lt_fields_for_section = lt_sel_fields.
+      ENDIF.
+
       DATA(lt_columns) = get_columns_for_section(
         iv_section_code    = ls_section-section_code
-        it_selected_fields = lt_sel_fields
+        it_selected_fields = lt_fields_for_section
         io_struct          = lo_struct ).
       IF lt_columns IS INITIAL.
         CONTINUE.
@@ -606,7 +786,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       lv_any_section_ok = abap_true.
 
       " Header phân biệt section (chỉ có ý nghĩa khi ALL, vô hại khi 1 section)
-      lv_csv_all = lv_csv_all && |=== { ls_section-sheet_title } ===| && cl_abap_char_utilities=>cr_lf.
+      lv_csv_all = lv_csv_all && | { ls_section-sheet_title } | && cl_abap_char_utilities=>cr_lf.
 
       DATA(lv_col_header) = REDUCE string(
         INIT s = ``
@@ -638,7 +818,11 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
 
     rs_result-success     = abap_true.
     rs_result-content     = cl_abap_codepage=>convert_to( source = lv_csv_all codepage = 'UTF-8' ).
-    rs_result-file_name   = |{ gc_csv_name }.csv|.
+    rs_result-file_name   = resolve_export_filename(
+                               iv_analysis_id    = lv_analysis_id
+                               iv_report_type    = iv_report_type
+                               iv_export_section = iv_export_section
+                               iv_extension      = 'csv' ).
     rs_result-file_type   = 'CSV'.
     rs_result-file_format = gc_format_csv.
     rs_result-mime_type   = 'text/csv'.
@@ -658,8 +842,11 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     ENDTRY.
 
     DATA(lt_registry) = get_section_registry( ).
-    DATA(lt_sel_fields) = parse_selected_fields( iv_selected_fields ).
     DATA(lv_is_all) = xsdbool( to_upper( condense( CONV string( iv_export_section ) ) ) = 'ALL' ).
+    DATA(lt_sel_fields) = COND string_table(
+      WHEN lv_is_all = abap_false THEN parse_selected_fields( iv_selected_fields ) ).
+    DATA(lt_section_map) = COND #(
+      WHEN lv_is_all = abap_true THEN parse_section_field_map( iv_selected_fields ) ).
 
     DATA lt_target_sections LIKE lt_registry.
     IF lv_is_all = abap_true.
@@ -685,9 +872,21 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
           CONTINUE.
       ENDTRY.
 
+      DATA lt_fields_for_section TYPE string_table.
+      CLEAR lt_fields_for_section.
+      IF lv_is_all = abap_true.
+        READ TABLE lt_section_map INTO DATA(ls_section_map)
+          WITH KEY section_code = ls_section-section_code.
+        IF sy-subrc = 0.
+          lt_fields_for_section = ls_section_map-fields.
+        ENDIF.
+      ELSE.
+        lt_fields_for_section = lt_sel_fields.
+      ENDIF.
+
       DATA(lt_columns) = get_columns_for_section(
         iv_section_code    = ls_section-section_code
-        it_selected_fields = lt_sel_fields
+        it_selected_fields = lt_fields_for_section
         io_struct          = lo_struct ).
       IF lt_columns IS INITIAL.
         CONTINUE.
@@ -739,7 +938,11 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
 
     rs_result-content     = assemble_pdf_binary( it_pages = lt_all_pages ).
     rs_result-success     = abap_true.
-    rs_result-file_name   = |{ gc_pdf_name }.pdf|.
+    rs_result-file_name   = resolve_export_filename(
+                               iv_analysis_id    = lv_analysis_id
+                               iv_report_type    = iv_report_type
+                               iv_export_section = iv_export_section
+                               iv_extension      = 'pdf' ).
     rs_result-file_type   = 'PDF'.
     rs_result-file_format = gc_format_pdf.
     rs_result-mime_type   = 'application/pdf'.
@@ -938,5 +1141,6 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
   ENDMETHOD.
 
 ENDCLASS.
+
 
 

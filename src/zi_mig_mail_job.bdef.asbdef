@@ -16,15 +16,15 @@ etag master LocalLastChangedAt
   association _Recipients { create; }
 
   validation validateRequiredFields on save
-  {
-    create;
-    update;
-    field JobName,
-          ReportType,
-          FileFormat,
-          Frequency,
-          MailSubject;
-  }
+{
+  create;
+  update;
+  field AnalysisId,
+        JobName,
+        ReportType,
+        FileFormat,
+        Frequency;
+}
 
   validation validateSchedule on save
   {
@@ -119,6 +119,11 @@ etag master LocalLastChangedAt
   create;
   update;
   field SapUser;
+}
+
+  validation validateParentHasRecipient on save
+{
+  delete;
 }
 
   field ( readonly )
