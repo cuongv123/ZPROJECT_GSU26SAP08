@@ -12,7 +12,7 @@ define root view entity ZC_MIG_MAIL_JOB
       ReportType,
       FileFormat,
       Frequency,
-
+      JobTimeZone,
       StartDate,
       StartTime,
       DayOfWeek,

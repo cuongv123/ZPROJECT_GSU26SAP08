@@ -7,6 +7,8 @@ authorization master ( global )
 {
   field ( readonly ) AnalysisId;
 
+  delete;
+
   static action Analyze
     parameter ZA_MIG_ANALYZE_PARAM
     result [1] $self;

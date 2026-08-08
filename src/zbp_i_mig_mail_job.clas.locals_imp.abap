@@ -302,10 +302,14 @@ METHOD validateSchedule.
     lv_has_error TYPE abap_bool,
     lv_frequency TYPE symsgv.
 
+  "----------------------------------------------------------
+  " Read affected Mail Jobs
+  "----------------------------------------------------------
   READ ENTITIES OF zi_mig_mail_job IN LOCAL MODE
     ENTITY MailJob
       FIELDS (
         Frequency
+        JobTimeZone
         StartDate
         StartTime
         DayOfWeek
@@ -314,6 +318,23 @@ METHOD validateSchedule.
       WITH CORRESPONDING #( keys )
     RESULT DATA(lt_jobs).
 
+
+  "----------------------------------------------------------
+  " Load valid SAP time zones ONCE.
+  " Do not SELECT inside LOOP.
+  "----------------------------------------------------------
+  DATA lt_valid_time_zones
+    TYPE HASHED TABLE OF ttzz-tzone
+    WITH UNIQUE KEY table_line.
+
+  SELECT FROM ttzz
+    FIELDS tzone
+    INTO TABLE @lt_valid_time_zones.
+
+
+  "----------------------------------------------------------
+  " Validate each Mail Job
+  "----------------------------------------------------------
   LOOP AT lt_jobs INTO DATA(ls_job).
 
     CLEAR:
@@ -323,22 +344,24 @@ METHOD validateSchedule.
     lv_has_error = abap_false.
 
 
-    "----------------------------------------------------------
-    " Frequency is validated by validateRequiredFields.
+    "--------------------------------------------------------
+    " Frequency mandatory validation is handled by
+    " validateRequiredFields.
     " Avoid duplicate messages here.
-    "----------------------------------------------------------
+    "--------------------------------------------------------
     IF ls_job-Frequency IS INITIAL.
       CONTINUE.
     ENDIF.
 
 
-    "----------------------------------------------------------
+    "--------------------------------------------------------
     " Validate supported frequency
+    "
     " O = On Demand
     " D = Daily
     " W = Weekly
     " M = Monthly
-    "----------------------------------------------------------
+    "--------------------------------------------------------
     IF ls_job-Frequency <> gc_frequency_on_demand
        AND ls_job-Frequency <> gc_frequency_daily
        AND ls_job-Frequency <> gc_frequency_weekly
@@ -360,16 +383,71 @@ METHOD validateSchedule.
         %element-Frequency = if_abap_behv=>mk-on
       ) TO reported-MailJob.
 
+
+    "--------------------------------------------------------
+    " Scheduled jobs: Daily / Weekly / Monthly
+    "--------------------------------------------------------
     ELSEIF ls_job-Frequency <> gc_frequency_on_demand.
 
 
-      "--------------------------------------------------------
+      "------------------------------------------------------
+      " Time zone is mandatory for scheduled jobs.
+      "------------------------------------------------------
+      IF ls_job-JobTimeZone IS INITIAL.
+
+        lv_has_error = abap_true.
+
+        APPEND VALUE #(
+          %tky = ls_job-%tky
+          %msg = new_message(
+                   id       = 'ZMIG_ANALYSIS'
+                   number   = '040'
+                   severity = if_abap_behv_message=>severity-error
+                 )
+          %element-JobTimeZone = if_abap_behv=>mk-on
+        ) TO reported-MailJob.
+
+      ELSE.
+
+        "----------------------------------------------------
+        " Validate that JobTimeZone exists in SAP TTZZ.
+        "----------------------------------------------------
+        DATA(lv_time_zone) =
+          CONV ttzz-tzone( ls_job-JobTimeZone ).
+
+        IF NOT line_exists(
+          lt_valid_time_zones[
+            table_line = lv_time_zone
+          ]
+        ).
+
+          lv_has_error = abap_true.
+
+          APPEND VALUE #(
+            %tky = ls_job-%tky
+            %msg = new_message(
+                     id       = 'ZMIG_ANALYSIS'
+                     number   = '041'
+                     severity = if_abap_behv_message=>severity-error
+                     v1       = CONV symsgv(
+                                  ls_job-JobTimeZone
+                                )
+                   )
+            %element-JobTimeZone = if_abap_behv=>mk-on
+          ) TO reported-MailJob.
+
+        ENDIF.
+
+      ENDIF.
+
+
+      "------------------------------------------------------
       " Scheduled jobs require StartDate.
       "
-      " Do NOT reject dates in the past.
-      " Existing recurring jobs naturally have historical
-      " StartDate values.
-      "--------------------------------------------------------
+      " Do NOT reject historical StartDate.
+      " Recurring jobs naturally keep their original
+      " configured start date.
+      "------------------------------------------------------
       IF ls_job-StartDate IS INITIAL.
 
         lv_has_error = abap_true.
@@ -387,18 +465,25 @@ METHOD validateSchedule.
       ENDIF.
 
 
-      "--------------------------------------------------------
-      " StartTime is intentionally NOT checked with IS INITIAL.
+      "------------------------------------------------------
+      " StartTime is intentionally NOT validated using
+      " IS INITIAL.
       "
-      " ABAP TIMS value 000000 means 00:00:00 and is also the
-      " initial value. Therefore 000000 is accepted as midnight.
-      "--------------------------------------------------------
+      " ABAP TIMS 000000 represents 00:00:00 and is also
+      " the type's initial value.
+      "
+      " Midnight is therefore valid.
+      "------------------------------------------------------
 
 
-      "--------------------------------------------------------
+      "------------------------------------------------------
       " Weekly schedule
-      " DayOfWeek: 1 = Monday ... 7 = Sunday
-      "--------------------------------------------------------
+      "
+      " DayOfWeek:
+      " 1 = Monday
+      " ...
+      " 7 = Sunday
+      "------------------------------------------------------
       IF ls_job-Frequency = gc_frequency_weekly.
 
         IF ls_job-DayOfWeek < '1'
@@ -421,9 +506,11 @@ METHOD validateSchedule.
       ENDIF.
 
 
-      "--------------------------------------------------------
+      "------------------------------------------------------
       " Monthly schedule
-      "--------------------------------------------------------
+      "
+      " Valid DayOfMonth = 01 ... 31
+      "------------------------------------------------------
       IF ls_job-Frequency = gc_frequency_monthly.
 
         IF ls_job-DayOfMonth < '01'
@@ -448,9 +535,10 @@ METHOD validateSchedule.
     ENDIF.
 
 
-    "----------------------------------------------------------
-    " Mark job as failed if validation found an error
-    "----------------------------------------------------------
+    "--------------------------------------------------------
+    " Mark Mail Job as failed when any schedule validation
+    " failed.
+    "--------------------------------------------------------
     IF lv_has_error = abap_true.
 
       APPEND VALUE #(
@@ -602,6 +690,7 @@ METHOD calculateNextRunAt.
     ENTITY MailJob
       FIELDS (
         Frequency
+        JobTimeZone
         StartDate
         StartTime
         DayOfWeek
@@ -612,18 +701,9 @@ METHOD calculateNextRunAt.
       WITH CORRESPONDING #( keys )
     RESULT DATA(lt_jobs).
 
-  DATA:
-    lv_now          TYPE timestampl,
-    lv_today        TYPE d,
-    lv_current_time TYPE t.
+  DATA lv_now TYPE timestampl.
 
   GET TIME STAMP FIELD lv_now.
-
-  "Convert current UTC timestamp to the user's local timezone.
-  CONVERT TIME STAMP lv_now
-    TIME ZONE sy-zonlo
-    INTO DATE lv_today
-         TIME lv_current_time.
 
   DATA lt_job_updates
     TYPE TABLE FOR UPDATE zi_mig_mail_job.
@@ -631,6 +711,8 @@ METHOD calculateNextRunAt.
   LOOP AT lt_jobs INTO DATA(ls_job).
 
     DATA:
+      lv_today             TYPE d,
+      lv_current_time      TYPE t,
       lv_next_run          TYPE timestampl,
       lv_candidate_date    TYPE d,
       lv_candidate_ts      TYPE timestampl,
@@ -641,6 +723,8 @@ METHOD calculateNextRunAt.
       lv_day_offset        TYPE i.
 
     CLEAR:
+      lv_today,
+      lv_current_time,
       lv_next_run,
       lv_candidate_date,
       lv_candidate_ts,
@@ -650,123 +734,120 @@ METHOD calculateNextRunAt.
       lv_target_weekday,
       lv_day_offset.
 
-    "Inactive and On-Demand jobs do not have a scheduled next run.
-   IF ls_job-Status = gc_status_active
-   AND ls_job-Frequency <> gc_frequency_on_demand
-   AND ls_job-StartDate IS NOT INITIAL.
+    "Only active recurring jobs have NextRunAt
+    IF ls_job-Status = gc_status_active
+       AND ls_job-Frequency <> gc_frequency_on_demand
+       AND ls_job-StartDate IS NOT INITIAL.
 
-      CASE ls_job-Frequency.
+      "A scheduled job must have its own time zone.
+      IF ls_job-JobTimeZone IS NOT INITIAL.
 
-        WHEN gc_frequency_daily.
+        "Convert UTC now to THIS JOB's local calendar date/time.
+        CONVERT TIME STAMP lv_now
+          TIME ZONE ls_job-JobTimeZone
+          INTO DATE lv_today
+               TIME lv_current_time.
 
-          IF ls_job-StartDate > lv_today.
-            lv_candidate_date = ls_job-StartDate.
-          ELSE.
-            lv_candidate_date = lv_today.
-          ENDIF.
+        CASE ls_job-Frequency.
 
-          CONVERT DATE lv_candidate_date
-                  TIME ls_job-StartTime
-            INTO TIME STAMP lv_candidate_ts
-            TIME ZONE sy-zonlo.
-
-          "Today's execution time has already passed.
-          IF lv_candidate_ts <= lv_now.
-
-            lv_candidate_date = lv_candidate_date + 1.
-
-            CONVERT DATE lv_candidate_date
-                    TIME ls_job-StartTime
-              INTO TIME STAMP lv_candidate_ts
-              TIME ZONE sy-zonlo.
-
-          ENDIF.
-
-          lv_next_run = lv_candidate_ts.
-
-
-        WHEN gc_frequency_weekly.
-
-          IF ls_job-DayOfWeek IS NOT INITIAL.
+          "------------------------------------------------------
+          " DAILY
+          "------------------------------------------------------
+          WHEN gc_frequency_daily.
 
             IF ls_job-StartDate > lv_today.
-              lv_base_date = ls_job-StartDate.
+              lv_candidate_date = ls_job-StartDate.
             ELSE.
-              lv_base_date = lv_today.
+              lv_candidate_date = lv_today.
             ENDIF.
-
-            "DayOfWeek convention:
-            "1 = Monday, 2 = Tuesday, ..., 7 = Sunday.
-            lv_days_from_anchor =
-              lv_base_date - gc_monday_anchor.
-
-            lv_current_weekday =
-              ( lv_days_from_anchor MOD 7 ) + 1.
-
-            lv_target_weekday = ls_job-DayOfWeek.
-
-            lv_day_offset =
-              lv_target_weekday - lv_current_weekday.
-
-            IF lv_day_offset < 0.
-              lv_day_offset = lv_day_offset + 7.
-            ENDIF.
-
-            lv_candidate_date =
-              lv_base_date + lv_day_offset.
 
             CONVERT DATE lv_candidate_date
                     TIME ls_job-StartTime
               INTO TIME STAMP lv_candidate_ts
-              TIME ZONE sy-zonlo.
+              TIME ZONE ls_job-JobTimeZone.
 
-            "The weekday is today, but the execution time passed.
+            "Today's occurrence has already passed.
             IF lv_candidate_ts <= lv_now.
 
-              lv_candidate_date =
-                lv_candidate_date + 7.
+              lv_candidate_date = lv_candidate_date + 1.
 
               CONVERT DATE lv_candidate_date
                       TIME ls_job-StartTime
                 INTO TIME STAMP lv_candidate_ts
-                TIME ZONE sy-zonlo.
+                TIME ZONE ls_job-JobTimeZone.
 
             ENDIF.
 
             lv_next_run = lv_candidate_ts.
 
-          ENDIF.
 
+          "------------------------------------------------------
+          " WEEKLY
+          "------------------------------------------------------
+          WHEN gc_frequency_weekly.
 
-        WHEN gc_frequency_monthly.
+            IF ls_job-DayOfWeek IS NOT INITIAL.
 
-          IF ls_job-DayOfMonth IS NOT INITIAL.
+              IF ls_job-StartDate > lv_today.
+                lv_base_date = ls_job-StartDate.
+              ELSE.
+                lv_base_date = lv_today.
+              ENDIF.
 
-            IF ls_job-StartDate > lv_today.
-              lv_base_date = ls_job-StartDate.
-            ELSE.
-              lv_base_date = lv_today.
+              "1 = Monday ... 7 = Sunday
+              lv_days_from_anchor =
+                lv_base_date - gc_monday_anchor.
+
+              lv_current_weekday =
+                ( lv_days_from_anchor MOD 7 ) + 1.
+
+              lv_target_weekday = ls_job-DayOfWeek.
+
+              lv_day_offset =
+                lv_target_weekday - lv_current_weekday.
+
+              IF lv_day_offset < 0.
+                lv_day_offset = lv_day_offset + 7.
+              ENDIF.
+
+              lv_candidate_date =
+                lv_base_date + lv_day_offset.
+
+              CONVERT DATE lv_candidate_date
+                      TIME ls_job-StartTime
+                INTO TIME STAMP lv_candidate_ts
+                TIME ZONE ls_job-JobTimeZone.
+
+              "This week's occurrence already passed.
+              IF lv_candidate_ts <= lv_now.
+
+                lv_candidate_date =
+                  lv_candidate_date + 7.
+
+                CONVERT DATE lv_candidate_date
+                        TIME ls_job-StartTime
+                  INTO TIME STAMP lv_candidate_ts
+                  TIME ZONE ls_job-JobTimeZone.
+
+              ENDIF.
+
+              lv_next_run = lv_candidate_ts.
+
             ENDIF.
 
-            lv_candidate_date = get_monthly_run_date(
-              iv_base_date    = lv_base_date
-              iv_day_of_month = ls_job-DayOfMonth
-            ).
 
-            CONVERT DATE lv_candidate_date
-                    TIME ls_job-StartTime
-              INTO TIME STAMP lv_candidate_ts
-              TIME ZONE sy-zonlo.
+          "------------------------------------------------------
+          " MONTHLY
+          "------------------------------------------------------
+          WHEN gc_frequency_monthly.
 
-            "Move to next month when the current occurrence passed
-            "or occurs before the configured StartDate.
-            IF lv_candidate_date < ls_job-StartDate
-               OR lv_candidate_ts <= lv_now.
+            IF ls_job-DayOfMonth IS NOT INITIAL.
 
-              lv_base_date = get_month_start(
-                iv_date         = lv_base_date
-                iv_month_offset = 1
-              ).
+              IF ls_job-StartDate > lv_today.
+                lv_base_date = ls_job-StartDate.
+              ELSE.
+                lv_base_date = lv_today.
+              ENDIF.
 
               lv_candidate_date = get_monthly_run_date(
                 iv_base_date    = lv_base_date
@@ -776,18 +857,41 @@ METHOD calculateNextRunAt.
               CONVERT DATE lv_candidate_date
                       TIME ls_job-StartTime
                 INTO TIME STAMP lv_candidate_ts
-                TIME ZONE sy-zonlo.
+                TIME ZONE ls_job-JobTimeZone.
+
+              "Move to next month if this occurrence passed
+              "or falls before configured StartDate.
+              IF lv_candidate_date < ls_job-StartDate
+                 OR lv_candidate_ts <= lv_now.
+
+                lv_base_date = get_month_start(
+                  iv_date         = lv_base_date
+                  iv_month_offset = 1
+                ).
+
+                lv_candidate_date = get_monthly_run_date(
+                  iv_base_date    = lv_base_date
+                  iv_day_of_month = ls_job-DayOfMonth
+                ).
+
+                CONVERT DATE lv_candidate_date
+                        TIME ls_job-StartTime
+                  INTO TIME STAMP lv_candidate_ts
+                  TIME ZONE ls_job-JobTimeZone.
+
+              ENDIF.
+
+              lv_next_run = lv_candidate_ts.
 
             ENDIF.
 
-            lv_next_run = lv_candidate_ts.
 
-          ENDIF.
+          WHEN OTHERS.
+            CLEAR lv_next_run.
 
-        WHEN OTHERS.
-          CLEAR lv_next_run.
+        ENDCASE.
 
-      ENDCASE.
+      ENDIF.
 
     ENDIF.
 

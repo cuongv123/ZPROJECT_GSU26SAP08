@@ -57,6 +57,67 @@ CLASS lcl_mig_analysis_buffer IMPLEMENTATION.
 
 ENDCLASS.
 
+CLASS lcl_mig_analysis_delete_buffer DEFINITION
+  FINAL
+  CREATE PRIVATE.
+
+  PUBLIC SECTION.
+
+    TYPES tt_analysis_id
+      TYPE SORTED TABLE OF
+        zif_mig_types=>ty_analysis_id
+      WITH UNIQUE KEY table_line.
+
+    CLASS-METHODS add
+      IMPORTING
+        iv_analysis_id
+          TYPE zif_mig_types=>ty_analysis_id.
+
+    CLASS-METHODS get_all
+      RETURNING
+        VALUE(rt_analysis_ids)
+          TYPE tt_analysis_id.
+
+    CLASS-METHODS clear.
+
+  PRIVATE SECTION.
+
+    CLASS-DATA gt_analysis_ids
+      TYPE tt_analysis_id.
+
+ENDCLASS.
+
+
+CLASS lcl_mig_analysis_delete_buffer IMPLEMENTATION.
+
+  METHOD add.
+
+    IF iv_analysis_id IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    INSERT iv_analysis_id
+      INTO TABLE gt_analysis_ids.
+
+  ENDMETHOD.
+
+
+  METHOD get_all.
+
+    rt_analysis_ids =
+      gt_analysis_ids.
+
+  ENDMETHOD.
+
+
+  METHOD clear.
+
+    CLEAR gt_analysis_ids.
+
+  ENDMETHOD.
+
+ENDCLASS.
+
 CLASS lhc_Analysis DEFINITION INHERITING FROM cl_abap_behavior_handler.
   PRIVATE SECTION.
 
@@ -68,6 +129,9 @@ CLASS lhc_Analysis DEFINITION INHERITING FROM cl_abap_behavior_handler.
 
     METHODS lock FOR LOCK
       IMPORTING keys FOR LOCK Analysis.
+
+    METHODS delete FOR MODIFY
+       IMPORTING keys FOR DELETE Analysis.
 
     METHODS rba_Alvoutputs FOR READ
       IMPORTING keys_rba FOR READ Analysis\_Alvoutputs FULL result_requested RESULT result LINK association_links.
@@ -112,13 +176,16 @@ CLASS lhc_Analysis IMPLEMENTATION.
 
   METHOD get_global_authorizations.
 
-    result-%action-Analyze =
-      if_abap_behv=>auth-allowed.
-
-    result-%action-PrepareSelectedExport =
+  result-%delete =
     if_abap_behv=>auth-allowed.
 
-  ENDMETHOD.
+  result-%action-Analyze =
+    if_abap_behv=>auth-allowed.
+
+  result-%action-PrepareSelectedExport =
+    if_abap_behv=>auth-allowed.
+
+ENDMETHOD.
 
   METHOD read.
 
@@ -227,6 +294,80 @@ CLASS lhc_Analysis IMPLEMENTATION.
     ENDLOOP.
 
   ENDMETHOD.
+
+  METHOD delete.
+
+  IF keys IS INITIAL.
+    RETURN.
+  ENDIF.
+
+
+  DATA(lo_store) =
+    NEW zcl_mig_analysis_store( ).
+
+
+  LOOP AT keys
+    ASSIGNING FIELD-SYMBOL(<key>).
+
+    DATA(lv_analysis_id) =
+      <key>-AnalysisId.
+
+
+    IF lv_analysis_id IS INITIAL.
+
+      APPEND VALUE #(
+        %tky = <key>-%tky
+      ) TO failed-Analysis.
+
+      APPEND VALUE #(
+        %tky = <key>-%tky
+
+        %msg = new_message_with_text(
+          severity =
+            if_abap_behv_message=>severity-error
+
+          text =
+            'Analysis ID is required.'
+        )
+      ) TO reported-Analysis.
+
+      CONTINUE.
+
+    ENDIF.
+
+
+    IF lo_store->zif_mig_analysis_store~exists(
+         iv_analysis_id = lv_analysis_id
+       ) = abap_false.
+
+      APPEND VALUE #(
+        %tky = <key>-%tky
+      ) TO failed-Analysis.
+
+      APPEND VALUE #(
+        %tky = <key>-%tky
+
+        %msg = new_message_with_text(
+          severity =
+            if_abap_behv_message=>severity-error
+
+          text =
+            'Analysis does not exist or was already deleted.'
+        )
+      ) TO reported-Analysis.
+
+      CONTINUE.
+
+    ENDIF.
+
+
+    lcl_mig_analysis_delete_buffer=>add(
+      iv_analysis_id = lv_analysis_id
+    ).
+
+  ENDLOOP.
+
+ENDMETHOD.
 
   METHOD rba_Businesslogic.
 
@@ -2813,54 +2954,102 @@ CLASS lsc_ZI_MIG_ANALYSIS IMPLEMENTATION.
 
   METHOD save.
 
-    DATA(lt_results) =
-      lcl_mig_analysis_buffer=>get_all( ).
+  DATA(lt_results) =
+    lcl_mig_analysis_buffer=>get_all( ).
 
-    IF lt_results IS INITIAL.
-      RETURN.
-    ENDIF.
+  DATA(lt_delete_ids) =
+    lcl_mig_analysis_delete_buffer=>get_all( ).
 
-    DATA(lo_store) =
-      NEW zcl_mig_analysis_store( ).
 
-    LOOP AT lt_results
-      ASSIGNING FIELD-SYMBOL(<analysis_result>).
+  IF lt_results IS INITIAL
+     AND lt_delete_ids IS INITIAL.
 
-      TRY.
+    RETURN.
 
-          lo_store->zif_mig_analysis_store~save(
-            is_result = <analysis_result>
-          ).
+  ENDIF.
 
-        CATCH zcx_mig_analysis INTO DATA(lx_save).
 
-          "Lỗi trong SAVE là lỗi kỹ thuật vì interaction phase
-          "đã hoàn thành và CHECK_BEFORE_SAVE đã được chạy.
-          RAISE SHORTDUMP NEW zcx_mig_analysis( textid       =
-                                                               zcx_mig_analysis=>analysis_failed
-                                                previous     =
-                                                               lx_save
-                                                program_name =
-                                                               <analysis_result>-overview-program_name
-                                                ).
+  DATA(lo_store) =
+    NEW zcl_mig_analysis_store( ).
 
-      ENDTRY.
 
-    ENDLOOP.
+  "==========================================================
+  " DELETE persisted analyses
+  "==========================================================
+  LOOP AT lt_delete_ids
+    INTO DATA(lv_delete_analysis_id).
 
-  ENDMETHOD.
+    TRY.
+
+        lo_store->zif_mig_analysis_store~delete(
+          iv_analysis_id =
+            lv_delete_analysis_id
+        ).
+
+      CATCH zcx_mig_analysis
+        INTO DATA(lx_delete).
+
+        RAISE SHORTDUMP NEW zcx_mig_analysis(
+          textid =
+            zcx_mig_analysis=>analysis_failed
+
+          previous =
+            lx_delete
+        ).
+
+    ENDTRY.
+
+  ENDLOOP.
+
+
+  "==========================================================
+  " SAVE newly analyzed results
+  "==========================================================
+  LOOP AT lt_results
+    ASSIGNING FIELD-SYMBOL(<analysis_result>).
+
+    TRY.
+
+        lo_store->zif_mig_analysis_store~save(
+          is_result =
+            <analysis_result>
+        ).
+
+      CATCH zcx_mig_analysis
+        INTO DATA(lx_save).
+
+        RAISE SHORTDUMP NEW zcx_mig_analysis(
+          textid =
+            zcx_mig_analysis=>analysis_failed
+
+          previous =
+            lx_save
+
+          program_name =
+            <analysis_result>-overview-program_name
+        ).
+
+    ENDTRY.
+
+  ENDLOOP.
+
+ENDMETHOD.
 
   METHOD cleanup.
 
-    lcl_mig_analysis_buffer=>clear( ).
+  lcl_mig_analysis_buffer=>clear( ).
 
-  ENDMETHOD.
+  lcl_mig_analysis_delete_buffer=>clear( ).
+
+ENDMETHOD.
 
 
   METHOD cleanup_finalize.
 
-    lcl_mig_analysis_buffer=>clear( ).
+  lcl_mig_analysis_buffer=>clear( ).
 
-  ENDMETHOD.
+  lcl_mig_analysis_delete_buffer=>clear( ).
+
+ENDMETHOD.
 
 ENDCLASS.

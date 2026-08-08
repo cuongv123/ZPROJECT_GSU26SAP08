@@ -13,6 +13,7 @@ CLASS zcl_mig_mail_runner DEFINITION
         report_type  TYPE zmig_mail_job-report_type,
         file_format  TYPE zmig_e_file_format,
         frequency    TYPE zmig_e_frequency,
+        timezone     TYPE zmig_mail_job-time_zone,
         day_of_month TYPE zmig_mail_job-day_of_month,
         next_run_at  TYPE timestampl,
       END OF ty_due_job,
@@ -93,31 +94,32 @@ CLASS zcl_mig_mail_runner IMPLEMENTATION.
 
   METHOD get_due_jobs.
 
-    DATA:
-      lv_current_timestamp TYPE timestampl,
-      lv_initial_timestamp TYPE timestampl.
+  DATA:
+    lv_current_timestamp TYPE timestampl,
+    lv_initial_timestamp TYPE timestampl.
 
-    GET TIME STAMP FIELD lv_current_timestamp.
+  GET TIME STAMP FIELD lv_current_timestamp.
 
-    SELECT
-      FROM zmig_mail_job
-      FIELDS
-        job_id,
-        analysis_id,
-        job_name,
-        report_type,
-        file_format,
-        frequency,
-        day_of_month,
-        next_run_at
-      WHERE status      = @gc_status_active
-        AND frequency   <> @gc_frequency_on_demand
-        AND next_run_at <> @lv_initial_timestamp
-        AND next_run_at <= @lv_current_timestamp
-      ORDER BY next_run_at ASCENDING
-      INTO TABLE @rt_due_jobs.
+  SELECT
+    FROM zmig_mail_job
+    FIELDS
+      job_id,
+      analysis_id,
+      job_name,
+      report_type,
+      file_format,
+      frequency,
+      time_zone,
+      day_of_month,
+      next_run_at
+    WHERE status      = @gc_status_active
+      AND frequency   <> @gc_frequency_on_demand
+      AND next_run_at <> @lv_initial_timestamp
+      AND next_run_at <= @lv_current_timestamp
+    ORDER BY next_run_at ASCENDING
+    INTO TABLE @rt_due_jobs.
 
-  ENDMETHOD.
+ENDMETHOD.
 
 
  METHOD run_due_jobs.
@@ -509,90 +511,111 @@ CLASS zcl_mig_mail_runner IMPLEMENTATION.
 
 ENDMETHOD.
 
+METHOD calculate_next_run_at.
 
-  METHOD calculate_next_run_at.
+  DATA:
+    lv_current_timestamp TYPE timestampl,
+    lv_candidate         TYPE timestampl,
+    lv_base_date         TYPE d,
+    lv_base_time         TYPE t,
+    lv_next_date         TYPE d.
 
-    DATA:
-      lv_current_timestamp TYPE timestampl,
-      lv_candidate         TYPE timestampl,
-      lv_base_date         TYPE d,
-      lv_base_time         TYPE t,
-      lv_next_date         TYPE d.
-
-    GET TIME STAMP FIELD lv_current_timestamp.
-
-    lv_candidate = is_due_job-next_run_at.
-
-    DO gc_max_schedule_steps TIMES.
-
-      CONVERT TIME STAMP lv_candidate
-        TIME ZONE sy-zonlo
-        INTO DATE lv_base_date
-             TIME lv_base_time.
-
-      IF sy-subrc <> 0.
-        CLEAR rv_next_run_at.
-        RETURN.
-      ENDIF.
-
-
-      "--------------------------------------------------------
-      " Calculate next occurrence by configured frequency
-      "--------------------------------------------------------
-      CASE is_due_job-frequency.
-
-        WHEN gc_frequency_daily.
-
-          lv_next_date = lv_base_date + 1.
-
-        WHEN gc_frequency_weekly.
-
-          lv_next_date = lv_base_date + 7.
-
-        WHEN gc_frequency_monthly.
-
-          lv_next_date =
-            get_next_monthly_date(
-              iv_base_date    = lv_base_date
-              iv_day_of_month = is_due_job-day_of_month
-            ).
-
-        WHEN OTHERS.
-
-          CLEAR rv_next_run_at.
-          RETURN.
-
-      ENDCASE.
-
-
-      IF lv_next_date IS INITIAL.
-        CLEAR rv_next_run_at.
-        RETURN.
-      ENDIF.
-
-
-      CONVERT DATE lv_next_date
-              TIME lv_base_time
-        INTO TIME STAMP lv_candidate
-        TIME ZONE sy-zonlo.
-
-      IF sy-subrc <> 0.
-        CLEAR rv_next_run_at.
-        RETURN.
-      ENDIF.
-
-
-      "Skip missed occurrences until a future timestamp is found.
-      IF lv_candidate > lv_current_timestamp.
-        rv_next_run_at = lv_candidate.
-        RETURN.
-      ENDIF.
-
-    ENDDO.
-
+  "----------------------------------------------------------
+  " A recurring Mail Job must have its own time zone.
+  "----------------------------------------------------------
+  IF is_due_job-timezone IS INITIAL.
     CLEAR rv_next_run_at.
+    RETURN.
+  ENDIF.
 
-  ENDMETHOD.
+  GET TIME STAMP FIELD lv_current_timestamp.
+
+  " Start from the occurrence that has just been consumed.
+  lv_candidate = is_due_job-next_run_at.
+
+  DO gc_max_schedule_steps TIMES.
+
+    "--------------------------------------------------------
+    " Convert previous occurrence from UTC timestamp
+    " into this Mail Job's local date/time.
+    "--------------------------------------------------------
+    CONVERT TIME STAMP lv_candidate
+      TIME ZONE is_due_job-timezone
+      INTO DATE lv_base_date
+           TIME lv_base_time.
+
+    IF sy-subrc <> 0.
+      CLEAR rv_next_run_at.
+      RETURN.
+    ENDIF.
+
+
+    "--------------------------------------------------------
+    " Calculate following occurrence
+    "--------------------------------------------------------
+    CASE is_due_job-frequency.
+
+      WHEN gc_frequency_daily.
+
+        lv_next_date = lv_base_date + 1.
+
+      WHEN gc_frequency_weekly.
+
+        lv_next_date = lv_base_date + 7.
+
+      WHEN gc_frequency_monthly.
+
+        lv_next_date =
+          get_next_monthly_date(
+            iv_base_date    = lv_base_date
+            iv_day_of_month = is_due_job-day_of_month
+          ).
+
+      WHEN OTHERS.
+
+        CLEAR rv_next_run_at.
+        RETURN.
+
+    ENDCASE.
+
+
+    IF lv_next_date IS INITIAL.
+      CLEAR rv_next_run_at.
+      RETURN.
+    ENDIF.
+
+
+    "--------------------------------------------------------
+    " Convert next local occurrence back to UTC timestamp
+    " using the Mail Job time zone.
+    "--------------------------------------------------------
+    CONVERT DATE lv_next_date
+            TIME lv_base_time
+      INTO TIME STAMP lv_candidate
+      TIME ZONE is_due_job-timezone.
+
+    IF sy-subrc <> 0.
+      CLEAR rv_next_run_at.
+      RETURN.
+    ENDIF.
+
+
+    "--------------------------------------------------------
+    " Skip missed occurrences until a future timestamp
+    " is found.
+    "--------------------------------------------------------
+    IF lv_candidate > lv_current_timestamp.
+
+      rv_next_run_at = lv_candidate.
+      RETURN.
+
+    ENDIF.
+
+  ENDDO.
+
+  CLEAR rv_next_run_at.
+
+ENDMETHOD.
 
 
   METHOD get_next_monthly_date.

@@ -242,6 +242,18 @@
      <MSGNR>039</MSGNR>
      <TEXT>Analysis ID &amp;1 does not belong to report &amp;2</TEXT>
     </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>040</MSGNR>
+     <TEXT>Invalid or missing time zone: &amp;1</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZMIG_ANALYSIS</ARBGB>
+     <MSGNR>041</MSGNR>
+     <TEXT>Invalid time zone: &amp;1</TEXT>
+    </T100>
    </T100>
   </asx:values>
  </asx:abap>

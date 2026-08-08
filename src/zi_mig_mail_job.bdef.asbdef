@@ -31,6 +31,7 @@ etag master LocalLastChangedAt
     create;
     update;
     field Frequency,
+          JobTimeZone,
           StartDate,
           StartTime,
           DayOfWeek,
@@ -48,6 +49,7 @@ determination calculateNextRunAt on modify
 {
   create;
   field Frequency,
+        JobTimeZone,
         StartDate,
         StartTime,
         DayOfWeek,
@@ -73,6 +75,7 @@ determination calculateNextRunAt on modify
     ReportType             = report_type;
     FileFormat             = file_format;
     Frequency              = frequency;
+    JobTimeZone            = time_zone;
     StartDate              = start_date;
     StartTime              = start_time;
     DayOfWeek              = day_of_week;
