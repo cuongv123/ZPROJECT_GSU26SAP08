@@ -13,19 +13,17 @@ START-OF-SELECTION.
 
   IF lt_results IS INITIAL.
 
-    WRITE: / 'No due migration mail jobs found.'.
-
+    WRITE: / text-001.
     RETURN.
 
   ENDIF.
 
-
   LOOP AT lt_results INTO ls_result.
 
-    WRITE: / 'Job:',        ls_result-job_name.
-    WRITE: / 'Success:',    ls_result-success.
-    WRITE: / 'Recipients:', ls_result-recipient_count.
-    WRITE: / 'Message:',    ls_result-message.
+    WRITE: / text-002, ls_result-job_name.
+    WRITE: / text-003, ls_result-success.
+    WRITE: / text-004, ls_result-recipient_count.
+    WRITE: / text-005, ls_result-message.
 
     SKIP.
 

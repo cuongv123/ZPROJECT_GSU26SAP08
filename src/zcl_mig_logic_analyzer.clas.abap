@@ -42,7 +42,7 @@ CLASS zcl_mig_logic_analyzer DEFINITION
         call_kind          TYPE c LENGTH 20,
         expect_call_object TYPE abap_bool,
         expect_method_name TYPE abap_bool,
-
+        dynamic_call       TYPE abap_bool,
         recognized         TYPE abap_bool,
       END OF ty_logic_state,
 
@@ -592,28 +592,103 @@ CLASS zcl_mig_logic_analyzer IMPLEMENTATION.
 
             WHEN 'FUNCTION'.
 
-              cs_state-object_name =
-                normalize_object_name(
-                  iv_name = iv_upper_token
-                ).
+          IF iv_upper_token = '('.
 
-              IF cs_state-object_name CP 'BAPI_*'.
+            cs_state-dynamic_call =
+              abap_true.
 
-                cs_state-object_type =
-                  'BAPI'.
+            "Chưa có tên variable, chờ token tiếp theo
+            cs_state-expect_call_object =
+              abap_true.
 
-              ELSE.
+            cs_state-previous_token =
+              iv_upper_token.
 
-                cs_state-object_type =
-                  'FUNCTION_MODULE'.
+            RETURN.
 
-              ENDIF.
+          ENDIF.
 
-              cs_state-reuse_feasibility =
-                'ADAPTER_REVIEW'.
 
-              cs_state-recognized =
+          DATA(lv_function_token) =
+            iv_upper_token.
+
+
+          IF cs_state-dynamic_call = abap_true
+             OR lv_function_token CS '('.
+
+            cs_state-dynamic_call =
+              abap_true.
+
+
+            REPLACE ALL OCCURRENCES OF '('
+              IN lv_function_token
+              WITH ''.
+
+            REPLACE ALL OCCURRENCES OF ')'
+              IN lv_function_token
+              WITH ''.
+
+
+            cs_state-object_name =
+              normalize_object_name(
+                iv_name = lv_function_token
+              ).
+
+
+            IF cs_state-object_name IS INITIAL.
+
+              cs_state-expect_call_object =
                 abap_true.
+
+              RETURN.
+
+            ENDIF.
+
+
+            cs_state-object_type =
+              'DYNAMIC_FUNCTION_MODULE'.
+
+            cs_state-reuse_feasibility =
+              'ADAPTER_REVIEW'.
+
+            cs_state-confidence =
+              zif_mig_types=>gc_conf_medium.
+
+            cs_state-recognized =
+              abap_true.
+
+
+          ELSE.
+
+            "========================================================
+            " Static CALL FUNCTION
+            "========================================================
+            cs_state-object_name =
+              normalize_object_name(
+                iv_name = iv_upper_token
+              ).
+
+
+            IF cs_state-object_name CP 'BAPI_*'.
+
+              cs_state-object_type =
+                'BAPI'.
+
+            ELSE.
+
+              cs_state-object_type =
+                'FUNCTION_MODULE'.
+
+            ENDIF.
+
+
+            cs_state-reuse_feasibility =
+              'ADAPTER_REVIEW'.
+
+            cs_state-recognized =
+              abap_true.
+
+          ENDIF.
 
             WHEN 'SCREEN'.
 

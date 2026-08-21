@@ -19,7 +19,7 @@ define view entity ZC_MIG_ANL_DB
       JoinedObjects,
       JoinCondition,
       Aggregation,
-
+      ResultTarget,
       ContainingRoutine,
       DynamicAccess,
       ReadOnly,

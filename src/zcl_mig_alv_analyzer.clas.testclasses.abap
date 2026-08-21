@@ -234,3 +234,305 @@ CLASS ltc_alv_analyzer IMPLEMENTATION.
   ENDMETHOD.
 
 ENDCLASS.
+
+CLASS ltc_cp4_alv_routine DEFINITION
+  FINAL
+  FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+
+  PRIVATE SECTION.
+
+    METHODS preserve_alv_routine
+      FOR TESTING
+      RAISING zcx_mig_analysis.
+
+ENDCLASS.
+
+
+CLASS ltc_cp4_alv_routine IMPLEMENTATION.
+
+  METHOD preserve_alv_routine.
+
+    CONSTANTS gc_program TYPE progname
+      VALUE 'ZRMIG_UT_ALV_REL'.
+
+
+    DATA lt_source
+      TYPE zif_mig_types=>tt_source_line.
+
+
+    lt_source = VALUE #(
+
+      (
+        source_object = gc_program
+        line_number   = 1
+        source_text   = `REPORT zrmig_ut_alv_rel.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 2
+        source_text   =
+          `DATA gt_result TYPE STANDARD TABLE OF t001.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 3
+        source_text   =
+          `DATA gt_fcat TYPE lvc_t_fcat.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 4
+        source_text   =
+          `DATA go_grid TYPE REF TO cl_gui_alv_grid.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 5
+        source_text   =
+          `FORM display_data.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 6
+        source_text   =
+          `go_grid->set_table_for_first_display(`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 7
+        source_text   =
+          `  CHANGING`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 8
+        source_text   =
+          `    it_outtab       = gt_result`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 9
+        source_text   =
+          `    it_fieldcatalog = gt_fcat ).`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 10
+        source_text   =
+          `ENDFORM.`
+      )
+
+    ).
+
+
+    DATA(lo_scanner) =
+      NEW zcl_mig_abap_scanner( ).
+
+    DATA(ls_scan) =
+      lo_scanner->zif_mig_abap_scanner~scan(
+        iv_source_object = gc_program
+        it_source        = lt_source
+      ).
+
+
+    DATA(lo_normalizer) =
+      NEW zcl_mig_stmt_normalizer( ).
+
+    DATA(ls_normalized) =
+      lo_normalizer->zif_mig_stmt_normalizer~normalize(
+        is_scan_result = ls_scan
+      ).
+
+
+    DATA lt_source_units
+      TYPE zif_mig_types=>tt_source_unit.
+
+    APPEND VALUE #(
+      source_object = VALUE #(
+        object_name  = gc_program
+        object_type  = 'PROGRAM'
+        source_lines = lt_source
+      )
+      scan_result = ls_normalized
+    ) TO lt_source_units.
+
+
+    DATA(lo_analyzer) =
+      NEW zcl_mig_alv_analyzer( ).
+
+    DATA(ls_result) =
+      lo_analyzer->zif_mig_alv_analyzer~analyze(
+        it_source_units = lt_source_units
+      ).
+
+
+    READ TABLE ls_result-alv_outputs
+      WITH KEY framework = 'CL_GUI_ALV_GRID'
+      INTO DATA(ls_alv).
+
+
+    cl_abap_unit_assert=>assert_subrc(
+      exp = 0
+      msg = 'Không phát hiện CL_GUI_ALV_GRID'
+    ).
+
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'GT_RESULT'
+      act = ls_alv-output_table
+      msg = 'ALV output table không đúng'
+    ).
+
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'DISPLAY_DATA'
+      act = ls_alv-containing_routine
+      msg = 'ALV không được gắn với FORM DISPLAY_DATA'
+    ).
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS ltc_cp5_alv_unresolved DEFINITION
+  FINAL
+  FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+
+  PRIVATE SECTION.
+
+    METHODS unresolved_table_is_medium
+      FOR TESTING
+      RAISING zcx_mig_analysis.
+
+ENDCLASS.
+
+
+CLASS ltc_cp5_alv_unresolved IMPLEMENTATION.
+
+  METHOD unresolved_table_is_medium.
+
+    CONSTANTS gc_program TYPE progname
+      VALUE 'ZRMIG_UT_ALV_UNRES'.
+
+    DATA(lt_source) =
+      VALUE zif_mig_types=>tt_source_line(
+
+        (
+          source_object = gc_program
+          line_number   = 1
+          source_text   = `REPORT zrmig_ut_alv_unres.`
+        )
+
+        (
+          source_object = gc_program
+          line_number   = 2
+          source_text   = `FORM display_data.`
+        )
+
+        (
+          source_object = gc_program
+          line_number   = 3
+          source_text   =
+            `CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'.`
+        )
+
+        (
+          source_object = gc_program
+          line_number   = 4
+          source_text   = `ENDFORM.`
+        )
+
+      ).
+
+
+    DATA(lo_scanner) =
+      NEW zcl_mig_abap_scanner( ).
+
+    DATA(ls_scan) =
+      lo_scanner->zif_mig_abap_scanner~scan(
+        iv_source_object = gc_program
+        it_source        = lt_source
+      ).
+
+
+    DATA(lo_normalizer) =
+      NEW zcl_mig_stmt_normalizer( ).
+
+    DATA(ls_normalized) =
+      lo_normalizer->zif_mig_stmt_normalizer~normalize(
+        is_scan_result = ls_scan
+      ).
+
+
+    DATA lt_source_units
+      TYPE zif_mig_types=>tt_source_unit.
+
+    APPEND VALUE #(
+      source_object = VALUE #(
+        object_name  = gc_program
+        object_type  = 'PROGRAM'
+        source_lines = lt_source
+      )
+      scan_result = ls_normalized
+    ) TO lt_source_units.
+
+
+    DATA(lo_analyzer) =
+      NEW zcl_mig_alv_analyzer( ).
+
+    DATA(ls_result) =
+      lo_analyzer->zif_mig_alv_analyzer~analyze(
+        it_source_units = lt_source_units
+      ).
+
+
+    READ TABLE ls_result-alv_outputs
+      WITH KEY framework = 'REUSE_ALV_GRID_DISPLAY'
+      INTO DATA(ls_alv).
+
+    cl_abap_unit_assert=>assert_subrc(
+      exp = 0
+      msg = 'ALV invocation phải được phát hiện'
+    ).
+
+
+    cl_abap_unit_assert=>assert_initial(
+      act = ls_alv-output_table
+      msg = 'Test case này phải giữ OUTPUT_TABLE unresolved'
+    ).
+
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = zif_mig_types=>gc_conf_medium
+      act = ls_alv-confidence
+      msg = 'Unresolved ALV phải có confidence MEDIUM'
+    ).
+
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'DISPLAY_DATA'
+      act = ls_alv-containing_routine
+      msg = 'Phải giữ relationship với DISPLAY_DATA'
+    ).
+
+
+    cl_abap_unit_assert=>assert_not_initial(
+      act = ls_alv-evidence_id
+    ).
+
+  ENDMETHOD.
+
+ENDCLASS.

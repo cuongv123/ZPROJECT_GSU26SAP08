@@ -72,6 +72,10 @@ METHODS info_does_not_change_status
   RAISING zcx_mig_analysis.
 
 
+  METHODS dynamic_unresolved_warnings
+  FOR TESTING
+  RAISING zcx_mig_analysis.
+
 ENDCLASS.
 
 CLASS ltc_analysis_aggregator IMPLEMENTATION.
@@ -865,6 +869,134 @@ METHOD preserve_nested_include.
       ls_nested_include-line_count > 0
     )
     msg = 'Nested include chưa có LineCount'
+  ).
+
+ENDMETHOD.
+
+METHOD dynamic_unresolved_warnings.
+
+  CONSTANTS gc_program TYPE progname
+    VALUE 'ZRMIG_UT_DYNAMIC_REVIEW'.
+
+
+  DATA(lt_source) =
+    VALUE zif_mig_types=>tt_source_line(
+
+      (
+        source_object = gc_program
+        line_number   = 1
+        source_text   =
+          `REPORT zrmig_ut_dynamic_review.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 2
+        source_text   =
+          `DATA lv_table TYPE tabname VALUE 'T001'.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 3
+        source_text   =
+          `DATA lt_data TYPE STANDARD TABLE OF t001 WITH EMPTY KEY.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 4
+        source_text   =
+          `DATA lv_fm TYPE rs38l_fnam VALUE 'DDIF_FIELDINFO_GET'.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 5
+        source_text   =
+          `START-OF-SELECTION.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 6
+        source_text   =
+          `SELECT * FROM (lv_table) INTO TABLE @lt_data.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 7
+        source_text   =
+          `CALL FUNCTION (lv_fm).`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 8
+        source_text   =
+          `CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'.`
+      )
+
+    ).
+
+
+  DATA(ls_result) =
+    analyze_source(
+      iv_program_name = gc_program
+      it_source       = lt_source
+    ).
+
+
+  "==========================================================
+  " Dynamic DB
+  "==========================================================
+  READ TABLE ls_result-messages
+    WITH KEY
+      message_code = 'DB_DYNAMIC_ACCESS'
+    TRANSPORTING NO FIELDS.
+
+  cl_abap_unit_assert=>assert_subrc(
+    exp = 0
+    msg = 'Thiếu DB_DYNAMIC_ACCESS'
+  ).
+
+
+  "==========================================================
+  " Dynamic FM
+  "==========================================================
+  READ TABLE ls_result-messages
+    WITH KEY
+      message_code = 'LOGIC_DYNAMIC_CALL'
+    TRANSPORTING NO FIELDS.
+
+  cl_abap_unit_assert=>assert_subrc(
+    exp = 0
+    msg = 'Thiếu LOGIC_DYNAMIC_CALL'
+  ).
+
+
+  "==========================================================
+  " ALV unresolved
+  "==========================================================
+  READ TABLE ls_result-messages
+    WITH KEY
+      message_code = 'ALV_TABLE_UNRESOLVED'
+    TRANSPORTING NO FIELDS.
+
+  cl_abap_unit_assert=>assert_subrc(
+    exp = 0
+    msg = 'Thiếu ALV_TABLE_UNRESOLVED'
+  ).
+
+
+  "==========================================================
+  " Overall analysis phải yêu cầu review
+  "==========================================================
+  cl_abap_unit_assert=>assert_equals(
+    exp = zif_mig_types=>gc_status_warning
+    act = ls_result-overview-status
+    msg = 'Dynamic/unresolved analysis phải có WARNING status'
   ).
 
 ENDMETHOD.

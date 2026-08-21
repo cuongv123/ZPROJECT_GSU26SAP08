@@ -104,6 +104,20 @@ annotate view ZC_MIG_ANL_ALV with
     }
   ]
   Framework;
+  
+  @UI.lineItem: [
+  {
+    position: 35,
+    label: 'Containing Routine'
+  }
+]
+@UI.identification: [
+  {
+    position: 35,
+    label: 'Containing Routine'
+  }
+]
+ContainingRoutine;
 
   @UI.identification: [
     {

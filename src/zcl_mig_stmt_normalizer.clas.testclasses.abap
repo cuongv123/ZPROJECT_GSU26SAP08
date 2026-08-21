@@ -308,3 +308,235 @@ ENDMETHOD.
 ENDMETHOD.
 
 ENDCLASS.
+
+CLASS ltc_cp2_event_context DEFINITION
+  FINAL
+  FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+
+  PRIVATE SECTION.
+
+    METHODS event_contexts
+      FOR TESTING
+      RAISING zcx_mig_analysis.
+
+ENDCLASS.
+
+
+CLASS ltc_cp2_event_context IMPLEMENTATION.
+
+  METHOD event_contexts.
+
+    CONSTANTS gc_program TYPE progname
+      VALUE 'ZRMIG_UT_EVENT_CTX'.
+
+    DATA lt_source
+      TYPE zif_mig_types=>tt_source_line.
+
+    lt_source = VALUE #(
+
+      (
+        source_object = gc_program
+        line_number   = 1
+        source_text   = `REPORT zrmig_ut_event_ctx.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 2
+        source_text   = `PARAMETERS p_test TYPE c.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 3
+        source_text   = `INITIALIZATION.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 4
+        source_text   = `WRITE 'INIT'.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 5
+        source_text   = `AT SELECTION-SCREEN.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 6
+        source_text   = `PERFORM validate_input.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 7
+        source_text   = `START-OF-SELECTION.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 8
+        source_text   = `PERFORM load_data.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 9
+        source_text   = `END-OF-SELECTION.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 10
+        source_text   = `PERFORM display_data.`
+      )
+
+    ).
+
+
+    DATA(lo_scanner) =
+      NEW zcl_mig_abap_scanner( ).
+
+    DATA(ls_scan) =
+      lo_scanner->zif_mig_abap_scanner~scan(
+        iv_source_object = gc_program
+        it_source        = lt_source
+      ).
+
+
+    DATA(lo_normalizer) =
+      NEW zcl_mig_stmt_normalizer( ).
+
+    DATA(ls_result) =
+      lo_normalizer->zif_mig_stmt_normalizer~normalize(
+        is_scan_result = ls_scan
+      ).
+
+
+    "==========================================================
+    " INITIALIZATION
+    "==========================================================
+    READ TABLE ls_result-statements
+      WITH KEY statement_type = 'WRITE'
+      INTO DATA(ls_init).
+
+    cl_abap_unit_assert=>assert_subrc(
+      exp = 0
+      msg = 'Không tìm thấy WRITE trong INITIALIZATION'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'INITIALIZATION'
+      act = ls_init-parent_routine
+      msg = 'INITIALIZATION context không đúng'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'EVENT'
+      act = ls_init-routine_type
+    ).
+
+
+    "==========================================================
+    " Locate PERFORM statements
+    "==========================================================
+    DATA:
+      ls_validate TYPE zif_mig_types=>ty_statement,
+      ls_load     TYPE zif_mig_types=>ty_statement,
+      ls_display  TYPE zif_mig_types=>ty_statement.
+
+
+    LOOP AT ls_result-statements
+      INTO DATA(ls_statement)
+      WHERE statement_type = 'PERFORM'.
+
+      DATA(lv_text) =
+        to_upper(
+          ls_statement-statement_text
+        ).
+
+      IF lv_text CS 'VALIDATE_INPUT'.
+
+        ls_validate =
+          ls_statement.
+
+      ELSEIF lv_text CS 'LOAD_DATA'.
+
+        ls_load =
+          ls_statement.
+
+      ELSEIF lv_text CS 'DISPLAY_DATA'.
+
+        ls_display =
+          ls_statement.
+
+      ENDIF.
+
+    ENDLOOP.
+
+
+    "==========================================================
+    " AT SELECTION-SCREEN
+    "==========================================================
+    cl_abap_unit_assert=>assert_not_initial(
+      act = ls_validate-statement_id
+      msg = 'Không tìm thấy PERFORM VALIDATE_INPUT'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'AT SELECTION-SCREEN'
+      act = ls_validate-parent_routine
+      msg = 'VALIDATE_INPUT sai event context'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'EVENT'
+      act = ls_validate-routine_type
+    ).
+
+
+    "==========================================================
+    " START-OF-SELECTION
+    "==========================================================
+    cl_abap_unit_assert=>assert_not_initial(
+      act = ls_load-statement_id
+      msg = 'Không tìm thấy PERFORM LOAD_DATA'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'START-OF-SELECTION'
+      act = ls_load-parent_routine
+      msg = 'LOAD_DATA sai event context'
+    ).
+
+
+    "==========================================================
+    " END-OF-SELECTION
+    "
+    " Đồng thời chứng minh START context không leak sang END.
+    "==========================================================
+    cl_abap_unit_assert=>assert_not_initial(
+      act = ls_display-statement_id
+      msg = 'Không tìm thấy PERFORM DISPLAY_DATA'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'END-OF-SELECTION'
+      act = ls_display-parent_routine
+      msg = 'DISPLAY_DATA sai event context'
+    ).
+
+    cl_abap_unit_assert=>assert_differs(
+      exp = ls_load-parent_routine
+      act = ls_display-parent_routine
+      msg = 'Event context bị leak'
+    ).
+
+  ENDMETHOD.
+
+ENDCLASS.

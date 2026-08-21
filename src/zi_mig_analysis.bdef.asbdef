@@ -17,6 +17,10 @@ authorization master ( global )
   action PrepareSelectedExport
     parameter ZA_MIG_PREPARE_EXPORT_PARAM
     result [1] ZA_MIG_PREPARE_EXPORT_RESULT;
+
+  action GenerateTechnicalDocument
+     result [1] ZA_MIG_TECH_DOC_RESULT;
+
   association _SourceObjects;
   association _UiFilters;
   association _DatabaseObjects;

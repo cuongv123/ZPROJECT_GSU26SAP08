@@ -159,6 +159,9 @@ CLASS lhc_Analysis DEFINITION INHERITING FROM cl_abap_behavior_handler.
     METHODS Analyze FOR MODIFY
       IMPORTING keys FOR ACTION Analysis~Analyze RESULT result.
 
+    METHODS generatetechnicaldocument FOR MODIFY
+      IMPORTING keys FOR ACTION Analysis~GenerateTechnicalDocument RESULT result.
+
     METHODS prepareselectedexport FOR MODIFY
       IMPORTING keys FOR ACTION Analysis~PrepareSelectedExport RESULT result.
 
@@ -170,6 +173,8 @@ CLASS lhc_Analysis DEFINITION INHERITING FROM cl_abap_behavior_handler.
         et_invalid_fields   TYPE string_table
       RETURNING
         VALUE(rv_all_valid) TYPE abap_bool.
+
+
 ENDCLASS.
 
 CLASS lhc_Analysis IMPLEMENTATION.
@@ -180,6 +185,9 @@ CLASS lhc_Analysis IMPLEMENTATION.
     if_abap_behv=>auth-allowed.
 
   result-%action-Analyze =
+    if_abap_behv=>auth-allowed.
+
+  result-%action-GenerateTechnicalDocument =
     if_abap_behv=>auth-allowed.
 
   result-%action-PrepareSelectedExport =
@@ -861,6 +869,262 @@ ENDMETHOD.
     ENDLOOP.
 
   ENDMETHOD.
+
+  METHOD generatetechnicaldocument.
+
+  IF keys IS INITIAL.
+    RETURN.
+  ENDIF.
+
+
+  DATA(lo_doc_service) =
+    NEW zcl_mig_tech_doc_service( ).
+
+
+  LOOP AT keys
+    ASSIGNING FIELD-SYMBOL(<key>).
+
+
+    DATA(lv_analysis_id) =
+      <key>-AnalysisId.
+
+
+    "==========================================================
+    " Validate AnalysisId
+    "==========================================================
+    IF lv_analysis_id IS INITIAL.
+
+      APPEND VALUE #(
+        %tky = <key>-%tky
+      ) TO failed-Analysis.
+
+      APPEND VALUE #(
+        %tky = <key>-%tky
+
+        %msg = new_message_with_text(
+          severity =
+            if_abap_behv_message=>severity-error
+
+          text =
+            'Analysis ID is required.'
+        )
+      ) TO reported-Analysis.
+
+      CONTINUE.
+
+    ENDIF.
+
+
+    TRY.
+
+        "======================================================
+        " 1. Build Technical Markdown from persisted analysis
+        "======================================================
+        DATA(ls_doc) =
+          lo_doc_service->zif_mig_tech_doc_service~generate(
+            iv_analysis_id =
+              lv_analysis_id
+          ).
+
+
+        IF ls_doc-markdown IS INITIAL.
+
+          APPEND VALUE #(
+            %tky = <key>-%tky
+          ) TO failed-Analysis.
+
+          APPEND VALUE #(
+            %tky = <key>-%tky
+
+            %msg = new_message_with_text(
+              severity =
+                if_abap_behv_message=>severity-error
+
+              text =
+                'Technical document is empty.'
+            )
+          ) TO reported-Analysis.
+
+          CONTINUE.
+
+        ENDIF.
+
+
+        "======================================================
+        " 2. Markdown STRING → UTF-8 XSTRING
+        "======================================================
+        DATA(lv_content) =
+          cl_abap_codepage=>convert_to(
+            source   = ls_doc-markdown
+            codepage = 'UTF-8'
+          ).
+
+
+        "======================================================
+        " 3. Export Job identity
+        "======================================================
+        DATA(lv_export_id) =
+          cl_system_uuid=>create_uuid_x16_static( ).
+
+
+        DATA(lv_created_at) =
+          cl_abap_tstmp=>utclong2tstmp(
+            utclong_current( )
+          ).
+
+
+        DATA(lv_expires_at) =
+          cl_abap_tstmp=>add(
+            tstmp = lv_created_at
+            secs  = 24 * 60 * 60
+          ).
+
+
+        "======================================================
+        " 4. Store generated Markdown as downloadable LOB
+        "======================================================
+        INSERT zmig_exp_job FROM @( VALUE #(
+
+          client          = sy-mandt
+
+          export_id       = lv_export_id
+          analysis_id     = lv_analysis_id
+
+          file_format     = 'M'
+          export_section  = 'ALL'
+
+          selected_fields = ''
+
+          status          = 'READY'
+
+          file_name       = ls_doc-file_name
+          mime_type       = ls_doc-mime_type
+
+          content         = lv_content
+
+          message         =
+            'Technical Markdown document'
+
+          created_by      = sy-uname
+          created_at      = lv_created_at
+          expires_at      = lv_expires_at
+
+        ) ).
+
+
+        IF sy-subrc <> 0.
+
+          APPEND VALUE #(
+            %tky = <key>-%tky
+          ) TO failed-Analysis.
+
+          APPEND VALUE #(
+            %tky = <key>-%tky
+
+            %msg = new_message_with_text(
+              severity =
+                if_abap_behv_message=>severity-error
+
+              text =
+                'Technical document could not be stored.'
+            )
+          ) TO reported-Analysis.
+
+          CONTINUE.
+
+        ENDIF.
+
+
+        "======================================================
+        " 5. UUID X16 → OData GUID string
+        "======================================================
+        DATA(lv_guid_hex) =
+          |{ lv_export_id }|.
+
+
+        DATA(lv_guid_str) =
+          to_lower(
+            |{ lv_guid_hex(8) }-| &&
+            |{ lv_guid_hex+8(4) }-| &&
+            |{ lv_guid_hex+12(4) }-| &&
+            |{ lv_guid_hex+16(4) }-| &&
+            |{ lv_guid_hex+20(12) }|
+          ).
+
+
+        "======================================================
+        " 6. Return download metadata
+        "======================================================
+        APPEND VALUE #(
+
+          %tky =
+            <key>-%tky
+
+          %param = VALUE #(
+
+            ExportId =
+              lv_export_id
+
+            Status =
+              'READY'
+
+            FileName =
+              ls_doc-file_name
+
+            MimeType =
+              ls_doc-mime_type
+
+            DownloadUrl =
+              |/ExportJobs({ lv_guid_str })/Content|
+
+          )
+
+        ) TO result.
+
+
+      CATCH zcx_mig_analysis INTO DATA(lx_analysis).
+
+        APPEND VALUE #(
+          %tky = <key>-%tky
+        ) TO failed-Analysis.
+
+        APPEND VALUE #(
+          %tky = <key>-%tky
+
+          %msg = new_message_with_text(
+            severity =
+              if_abap_behv_message=>severity-error
+
+            text =
+              lx_analysis->get_text( )
+          )
+        ) TO reported-Analysis.
+
+
+      CATCH cx_uuid_error INTO DATA(lx_uuid).
+
+        APPEND VALUE #(
+          %tky = <key>-%tky
+        ) TO failed-Analysis.
+
+        APPEND VALUE #(
+          %tky = <key>-%tky
+
+          %msg = new_message_with_text(
+            severity =
+              if_abap_behv_message=>severity-error
+
+            text =
+              lx_uuid->get_text( )
+          )
+        ) TO reported-Analysis.
+
+    ENDTRY.
+
+  ENDLOOP.
+
+ENDMETHOD.
+
   METHOD prepareselectedexport.
 
     LOOP AT keys ASSIGNING FIELD-SYMBOL(<key>).

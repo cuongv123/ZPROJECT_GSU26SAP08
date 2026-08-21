@@ -22,7 +22,7 @@ define view entity ZI_MIG_ANL_DB
       joined_objects       as JoinedObjects,
       join_condition       as JoinCondition,
       aggregation          as Aggregation,
-
+      result_target as ResultTarget,
       containing_routine   as ContainingRoutine,
       dynamic_access       as DynamicAccess,
       read_only            as ReadOnly,

@@ -425,5 +425,498 @@ METHOD ignore_internal_table.
 
 ENDMETHOD.
 
+ENDCLASS.
+
+CLASS ltc_cp2_db_routine DEFINITION
+  FINAL
+  FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+
+  PRIVATE SECTION.
+
+    METHODS preserve_db_routine
+      FOR TESTING
+      RAISING zcx_mig_analysis.
+
+ENDCLASS.
+
+
+CLASS ltc_cp2_db_routine IMPLEMENTATION.
+
+  METHOD preserve_db_routine.
+
+    CONSTANTS gc_program TYPE progname
+      VALUE 'ZRMIG_UT_DB_REL'.
+
+    DATA lt_source
+      TYPE zif_mig_types=>tt_source_line.
+
+    lt_source = VALUE #(
+
+      (
+        source_object = gc_program
+        line_number   = 1
+        source_text   = `REPORT zrmig_ut_db_rel.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 2
+        source_text   = `START-OF-SELECTION.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 3
+        source_text   = `PERFORM load_data.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 4
+        source_text   = `FORM load_data.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 5
+        source_text   =
+          `SELECT bukrs FROM t001 INTO TABLE @DATA(lt_t001).`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 6
+        source_text   =
+          `UPDATE t001 SET butxt = 'TEST' WHERE bukrs = '1000'.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 7
+        source_text   = `ENDFORM.`
+      )
+
+    ).
+
+
+    DATA(lo_scanner) =
+      NEW zcl_mig_abap_scanner( ).
+
+    DATA(ls_scan) =
+      lo_scanner->zif_mig_abap_scanner~scan(
+        iv_source_object = gc_program
+        it_source        = lt_source
+      ).
+
+
+    DATA(lo_normalizer) =
+      NEW zcl_mig_stmt_normalizer( ).
+
+    DATA(ls_normalized) =
+      lo_normalizer->zif_mig_stmt_normalizer~normalize(
+        is_scan_result = ls_scan
+      ).
+
+
+    DATA lt_source_units
+      TYPE zif_mig_types=>tt_source_unit.
+
+    APPEND VALUE #(
+      source_object = VALUE #(
+        object_name  = gc_program
+        object_type  = 'PROGRAM'
+        source_lines = lt_source
+      )
+      scan_result = ls_normalized
+    ) TO lt_source_units.
+
+
+    DATA(lo_analyzer) =
+      NEW zcl_mig_db_analyzer( ).
+
+    DATA(ls_result) =
+      lo_analyzer->zif_mig_db_analyzer~analyze(
+        it_source_units = lt_source_units
+      ).
+
+
+    "==========================================================
+    " SELECT
+    "==========================================================
+    READ TABLE ls_result-database_objects
+      WITH KEY
+        operation   = 'SELECT'
+        object_name = 'T001'
+      INTO DATA(ls_select).
+
+    cl_abap_unit_assert=>assert_subrc(
+      exp = 0
+      msg = 'Không phát hiện SELECT T001'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'LOAD_DATA'
+      act = ls_select-containing_routine
+      msg = 'SELECT không được gắn với LOAD_DATA'
+    ).
+
+
+    "==========================================================
+    " UPDATE
+    "==========================================================
+    READ TABLE ls_result-database_objects
+      WITH KEY
+        operation   = 'UPDATE'
+        object_name = 'T001'
+      INTO DATA(ls_update).
+
+    cl_abap_unit_assert=>assert_subrc(
+      exp = 0
+      msg = 'Không phát hiện UPDATE T001'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'LOAD_DATA'
+      act = ls_update-containing_routine
+      msg = 'UPDATE không được gắn với LOAD_DATA'
+    ).
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS ltc_cp3_db_result_target DEFINITION
+  FINAL
+  FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+
+  PRIVATE SECTION.
+
+    METHODS parse_result_targets
+      FOR TESTING
+      RAISING zcx_mig_analysis.
+
+ENDCLASS.
+
+
+CLASS ltc_cp3_db_result_target IMPLEMENTATION.
+
+  METHOD parse_result_targets.
+
+    CONSTANTS gc_program TYPE progname
+      VALUE 'ZRMIG_UT_DB_TARGET'.
+
+
+    DATA lt_source
+      TYPE zif_mig_types=>tt_source_line.
+
+
+    lt_source = VALUE #(
+
+      (
+        source_object = gc_program
+        line_number   = 1
+        source_text   = `REPORT zrmig_ut_db_target.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 2
+        source_text   =
+          `DATA gt_result TYPE STANDARD TABLE OF t001.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 3
+        source_text   =
+          `DATA gt_corr TYPE STANDARD TABLE OF t001.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 4
+        source_text   =
+          `DATA gt_append TYPE STANDARD TABLE OF t001.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 5
+        source_text   =
+          `START-OF-SELECTION.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 6
+        source_text   =
+          `SELECT bukrs FROM t001 INTO TABLE @gt_result.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 7
+        source_text   =
+          `SELECT * FROM t001 INTO CORRESPONDING FIELDS OF TABLE @gt_corr.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 8
+        source_text   =
+          `SELECT bukrs FROM t001 INTO TABLE @DATA(lt_inline).`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 9
+        source_text   =
+          `SELECT bukrs FROM t001 APPENDING TABLE @gt_append.`
+      )
+
+    ).
+
+
+    DATA(lo_scanner) =
+      NEW zcl_mig_abap_scanner( ).
+
+    DATA(ls_scan) =
+      lo_scanner->zif_mig_abap_scanner~scan(
+        iv_source_object = gc_program
+        it_source        = lt_source
+      ).
+
+
+    DATA(lo_normalizer) =
+      NEW zcl_mig_stmt_normalizer( ).
+
+    DATA(ls_normalized) =
+      lo_normalizer->zif_mig_stmt_normalizer~normalize(
+        is_scan_result = ls_scan
+      ).
+
+
+    DATA lt_source_units
+      TYPE zif_mig_types=>tt_source_unit.
+
+    APPEND VALUE #(
+      source_object = VALUE #(
+        object_name  = gc_program
+        object_type  = 'PROGRAM'
+        source_lines = lt_source
+      )
+      scan_result = ls_normalized
+    ) TO lt_source_units.
+
+
+    DATA(lo_analyzer) =
+      NEW zcl_mig_db_analyzer( ).
+
+    DATA(ls_result) =
+      lo_analyzer->zif_mig_db_analyzer~analyze(
+        it_source_units = lt_source_units
+      ).
+
+
+    "INTO TABLE
+    READ TABLE ls_result-database_objects
+      WITH KEY result_target = 'GT_RESULT'
+      TRANSPORTING NO FIELDS.
+
+    cl_abap_unit_assert=>assert_subrc(
+      exp = 0
+      msg = 'Không parse INTO TABLE GT_RESULT'
+    ).
+
+
+    "INTO CORRESPONDING FIELDS OF TABLE
+    READ TABLE ls_result-database_objects
+      WITH KEY result_target = 'GT_CORR'
+      TRANSPORTING NO FIELDS.
+
+    cl_abap_unit_assert=>assert_subrc(
+      exp = 0
+      msg = 'Không parse CORRESPONDING target'
+    ).
+
+
+    "Inline DATA(...)
+    READ TABLE ls_result-database_objects
+      WITH KEY result_target = 'LT_INLINE'
+      TRANSPORTING NO FIELDS.
+
+    cl_abap_unit_assert=>assert_subrc(
+      exp = 0
+      msg = 'Không parse inline DATA result target'
+    ).
+
+
+    "APPENDING TABLE
+    READ TABLE ls_result-database_objects
+      WITH KEY result_target = 'GT_APPEND'
+      TRANSPORTING NO FIELDS.
+
+    cl_abap_unit_assert=>assert_subrc(
+      exp = 0
+      msg = 'Không parse APPENDING TABLE target'
+    ).
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS ltc_cp5_dynamic_db DEFINITION
+  FINAL
+  FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+
+  PRIVATE SECTION.
+
+    METHODS dynamic_db_requires_review
+      FOR TESTING
+      RAISING zcx_mig_analysis.
+
+ENDCLASS.
+
+
+CLASS ltc_cp5_dynamic_db IMPLEMENTATION.
+
+  METHOD dynamic_db_requires_review.
+
+    CONSTANTS gc_program TYPE progname
+      VALUE 'ZRMIG_UT_DYNAMIC_DB'.
+
+    DATA(lt_source) =
+      VALUE zif_mig_types=>tt_source_line(
+
+        (
+          source_object = gc_program
+          line_number   = 1
+          source_text   = `REPORT zrmig_ut_dynamic_db.`
+        )
+
+        (
+          source_object = gc_program
+          line_number   = 2
+          source_text   =
+            `DATA lv_table TYPE tabname VALUE 'T001'.`
+        )
+
+        (
+          source_object = gc_program
+          line_number   = 3
+          source_text   =
+            `DATA lt_result TYPE STANDARD TABLE OF t001 WITH EMPTY KEY.`
+        )
+
+        (
+          source_object = gc_program
+          line_number   = 4
+          source_text   = `FORM load_data.`
+        )
+
+        (
+          source_object = gc_program
+          line_number   = 5
+          source_text   =
+            `SELECT * FROM (lv_table) INTO TABLE @lt_result.`
+        )
+
+        (
+          source_object = gc_program
+          line_number   = 6
+          source_text   = `ENDFORM.`
+        )
+
+      ).
+
+
+    DATA(lo_scanner) =
+      NEW zcl_mig_abap_scanner( ).
+
+    DATA(ls_scan) =
+      lo_scanner->zif_mig_abap_scanner~scan(
+        iv_source_object = gc_program
+        it_source        = lt_source
+      ).
+
+
+    DATA(lo_normalizer) =
+      NEW zcl_mig_stmt_normalizer( ).
+
+    DATA(ls_normalized) =
+      lo_normalizer->zif_mig_stmt_normalizer~normalize(
+        is_scan_result = ls_scan
+      ).
+
+
+    DATA lt_source_units
+      TYPE zif_mig_types=>tt_source_unit.
+
+    APPEND VALUE #(
+      source_object = VALUE #(
+        object_name  = gc_program
+        object_type  = 'PROGRAM'
+        source_lines = lt_source
+      )
+      scan_result = ls_normalized
+    ) TO lt_source_units.
+
+
+    DATA(lo_analyzer) =
+      NEW zcl_mig_db_analyzer( ).
+
+    DATA(ls_result) =
+      lo_analyzer->zif_mig_db_analyzer~analyze(
+        it_source_units = lt_source_units
+      ).
+
+
+    READ TABLE ls_result-database_objects
+      WITH KEY operation = 'SELECT'
+      INTO DATA(ls_db).
+
+    cl_abap_unit_assert=>assert_subrc(
+      exp = 0
+      msg = 'Dynamic SELECT phải được phát hiện'
+    ).
+
+
+    cl_abap_unit_assert=>assert_true(
+      act = ls_db-dynamic_access
+      msg = 'Dynamic SELECT phải có DYNAMIC_ACCESS'
+    ).
+
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = zif_mig_types=>gc_conf_medium
+      act = ls_db-confidence
+      msg = 'Dynamic SELECT phải có confidence MEDIUM'
+    ).
+
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'REVIEW'
+      act = ls_db-paging_capability
+      msg = 'Dynamic SELECT phải yêu cầu REVIEW'
+    ).
+
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'LOAD_DATA'
+      act = ls_db-containing_routine
+    ).
+
+
+    cl_abap_unit_assert=>assert_not_initial(
+      act = ls_db-evidence_id
+    ).
+
+  ENDMETHOD.
 
 ENDCLASS.

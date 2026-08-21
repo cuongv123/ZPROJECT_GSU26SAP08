@@ -217,6 +217,7 @@
       joined_objects     TYPE string,
       join_condition     TYPE string,
       aggregation        TYPE string,
+      result_target      TYPE c LENGTH 80,
       containing_routine TYPE c LENGTH 120,
       dynamic_access     TYPE abap_bool,
       read_only          TYPE abap_bool,
@@ -265,6 +266,8 @@
         output_name        TYPE c LENGTH 120,
         output_kind        TYPE c LENGTH 30,
         framework          TYPE c LENGTH 40,
+
+        containing_routine TYPE c LENGTH 120,
 
         control_object     TYPE c LENGTH 80,
         output_table       TYPE c LENGTH 80,

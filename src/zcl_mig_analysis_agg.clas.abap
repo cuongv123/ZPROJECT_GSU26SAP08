@@ -811,6 +811,43 @@ METHOD build_quality_messages.
 
 
   "==========================================================
+" Business Logic: dynamic function module
+"==========================================================
+LOOP AT cs_result-business_logic
+  ASSIGNING FIELD-SYMBOL(<dynamic_logic>)
+  WHERE object_type = 'DYNAMIC_FUNCTION_MODULE'.
+
+  DATA:
+    lv_dynamic_source TYPE progname,
+    lv_dynamic_line   TYPE i.
+
+
+  get_evidence_location(
+    EXPORTING
+      iv_evidence_id = <dynamic_logic>-evidence_id
+      it_evidences   = cs_result-evidences
+    IMPORTING
+      ev_source_object = lv_dynamic_source
+      ev_source_line   = lv_dynamic_line
+  ).
+
+
+  add_quality_message(
+    EXPORTING
+      iv_message_type  = gc_msg_warning
+      iv_message_code  = 'LOGIC_DYNAMIC_CALL'
+      iv_source_object = lv_dynamic_source
+      iv_source_line   = lv_dynamic_line
+      iv_message_text  =
+        |Dynamic function module target requires manual review: {
+           <dynamic_logic>-object_name }.|
+    CHANGING
+      ct_messages = cs_result-messages
+  ).
+
+ENDLOOP.
+
+  "==========================================================
   " Business logic: side effect chỉ là heuristic hint
   "
   "INFO không làm status thành WARNING.
