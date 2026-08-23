@@ -8,6 +8,7 @@ define behavior for ZC_MIG_ANALYSIS //alias <alias_name>
   use delete;
   use action PrepareSelectedExport;   // === MỚI ===
   use action GenerateTechnicalDocument;
+  use action GenerateAIAssessment;
   use association _SourceObjects;
   use association _UiFilters;
   use association _DatabaseObjects;

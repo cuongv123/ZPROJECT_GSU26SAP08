@@ -21,6 +21,9 @@ authorization master ( global )
   action GenerateTechnicalDocument
      result [1] ZA_MIG_TECH_DOC_RESULT;
 
+  action GenerateAIAssessment
+    result [1] ZA_MIG_AI_ASSESSMENT_RESULT;
+
   association _SourceObjects;
   association _UiFilters;
   association _DatabaseObjects;

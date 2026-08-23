@@ -162,6 +162,9 @@ CLASS lhc_Analysis DEFINITION INHERITING FROM cl_abap_behavior_handler.
     METHODS generatetechnicaldocument FOR MODIFY
       IMPORTING keys FOR ACTION Analysis~GenerateTechnicalDocument RESULT result.
 
+    METHODS generateaiassessment FOR MODIFY
+      IMPORTING keys FOR ACTION Analysis~GenerateAIAssessment RESULT result.
+
     METHODS prepareselectedexport FOR MODIFY
       IMPORTING keys FOR ACTION Analysis~PrepareSelectedExport RESULT result.
 
@@ -188,6 +191,9 @@ CLASS lhc_Analysis IMPLEMENTATION.
     if_abap_behv=>auth-allowed.
 
   result-%action-GenerateTechnicalDocument =
+    if_abap_behv=>auth-allowed.
+
+  result-%action-GenerateAIAssessment =
     if_abap_behv=>auth-allowed.
 
   result-%action-PrepareSelectedExport =
@@ -1124,6 +1130,287 @@ ENDMETHOD.
   ENDLOOP.
 
 ENDMETHOD.
+
+    METHOD generateaiassessment.
+
+
+    IF keys IS INITIAL.
+  RETURN.
+ENDIF.
+
+
+DATA lo_ai_support
+  TYPE REF TO zif_mig_ai_support_service.
+
+
+"==============================================================
+" Create REAL AI composition once for the whole RAP action
+"==============================================================
+TRY.
+
+    lo_ai_support =
+      zcl_mig_ai_factory=>create_gemini_support_service( ).
+
+
+  CATCH zcx_mig_analysis INTO DATA(lx_factory).
+
+    "==========================================================
+    " Configuration / factory failure affects all requested keys
+    "==========================================================
+    LOOP AT keys
+      ASSIGNING FIELD-SYMBOL(<factory_key>).
+
+      APPEND VALUE #(
+        %tky = <factory_key>-%tky
+      ) TO failed-Analysis.
+
+
+      APPEND VALUE #(
+        %tky = <factory_key>-%tky
+
+        %msg =
+          new_message_with_text(
+            severity =
+              if_abap_behv_message=>severity-error
+
+            text =
+              lx_factory->get_text( )
+          )
+      ) TO reported-Analysis.
+
+    ENDLOOP.
+
+    RETURN.
+
+ENDTRY.
+
+
+LOOP AT keys
+  ASSIGNING FIELD-SYMBOL(<key>).
+
+
+      DATA(lv_analysis_id) =
+        <key>-AnalysisId.
+
+
+      "========================================================
+      " Validate AnalysisId
+      "========================================================
+      IF lv_analysis_id IS INITIAL.
+
+        APPEND VALUE #(
+          %tky =
+            <key>-%tky
+        ) TO failed-Analysis.
+
+
+        APPEND VALUE #(
+          %tky =
+            <key>-%tky
+
+          %msg =
+            new_message_with_text(
+              severity =
+                if_abap_behv_message=>severity-error
+
+              text =
+                'Analysis ID is required.'
+            )
+        ) TO reported-Analysis.
+
+
+        CONTINUE.
+
+      ENDIF.
+
+
+      TRY.
+
+          "====================================================
+          " 1. Technical Document
+          "    -> Prompt
+          "    -> Fake AI
+          "    -> Parser
+          "    -> Assessment
+          "====================================================
+          DATA(ls_assessment) =
+            lo_ai_support->analyze(
+              iv_analysis_id =
+                lv_analysis_id
+            ).
+
+
+          "====================================================
+          " 2. Serialize collection results for RAP transport
+          "====================================================
+          DATA(lv_risks_json) =
+            /ui2/cl_json=>serialize(
+              data =
+                ls_assessment-risks
+
+              compress =
+                abap_true
+
+              pretty_name =
+                /ui2/cl_json=>pretty_mode-camel_case
+            ).
+
+
+          DATA(lv_plan_json) =
+            /ui2/cl_json=>serialize(
+              data =
+                ls_assessment-modernization_plan
+
+              compress =
+                abap_true
+
+              pretty_name =
+                /ui2/cl_json=>pretty_mode-camel_case
+            ).
+
+
+          DATA(lv_architecture_json) =
+            /ui2/cl_json=>serialize(
+              data =
+                ls_assessment-target_architecture
+
+              compress =
+                abap_true
+
+              pretty_name =
+                /ui2/cl_json=>pretty_mode-camel_case
+            ).
+
+
+          DATA(lv_code_json) =
+            /ui2/cl_json=>serialize(
+              data =
+                ls_assessment-code_suggestions
+
+              compress =
+                abap_true
+
+              pretty_name =
+                /ui2/cl_json=>pretty_mode-camel_case
+            ).
+
+
+          DATA(lv_manual_review_json) =
+            /ui2/cl_json=>serialize(
+              data =
+                ls_assessment-manual_review
+
+              compress =
+                abap_true
+
+              pretty_name =
+                /ui2/cl_json=>pretty_mode-camel_case
+            ).
+
+
+          "====================================================
+          " 3. Return AI Assessment to RAP caller
+          "====================================================
+          APPEND VALUE #(
+
+            %tky =
+              <key>-%tky
+
+            %param = VALUE #(
+
+              AnalysisId =
+                ls_assessment-analysis_id
+
+              ProgramName =
+                ls_assessment-program_name
+
+              ApplicationSummary =
+                ls_assessment-application_summary
+
+              BusinessPurpose =
+                ls_assessment-business_purpose-text
+
+              BusinessPurposeConfidence =
+                ls_assessment-business_purpose-confidence
+
+              BusinessPurposeReasoning =
+                ls_assessment-business_purpose-reasoning
+
+              LegacyFlowExplanation =
+                ls_assessment-legacy_flow_explanation
+
+              RisksJson =
+                lv_risks_json
+
+              ModernizationPlanJson =
+                lv_plan_json
+
+              TargetArchitectureJson =
+                lv_architecture_json
+
+              CodeSuggestionsJson =
+                lv_code_json
+
+              ManualReviewJson =
+                lv_manual_review_json
+
+            )
+
+          ) TO result.
+
+
+        CATCH zcx_mig_analysis INTO DATA(lx_analysis).
+
+          APPEND VALUE #(
+            %tky =
+              <key>-%tky
+          ) TO failed-Analysis.
+
+
+          APPEND VALUE #(
+            %tky =
+              <key>-%tky
+
+            %msg =
+              new_message_with_text(
+                severity =
+                  if_abap_behv_message=>severity-error
+
+                text =
+                  lx_analysis->get_text( )
+              )
+          ) TO reported-Analysis.
+
+
+        CATCH cx_root INTO DATA(lx_unexpected).
+
+          APPEND VALUE #(
+            %tky =
+              <key>-%tky
+          ) TO failed-Analysis.
+
+
+          APPEND VALUE #(
+            %tky =
+              <key>-%tky
+
+            %msg =
+              new_message_with_text(
+                severity =
+                  if_abap_behv_message=>severity-error
+
+                text =
+                  lx_unexpected->get_text( )
+              )
+          ) TO reported-Analysis.
+
+      ENDTRY.
+
+
+    ENDLOOP.
+
+
+  ENDMETHOD.
 
   METHOD prepareselectedexport.
 
