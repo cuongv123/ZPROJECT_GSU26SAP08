@@ -101,14 +101,8 @@
     BEGIN OF ty_statement,
       statement_id   TYPE i,
 
-      "Native SCAN type:
-      "I = valid INCLUDE
-      "J = INCLUDE không tồn tại khi scan WITH INCLUDES
-      "K = ABAP keyword statement
-      "U = unknown statement...
       native_type    TYPE c LENGTH 1,
 
-      "Keyword chuẩn hóa, ví dụ REPORT, PARAMETERS, SELECT...
       statement_type TYPE c LENGTH 30,
 
       token_from     TYPE i,
@@ -125,7 +119,9 @@
       parent_block   TYPE c LENGTH 30,
       block_depth    TYPE i,
 
-      "Tạm thời chưa dựng đầy đủ tại Scanner Core
+      execution_kind    TYPE c LENGTH 20,
+      execution_context TYPE string,
+
       statement_text TYPE string,
     END OF ty_statement,
 
@@ -219,6 +215,8 @@
       aggregation        TYPE string,
       result_target      TYPE c LENGTH 80,
       containing_routine TYPE c LENGTH 120,
+      execution_kind     TYPE c LENGTH 20,
+      execution_context  TYPE string,
       dynamic_access     TYPE abap_bool,
       read_only          TYPE abap_bool,
       paging_capability  TYPE c LENGTH 20,
@@ -241,6 +239,8 @@
       object_type           TYPE c LENGTH 30,
       container_name        TYPE c LENGTH 120,
       calling_routine       TYPE c LENGTH 120,
+      execution_kind        TYPE c LENGTH 20,
+      execution_context     TYPE string,
       interface_summary     TYPE string,
       description           TYPE c LENGTH 120,
       side_effect           TYPE c LENGTH 20,
@@ -252,6 +252,37 @@
 
     tt_business_logic TYPE STANDARD TABLE OF ty_business_logic
       WITH EMPTY KEY.
+
+    "============================================================
+    " Call Parameter Binding facts
+    "
+    " Chỉ biểu diễn binding quan sát trực tiếp tại call site.
+    " Không biểu diễn data flow hoặc downstream usage.
+    "============================================================
+    TYPES:
+      BEGIN OF ty_call_binding,
+
+        item_id           TYPE ty_item_id,
+        analysis_id       TYPE ty_analysis_id,
+
+        "Business Logic item chứa call này
+        call_item_id      TYPE ty_item_id,
+
+        "Dùng chung evidence của call statement
+        evidence_id       TYPE ty_evidence_id,
+
+        parameter_name    TYPE c LENGTH 60,
+        direction         TYPE c LENGTH 20,
+        actual_expression TYPE string,
+
+        position          TYPE i,
+
+        confidence        TYPE ty_confidence,
+
+      END OF ty_call_binding,
+
+      tt_call_binding TYPE STANDARD TABLE OF ty_call_binding
+        WITH EMPTY KEY.
 
   "============================================================
   " ALV Output header
@@ -514,6 +545,15 @@
         evidences      TYPE tt_evidence,
         messages       TYPE tt_message,
       END OF ty_logic_analysis_result.
+
+   "============================================================
+    " Call Binding Analysis Result
+    "============================================================
+    TYPES:
+      BEGIN OF ty_call_bind_analysis_result,
+        call_bindings TYPE tt_call_binding,
+        messages      TYPE tt_message,
+      END OF ty_call_bind_analysis_result.
 
    "============================================================
     " ALV Analysis Result
@@ -1298,7 +1338,7 @@
         alv_sorts        TYPE tt_alv_sort,
         alv_filters      TYPE tt_alv_filter,
         alv_events       TYPE tt_alv_event,
-
+        call_bindings    TYPE tt_call_binding,
         evidences        TYPE tt_evidence,
         messages         TYPE tt_message,
 

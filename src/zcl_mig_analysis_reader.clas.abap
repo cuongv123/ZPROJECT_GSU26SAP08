@@ -212,6 +212,45 @@ CLASS zcl_mig_analysis_reader IMPLEMENTATION.
 
         ENDLOOP.
 
+        "========================================================
+        " 5.1 Call parameter bindings
+        "
+        " Persistence mapping:
+        " BINDING_POSITION -> POSITION
+        "========================================================
+        SELECT *
+          FROM zmig_anl_bind
+          WHERE analysis_id = @iv_analysis_id
+          INTO TABLE @DATA(lt_binding_db).
+
+
+        LOOP AT lt_binding_db
+          ASSIGNING FIELD-SYMBOL(<binding_db>).
+
+          DATA ls_binding
+            TYPE zif_mig_types=>ty_call_binding.
+
+          CLEAR ls_binding.
+
+
+          MOVE-CORRESPONDING
+            <binding_db>
+            TO ls_binding.
+
+
+          ls_binding-analysis_id =
+            iv_analysis_id.
+
+
+          ls_binding-position =
+            <binding_db>-binding_position.
+
+
+          APPEND ls_binding
+            TO rs_result-call_bindings.
+
+        ENDLOOP.
+
 
         "========================================================
         " 6. ALV outputs
@@ -564,6 +603,11 @@ CLASS zcl_mig_analysis_reader IMPLEMENTATION.
     SORT rs_result-business_logic
       BY object_type
          object_name.
+
+    SORT rs_result-call_bindings
+      BY call_item_id
+         position
+         parameter_name.
 
     SORT rs_result-alv_outputs
       BY framework

@@ -25,6 +25,8 @@ CLASS zcl_mig_logic_analyzer DEFINITION
         end_line           TYPE i,
         statement_text     TYPE string,
         calling_routine    TYPE c LENGTH 120,
+        execution_kind     TYPE c LENGTH 20,
+        execution_context  TYPE string,
 
         object_name        TYPE ty_object_name,
         object_type        TYPE ty_object_type,
@@ -219,6 +221,8 @@ CLASS zcl_mig_logic_analyzer IMPLEMENTATION.
         object_type            = ls_state-object_type
         container_name         = ls_state-container_name
         calling_routine        = ls_state-calling_routine
+        execution_kind         = ls_state-execution_kind
+        execution_context      = ls_state-execution_context
         interface_summary      = ''
         description            = ''
         side_effect            = ls_state-side_effect
@@ -264,6 +268,8 @@ CLASS zcl_mig_logic_analyzer IMPLEMENTATION.
         end_line           = <statement>-end_line
         statement_text     = <statement>-statement_text
         calling_routine    = <statement>-parent_routine
+        execution_kind     = <statement>-execution_kind
+        execution_context  = <statement>-execution_context
         confidence         = zif_mig_types=>gc_conf_high
       ) INTO TABLE rt_states.
 

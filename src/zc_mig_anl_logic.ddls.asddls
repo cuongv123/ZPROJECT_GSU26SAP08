@@ -14,6 +14,8 @@ define view entity ZC_MIG_ANL_LOGIC
       ObjectType,
       ContainerName,
       CallingRoutine,
+      ExecutionKind,
+      ExecutionContext,
       InterfaceSummary,
       Description,
 

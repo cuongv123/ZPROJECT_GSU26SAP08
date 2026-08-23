@@ -43,6 +43,9 @@ CLASS ltc_tech_doc_builder DEFINITION
       FOR TESTING
       RAISING zcx_mig_analysis.
 
+    METHODS preserve_call_bindings
+      FOR TESTING
+      RAISING zcx_mig_analysis.
 ENDCLASS.
 
 CLASS ltc_tech_doc_builder IMPLEMENTATION.
@@ -371,5 +374,63 @@ CLASS ltc_tech_doc_builder IMPLEMENTATION.
 
 
   ENDMETHOD.
+
+  METHOD preserve_call_bindings.
+
+  DATA(ls_document) =
+    get_document( ).
+
+
+  READ TABLE ls_document-items
+    WITH KEY
+      section_id =
+        zif_mig_tech_doc_builder=>gc_sec_logic
+
+      label =
+        'BAPI_USER_GET_DETAIL'
+
+    INTO DATA(ls_logic).
+
+
+  cl_abap_unit_assert=>assert_subrc(
+    exp = 0
+    msg = 'Document thiếu BAPI_USER_GET_DETAIL'
+  ).
+
+
+  DATA(lv_detail) =
+    to_upper(
+      ls_logic-detail
+    ).
+
+
+  cl_abap_unit_assert=>assert_char_cp(
+    act = lv_detail
+    exp = '*OBSERVEDBINDINGS*'
+    msg = 'Technical Document chưa expose observed bindings'
+  ).
+
+
+  cl_abap_unit_assert=>assert_char_cp(
+    act = lv_detail
+    exp = '*EXPORTING*USERNAME*=*SY-UNAME*'
+    msg = 'Thiếu USERNAME binding'
+  ).
+
+
+  cl_abap_unit_assert=>assert_char_cp(
+    act = lv_detail
+    exp = '*IMPORTING*ADDRESS*=*LS_ADDRESS*'
+    msg = 'Thiếu ADDRESS binding'
+  ).
+
+
+  cl_abap_unit_assert=>assert_char_cp(
+    act = lv_detail
+    exp = '*TABLES*RETURN*=*LT_RETURN*'
+    msg = 'Thiếu RETURN binding'
+  ).
+
+ENDMETHOD.
 
 ENDCLASS.

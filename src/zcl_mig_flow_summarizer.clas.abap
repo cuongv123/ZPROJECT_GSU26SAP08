@@ -52,6 +52,20 @@ CLASS zcl_mig_flow_summarizer DEFINITION
         TYPE STANDARD TABLE OF ty_candidate
         WITH EMPTY KEY.
 
+    TYPES:
+      BEGIN OF ty_binding_summary,
+
+        call_item_id
+          TYPE zif_mig_types=>ty_item_id,
+
+        detail
+          TYPE string,
+
+      END OF ty_binding_summary,
+
+      tt_binding_summary
+        TYPE HASHED TABLE OF ty_binding_summary
+        WITH UNIQUE KEY call_item_id.
 
     METHODS collect_context_candidates
       IMPORTING
@@ -64,6 +78,9 @@ CLASS zcl_mig_flow_summarizer DEFINITION
 
         is_result
           TYPE zif_mig_types=>ty_analysis_result
+
+        it_binding_summaries
+          TYPE tt_binding_summary
 
       RETURNING
         VALUE(rt_candidates)
@@ -134,6 +151,14 @@ CLASS zcl_mig_flow_summarizer DEFINITION
       RETURNING
         VALUE(rv_detail)
           TYPE string.
+    METHODS build_binding_summaries
+      IMPORTING
+        it_bindings
+          TYPE zif_mig_types=>tt_call_binding
+
+      RETURNING
+        VALUE(rt_summaries)
+          TYPE tt_binding_summary.
 
 ENDCLASS.
 
@@ -146,6 +171,12 @@ CLASS zcl_mig_flow_summarizer IMPLEMENTATION.
 
     rs_summary-program_name =
       is_result-overview-program_name.
+
+    DATA(lt_binding_summaries) =
+      build_binding_summaries(
+        it_bindings =
+          is_result-call_bindings
+      ).
 
 
     "==========================================================
@@ -201,11 +232,19 @@ CLASS zcl_mig_flow_summarizer IMPLEMENTATION.
       " - direct ALV
       "========================================================
       DATA(lt_event_candidates) =
-        collect_context_candidates(
-          iv_context         = lv_event
-          iv_form_as_routine = abap_true
-          is_result          = is_result
-        ).
+      collect_context_candidates(
+        iv_context =
+          lv_event
+
+        iv_form_as_routine =
+          abap_true
+
+        is_result =
+          is_result
+
+        it_binding_summaries =
+          lt_binding_summaries
+      ).
 
 
       IF lt_event_candidates IS INITIAL.
@@ -284,8 +323,10 @@ CLASS zcl_mig_flow_summarizer IMPLEMENTATION.
 
             is_result =
               is_result
-          ).
 
+            it_binding_summaries =
+              lt_binding_summaries
+          ).
 
         LOOP AT lt_routine_candidates
           INTO DATA(ls_routine_candidate).
@@ -477,6 +518,22 @@ CLASS zcl_mig_flow_summarizer IMPLEMENTATION.
         build_logic_detail(
           is_logic = <logic>
         ).
+
+      READ TABLE it_binding_summaries
+          WITH TABLE KEY
+            call_item_id = <logic>-item_id
+          ASSIGNING FIELD-SYMBOL(<binding_summary>).
+
+
+        IF sy-subrc = 0.
+
+          lv_logic_detail =
+            |{ lv_logic_detail }; ObservedBindings=[{
+               <binding_summary>-detail }] |.
+
+          CONDENSE lv_logic_detail.
+
+        ENDIF.
 
 
       DATA(lv_logic_review) =
@@ -773,6 +830,22 @@ CLASS zcl_mig_flow_summarizer IMPLEMENTATION.
 
     ENDIF.
 
+    IF is_database-execution_kind IS NOT INITIAL.
+
+      rv_detail =
+        |{ rv_detail }; EXECUTION={
+           is_database-execution_kind }|.
+
+    ENDIF.
+
+
+    IF is_database-execution_context IS NOT INITIAL.
+
+      rv_detail =
+        |{ rv_detail }; CONTEXT={
+           is_database-execution_context }|.
+
+    ENDIF.
 
   ENDMETHOD.
 
@@ -835,6 +908,23 @@ CLASS zcl_mig_flow_summarizer IMPLEMENTATION.
 
     ENDIF.
 
+    IF is_logic-execution_kind IS NOT INITIAL.
+
+      rv_detail =
+        |{ rv_detail }; EXECUTION={
+           is_logic-execution_kind }|.
+
+    ENDIF.
+
+
+    IF is_logic-execution_context IS NOT INITIAL.
+
+      rv_detail =
+        |{ rv_detail }; CONTEXT={
+           is_logic-execution_context }|.
+
+    ENDIF.
+
 
   ENDMETHOD.
 
@@ -874,5 +964,57 @@ CLASS zcl_mig_flow_summarizer IMPLEMENTATION.
 
   ENDMETHOD.
 
+  METHOD build_binding_summaries.
+
+  DATA lt_bindings
+    TYPE zif_mig_types=>tt_call_binding.
+
+
+  lt_bindings =
+    it_bindings.
+
+
+  SORT lt_bindings
+    BY call_item_id
+       position
+       parameter_name.
+
+
+  LOOP AT lt_bindings
+    ASSIGNING FIELD-SYMBOL(<binding>).
+
+
+    DATA(lv_piece) =
+      |{ <binding>-direction } {
+         <binding>-parameter_name } = {
+         <binding>-actual_expression }|.
+
+
+    READ TABLE rt_summaries
+      WITH TABLE KEY
+        call_item_id = <binding>-call_item_id
+      ASSIGNING FIELD-SYMBOL(<summary>).
+
+
+    IF sy-subrc = 0.
+
+      <summary>-detail =
+        |{ <summary>-detail }; { lv_piece }|.
+
+    ELSE.
+
+      INSERT VALUE #(
+        call_item_id =
+          <binding>-call_item_id
+
+        detail =
+          lv_piece
+      ) INTO TABLE rt_summaries.
+
+    ENDIF.
+
+  ENDLOOP.
+
+ENDMETHOD.
 
 ENDCLASS.

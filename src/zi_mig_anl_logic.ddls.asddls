@@ -17,6 +17,8 @@ define view entity ZI_MIG_ANL_LOGIC
       object_type             as ObjectType,
       container_name          as ContainerName,
       calling_routine         as CallingRoutine,
+      execution_kind          as ExecutionKind,
+      execution_context       as ExecutionContext,
       interface_summary       as InterfaceSummary,
       description             as Description,
 

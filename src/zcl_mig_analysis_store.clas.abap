@@ -89,6 +89,9 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
     DELETE FROM zmig_anl_alv
       WHERE analysis_id = @iv_analysis_id.
 
+    DELETE FROM zmig_anl_bind
+      WHERE analysis_id = @iv_analysis_id.
+
     DELETE FROM zmig_anl_log
       WHERE analysis_id = @iv_analysis_id.
 
@@ -312,6 +315,46 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
 
     ENDLOOP.
 
+    "========================================================
+    " Call Parameter Bindings
+    "
+    " Runtime:
+    "   POSITION
+    "
+    " Persistence:
+    "   BINDING_POSITION
+    "========================================================
+    DATA lt_call_binding
+      TYPE STANDARD TABLE OF zmig_anl_bind
+      WITH EMPTY KEY.
+
+
+    LOOP AT is_result-call_bindings
+      ASSIGNING FIELD-SYMBOL(<call_binding>).
+
+      DATA ls_call_binding
+        TYPE zmig_anl_bind.
+
+      CLEAR ls_call_binding.
+
+
+      MOVE-CORRESPONDING
+        <call_binding>
+        TO ls_call_binding.
+
+
+      ls_call_binding-analysis_id =
+        lv_analysis_id.
+
+
+      ls_call_binding-binding_position =
+        <call_binding>-position.
+
+
+      APPEND ls_call_binding
+        TO lt_call_binding.
+
+    ENDLOOP.
 
 
     "========================================================
@@ -632,6 +675,22 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
 
         ENDIF.
 
+        IF lt_call_binding IS NOT INITIAL.
+
+          INSERT zmig_anl_bind
+            FROM TABLE @lt_call_binding.
+
+          IF sy-subrc <> 0.
+
+            raise_store_error(
+              iv_program_name =
+                is_result-overview-program_name
+            ).
+
+          ENDIF.
+
+        ENDIF.
+
 
         "====================================================
         " ALV
@@ -856,6 +915,11 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
       INTO TABLE @DATA(lt_logic).
 
     SELECT *
+      FROM zmig_anl_bind
+      WHERE analysis_id = @iv_analysis_id
+      INTO TABLE @DATA(lt_call_binding).
+
+    SELECT *
       FROM zmig_anl_alv
       WHERE analysis_id = @iv_analysis_id
       INTO TABLE @DATA(lt_alv).
@@ -968,6 +1032,31 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
 
     ENDLOOP.
 
+    "========================================================
+    " Call Parameter Bindings
+    "========================================================
+    LOOP AT lt_call_binding
+      ASSIGNING FIELD-SYMBOL(<db_call_binding>).
+
+      DATA ls_call_binding_result
+        TYPE zif_mig_types=>ty_call_binding.
+
+      CLEAR ls_call_binding_result.
+
+
+      MOVE-CORRESPONDING
+        <db_call_binding>
+        TO ls_call_binding_result.
+
+
+      ls_call_binding_result-position =
+        <db_call_binding>-binding_position.
+
+
+      APPEND ls_call_binding_result
+        TO rs_result-call_bindings.
+
+    ENDLOOP.
 
     "========================================================
     " ALV Outputs
@@ -1212,6 +1301,11 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
     SORT rs_result-business_logic
       BY object_type
          object_name.
+
+    SORT rs_result-call_bindings
+      BY call_item_id
+         position
+         parameter_name.
 
     SORT rs_result-alv_outputs
       BY output_id.

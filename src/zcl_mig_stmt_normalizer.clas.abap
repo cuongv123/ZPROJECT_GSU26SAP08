@@ -25,12 +25,18 @@ CLASS zcl_mig_stmt_normalizer DEFINITION
       END OF ty_text_entry,
 
       tt_text_map TYPE HASHED TABLE OF ty_text_entry
-        WITH UNIQUE KEY statement_id,
+        WITH UNIQUE KEY statement_id.
 
-      ty_block_name TYPE c LENGTH 30,
+      TYPES:
+          BEGIN OF ty_block_frame,
+            block_type     TYPE c LENGTH 30,
+            context_before TYPE string,
+            block_header   TYPE string,
+            active_context TYPE string,
+          END OF ty_block_frame,
 
-      tt_block_stack TYPE STANDARD TABLE OF ty_block_name
-        WITH EMPTY KEY.
+          tt_block_stack TYPE STANDARD TABLE OF ty_block_frame
+            WITH EMPTY KEY.
 
 ENDCLASS.
 
@@ -47,7 +53,22 @@ CLASS zcl_mig_stmt_normalizer IMPLEMENTATION.
       lv_chain_keyword TYPE string,
 
       lv_routine_name TYPE c LENGTH 120,
-      lv_routine_type TYPE c LENGTH 20.
+      lv_routine_type TYPE c LENGTH 20,
+
+      lv_execution_context TYPE string,
+
+      lv_conditional_depth TYPE i,
+      lv_iteration_depth   TYPE i,
+      lv_try_depth         TYPE i,
+
+      lv_context_category_count TYPE i,
+      lv_context_boundary       TYPE abap_bool,
+      lv_stack_index            TYPE i,
+
+      ls_block_frame TYPE ty_block_frame.
+
+    FIELD-SYMBOLS:
+      <block_frame> TYPE ty_block_frame.
 
     rs_result = is_scan_result.
 
@@ -306,6 +327,56 @@ CLASS zcl_mig_stmt_normalizer IMPLEMENTATION.
       <statement>-statement_text =
         lv_statement_text.
 
+        "========================================================
+        " 3.1.1 Reset execution context khi bắt đầu
+        "       processing block / routine mới
+        "
+        " Event ABAP không có ENDxxx riêng nên phải reset tại
+        " event boundary. Nếu không, context của event trước
+        " có thể leak sang event sau.
+        "========================================================
+        CLEAR lv_context_boundary.
+
+        CASE <statement>-statement_type.
+
+          WHEN 'FORM'
+            OR 'METHOD'
+            OR 'FUNCTION'
+            OR 'MODULE'
+            OR 'INITIALIZATION'
+            OR 'START-OF-SELECTION'
+            OR 'END-OF-SELECTION'
+            OR 'TOP-OF-PAGE'
+            OR 'END-OF-PAGE'
+            OR 'LOAD-OF-PROGRAM'.
+
+            lv_context_boundary =
+              abap_true.
+
+          WHEN 'AT'.
+
+            IF lv_token_2 = 'SELECTION-SCREEN'
+               OR lv_token_2 = 'LINE-SELECTION'
+               OR lv_token_2 = 'USER-COMMAND'.
+
+              lv_context_boundary =
+                abap_true.
+
+            ENDIF.
+
+        ENDCASE.
+
+        IF lv_context_boundary = abap_true.
+
+          CLEAR:
+            lt_block_stack,
+            lv_execution_context,
+            lv_conditional_depth,
+            lv_iteration_depth,
+            lv_try_depth.
+
+        ENDIF.
+
       "========================================================
       " 3.2 Nhận diện processing block/routine bắt đầu
       "========================================================
@@ -438,78 +509,392 @@ CLASS zcl_mig_stmt_normalizer IMPLEMENTATION.
       <statement>-routine_type =
         lv_routine_type.
 
-      "========================================================
-      " 3.4 Gán block context trước khi push/pop
-      "========================================================
-      <statement>-block_depth =
-        lines( lt_block_stack ).
+        "========================================================
+        " 3.4 Snapshot execution context của statement hiện tại
+        "
+        " Context được lấy TRƯỚC khi statement hiện tại thay đổi
+        " stack.
+        "
+        " Ví dụ:
+        "
+        " IF p_commit = abap_true.
+        "   CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'.
+        " ENDIF.
+        "
+        " CALL sẽ nhận:
+        "   PARENT_BLOCK      = IF
+        "   EXECUTION_KIND    = CONDITIONAL
+        "   EXECUTION_CONTEXT = IF P_COMMIT = ABAP_TRUE.
+        "
+        " Đây chỉ là structural context.
+        " Không phải runtime CFG / symbolic execution.
+        "========================================================
+        <statement>-block_depth =
+          lines( lt_block_stack ).
 
-      CLEAR <statement>-parent_block.
+        CLEAR <statement>-parent_block.
 
-      IF lt_block_stack IS NOT INITIAL.
+        IF lt_block_stack IS NOT INITIAL.
 
-        READ TABLE lt_block_stack
-          INDEX lines( lt_block_stack )
-          INTO <statement>-parent_block.
+          lv_stack_index =
+            lines( lt_block_stack ).
 
-      ENDIF.
+          READ TABLE lt_block_stack
+            INDEX lv_stack_index
+            ASSIGNING <block_frame>.
 
-      "========================================================
-      " 3.5 Mở block
-      "========================================================
-      CASE <statement>-statement_type.
+          IF sy-subrc = 0.
 
-        WHEN 'IF'
-          OR 'CASE'
-          OR 'LOOP'
-          OR 'DO'
-          OR 'WHILE'
-          OR 'TRY'.
-
-          APPEND
-            <statement>-statement_type
-            TO lt_block_stack.
-
-      ENDCASE.
-
-      "========================================================
-      " 3.6 Đóng block
-      "
-      "ENDLOOP vẫn có parent_block = LOOP.
-      "Sau đó mới pop LOOP khỏi stack.
-      "========================================================
-      CASE <statement>-statement_type.
-
-        WHEN 'ENDIF'
-          OR 'ENDCASE'
-          OR 'ENDLOOP'
-          OR 'ENDDO'
-          OR 'ENDWHILE'
-          OR 'ENDTRY'.
-
-          IF lt_block_stack IS NOT INITIAL.
-
-            DELETE lt_block_stack
-              INDEX lines( lt_block_stack ).
+            <statement>-parent_block =
+              <block_frame>-block_type.
 
           ENDIF.
 
-      ENDCASE.
+        ENDIF.
+
+
+        <statement>-execution_context =
+          lv_execution_context.
+
+
+        "--------------------------------------------------------
+        " Xác định loại execution context
+        "--------------------------------------------------------
+        CLEAR lv_context_category_count.
+
+        IF lv_conditional_depth > 0.
+          lv_context_category_count += 1.
+        ENDIF.
+
+        IF lv_iteration_depth > 0.
+          lv_context_category_count += 1.
+        ENDIF.
+
+        IF lv_try_depth > 0.
+          lv_context_category_count += 1.
+        ENDIF.
+
+
+        CASE lv_context_category_count.
+
+          WHEN 0.
+
+            <statement>-execution_kind =
+              'DIRECT'.
+
+          WHEN 1.
+
+            IF lv_conditional_depth > 0.
+
+              <statement>-execution_kind =
+                'CONDITIONAL'.
+
+            ELSEIF lv_iteration_depth > 0.
+
+              <statement>-execution_kind =
+                'ITERATIVE'.
+
+            ELSE.
+
+              <statement>-execution_kind =
+                'TRY_CONTEXT'.
+
+            ENDIF.
+
+          WHEN OTHERS.
+
+            <statement>-execution_kind =
+              'MIXED'.
+
+        ENDCASE.
+
+
+        "========================================================
+        " 3.5 Chuyển active branch
+        "
+        " Không suy luận:
+        "   ELSE = NOT previous IF
+        "
+        " Chỉ giữ chính xác structural source branch.
+        "========================================================
+        CASE <statement>-statement_type.
+
+          "------------------------------------------------------
+          " IF / ELSEIF / ELSE
+          "------------------------------------------------------
+          WHEN 'ELSEIF'
+            OR 'ELSE'.
+
+            IF lt_block_stack IS NOT INITIAL.
+
+              lv_stack_index =
+                lines( lt_block_stack ).
+
+              READ TABLE lt_block_stack
+                INDEX lv_stack_index
+                ASSIGNING <block_frame>.
+
+              IF sy-subrc = 0
+                 AND <block_frame>-block_type = 'IF'.
+
+                <block_frame>-active_context =
+                  <statement>-statement_text.
+
+                IF <block_frame>-context_before IS INITIAL.
+
+                  lv_execution_context =
+                    <block_frame>-active_context.
+
+                ELSE.
+
+                  lv_execution_context =
+                    |{ <block_frame>-context_before } > {
+                       <block_frame>-active_context }|.
+
+                ENDIF.
+
+              ENDIF.
+
+            ENDIF.
+
+
+          "------------------------------------------------------
+          " CASE / WHEN
+          "
+          " Giữ cả CASE header và active WHEN vì chỉ WHEN riêng
+          " không cho biết expression đang được kiểm tra.
+          "------------------------------------------------------
+          WHEN 'WHEN'.
+
+            IF lt_block_stack IS NOT INITIAL.
+
+              lv_stack_index =
+                lines( lt_block_stack ).
+
+              READ TABLE lt_block_stack
+                INDEX lv_stack_index
+                ASSIGNING <block_frame>.
+
+              IF sy-subrc = 0
+                 AND <block_frame>-block_type = 'CASE'.
+
+                <block_frame>-active_context =
+                  |{ <block_frame>-block_header } > {
+                     <statement>-statement_text }|.
+
+                IF <block_frame>-context_before IS INITIAL.
+
+                  lv_execution_context =
+                    <block_frame>-active_context.
+
+                ELSE.
+
+                  lv_execution_context =
+                    |{ <block_frame>-context_before } > {
+                       <block_frame>-active_context }|.
+
+                ENDIF.
+
+              ENDIF.
+
+            ENDIF.
+
+
+          "------------------------------------------------------
+          " TRY / CATCH / CLEANUP
+          "------------------------------------------------------
+          WHEN 'CATCH'
+            OR 'CLEANUP'.
+
+            IF lt_block_stack IS NOT INITIAL.
+
+              lv_stack_index =
+                lines( lt_block_stack ).
+
+              READ TABLE lt_block_stack
+                INDEX lv_stack_index
+                ASSIGNING <block_frame>.
+
+              IF sy-subrc = 0
+                 AND <block_frame>-block_type = 'TRY'.
+
+                <block_frame>-active_context =
+                  |{ <block_frame>-block_header } > {
+                     <statement>-statement_text }|.
+
+                IF <block_frame>-context_before IS INITIAL.
+
+                  lv_execution_context =
+                    <block_frame>-active_context.
+
+                ELSE.
+
+                  lv_execution_context =
+                    |{ <block_frame>-context_before } > {
+                       <block_frame>-active_context }|.
+
+                ENDIF.
+
+              ENDIF.
+
+            ENDIF.
+
+        ENDCASE.
+
+
+        "========================================================
+        " 3.6 Mở structural block
+        "
+        " Mỗi block frame giữ CONTEXT_BEFORE để khi pop có thể
+        " restore O(1), không cần rebuild context bằng nested LOOP.
+        "========================================================
+        CASE <statement>-statement_type.
+
+          WHEN 'IF'
+            OR 'CASE'
+            OR 'LOOP'
+            OR 'DO'
+            OR 'WHILE'
+            OR 'TRY'.
+
+            CLEAR ls_block_frame.
+
+            ls_block_frame-block_type =
+              <statement>-statement_type.
+
+            ls_block_frame-context_before =
+              lv_execution_context.
+
+            ls_block_frame-block_header =
+              <statement>-statement_text.
+
+            ls_block_frame-active_context =
+              <statement>-statement_text.
+
+
+            APPEND ls_block_frame
+              TO lt_block_stack.
+
+
+            IF lv_execution_context IS INITIAL.
+
+              lv_execution_context =
+                ls_block_frame-active_context.
+
+            ELSE.
+
+              lv_execution_context =
+                |{ lv_execution_context } > {
+                   ls_block_frame-active_context }|.
+
+            ENDIF.
+
+
+            CASE <statement>-statement_type.
+
+              WHEN 'IF'
+                OR 'CASE'.
+
+                lv_conditional_depth += 1.
+
+              WHEN 'LOOP'
+                OR 'DO'
+                OR 'WHILE'.
+
+                lv_iteration_depth += 1.
+
+              WHEN 'TRY'.
+
+                lv_try_depth += 1.
+
+            ENDCASE.
+
+        ENDCASE.
+
+
+        "========================================================
+        " 3.7 Đóng structural block
+        "
+        " ENDLOOP / ENDIF vẫn giữ context của block hiện tại.
+        " Sau snapshot mới pop.
+        "========================================================
+        CASE <statement>-statement_type.
+
+          WHEN 'ENDIF'
+            OR 'ENDCASE'
+            OR 'ENDLOOP'
+            OR 'ENDDO'
+            OR 'ENDWHILE'
+            OR 'ENDTRY'.
+
+            IF lt_block_stack IS NOT INITIAL.
+
+              lv_stack_index =
+                lines( lt_block_stack ).
+
+              READ TABLE lt_block_stack
+                INDEX lv_stack_index
+                INTO ls_block_frame.
+
+              IF sy-subrc = 0.
+
+                CASE ls_block_frame-block_type.
+
+                  WHEN 'IF'
+                    OR 'CASE'.
+
+                    IF lv_conditional_depth > 0.
+                      lv_conditional_depth -= 1.
+                    ENDIF.
+
+                  WHEN 'LOOP'
+                    OR 'DO'
+                    OR 'WHILE'.
+
+                    IF lv_iteration_depth > 0.
+                      lv_iteration_depth -= 1.
+                    ENDIF.
+
+                  WHEN 'TRY'.
+
+                    IF lv_try_depth > 0.
+                      lv_try_depth -= 1.
+                    ENDIF.
+
+                ENDCASE.
+
+
+                lv_execution_context =
+                  ls_block_frame-context_before.
+
+
+                DELETE lt_block_stack
+                  INDEX lv_stack_index.
+
+              ENDIF.
+
+            ENDIF.
+
+        ENDCASE.
 
       "========================================================
       " 3.7 Kết thúc routine
       "========================================================
       CASE <statement>-statement_type.
 
-        WHEN 'ENDFORM'
-          OR 'ENDMETHOD'
-          OR 'ENDFUNCTION'
-          OR 'ENDMODULE'.
+          WHEN 'ENDFORM'
+            OR 'ENDMETHOD'
+            OR 'ENDFUNCTION'
+            OR 'ENDMODULE'.
 
-          CLEAR:
-            lv_routine_name,
-            lv_routine_type,
-            lt_block_stack.
+            CLEAR:
+              lv_routine_name,
+              lv_routine_type,
+              lt_block_stack,
+              lv_execution_context,
+              lv_conditional_depth,
+              lv_iteration_depth,
+              lv_try_depth.
 
       ENDCASE.
 

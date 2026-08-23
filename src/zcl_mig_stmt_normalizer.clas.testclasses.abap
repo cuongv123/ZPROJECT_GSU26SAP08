@@ -540,3 +540,164 @@ CLASS ltc_cp2_event_context IMPLEMENTATION.
   ENDMETHOD.
 
 ENDCLASS.
+
+CLASS ltc_execution_context DEFINITION
+  FINAL
+  FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+
+  PRIVATE SECTION.
+
+    METHODS preserves_if_context
+      FOR TESTING
+      RAISING zcx_mig_analysis.
+
+ENDCLASS.
+
+
+CLASS ltc_execution_context IMPLEMENTATION.
+
+  METHOD preserves_if_context.
+
+    CONSTANTS gc_program TYPE progname
+      VALUE 'ZRMIG_UT_EXEC_CTX'.
+
+
+    DATA lt_source
+      TYPE zif_mig_types=>tt_source_line.
+
+
+    lt_source = VALUE #(
+
+      (
+        source_object = gc_program
+        line_number   = 1
+        source_text   = `REPORT zrmig_ut_exec_ctx.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 2
+        source_text   = `PARAMETERS p_commit AS CHECKBOX.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 3
+        source_text   = `START-OF-SELECTION.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 4
+        source_text   = `IF p_commit = abap_true.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 5
+        source_text   =
+          `CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 6
+        source_text   = `ENDIF.`
+      )
+
+    ).
+
+
+    DATA(lo_scanner) =
+      NEW zcl_mig_abap_scanner( ).
+
+
+    DATA(ls_scan) =
+      lo_scanner->zif_mig_abap_scanner~scan(
+        iv_source_object = gc_program
+        it_source        = lt_source
+      ).
+
+
+    DATA(lo_normalizer) =
+      NEW zcl_mig_stmt_normalizer( ).
+
+
+    DATA(ls_normalized) =
+      lo_normalizer->zif_mig_stmt_normalizer~normalize(
+        is_scan_result = ls_scan
+      ).
+
+
+    DATA lv_found
+      TYPE abap_bool.
+
+
+    CLEAR lv_found.
+
+
+    LOOP AT ls_normalized-statements
+      INTO DATA(ls_statement).
+
+      DATA(lv_statement_text) =
+        to_upper(
+          ls_statement-statement_text
+        ).
+
+
+      IF ls_statement-statement_type <> 'CALL'
+         OR lv_statement_text
+              NS 'BAPI_TRANSACTION_COMMIT'.
+
+        CONTINUE.
+
+      ENDIF.
+
+
+      lv_found =
+        abap_true.
+
+
+      cl_abap_unit_assert=>assert_equals(
+        exp = 'IF'
+        act = ls_statement-parent_block
+        msg = 'CALL phải nằm trong IF block'
+      ).
+
+
+      cl_abap_unit_assert=>assert_equals(
+        exp = 'CONDITIONAL'
+        act = ls_statement-execution_kind
+        msg = 'CALL trong IF phải là CONDITIONAL'
+      ).
+
+
+      DATA(lv_execution_context) =
+        to_upper(
+          ls_statement-execution_context
+        ).
+
+
+      cl_abap_unit_assert=>assert_char_cp(
+        act = lv_execution_context
+        exp = '*IF*P_COMMIT*=*ABAP_TRUE*'
+        msg =
+          'Execution context phải giữ IF condition'
+      ).
+
+
+      EXIT.
+
+    ENDLOOP.
+
+
+    cl_abap_unit_assert=>assert_true(
+      act = lv_found
+      msg = 'Không tìm thấy BAPI_TRANSACTION_COMMIT'
+    ).
+
+  ENDMETHOD.
+
+ENDCLASS.

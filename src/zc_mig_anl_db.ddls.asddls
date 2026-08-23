@@ -21,6 +21,8 @@ define view entity ZC_MIG_ANL_DB
       Aggregation,
       ResultTarget,
       ContainingRoutine,
+      ExecutionKind,
+      ExecutionContext,
       DynamicAccess,
       ReadOnly,
       PagingCapability,

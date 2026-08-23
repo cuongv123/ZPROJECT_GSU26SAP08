@@ -68,6 +68,7 @@ CLASS ltc_analysis_store IMPLEMENTATION.
           ( 'ZMIG_ANL_UI'  )
           ( 'ZMIG_ANL_DB'  )
           ( 'ZMIG_ANL_LOG' )
+          ( 'ZMIG_ANL_BIND')
           ( 'ZMIG_ANL_ALV' )
           ( 'ZMIG_ANL_COL' )
           ( 'ZMIG_ANL_SRT' )
@@ -144,6 +145,9 @@ CLASS ltc_analysis_store IMPLEMENTATION.
       create_uuid( ).
 
     DATA(lv_logic_id) =
+      create_uuid( ).
+
+    DATA(lv_binding_id) =
       create_uuid( ).
 
     DATA(lv_output_id) =
@@ -298,6 +302,8 @@ APPEND VALUE #(
       join_condition     = 'VBAK~VBELN = VBAP~VBELN'
       aggregation        = 'COUNT'
       containing_routine = 'START-OF-SELECTION'
+      execution_kind ='CONDITIONAL'
+      execution_context =  'IF P_ACTIVE = ABAP_TRUE.'
       dynamic_access     = abap_false
       read_only          = abap_true
       paging_capability  = 'SUPPORTED'
@@ -317,6 +323,8 @@ APPEND VALUE #(
       object_type           = 'BAPI'
       container_name        = 'START-OF-SELECTION'
       calling_routine       = 'LOAD_DATA'
+      execution_kind = 'CONDITIONAL'
+      execution_context ='IF P_COMMIT = ABAP_TRUE.'
       interface_summary     = 'CUSTOMER_NUMBER, SALES_ORGANIZATION'
       description           = 'Read sales orders'
       side_effect           = 'READ_ONLY'
@@ -326,7 +334,23 @@ APPEND VALUE #(
       confidence            = zif_mig_types=>gc_conf_high
     ) TO rs_result-business_logic.
 
+    "========================================================
+    " Call Binding
+    "========================================================
+    APPEND VALUE #(
+      item_id           = lv_binding_id
+      analysis_id       = lv_analysis_id
+      call_item_id      = lv_logic_id
+      evidence_id       = lv_evidence_id
 
+      parameter_name    = 'USERNAME'
+      direction         = 'EXPORTING'
+      actual_expression = 'SY-UNAME'
+
+      position           = 1
+
+      confidence         = zif_mig_types=>gc_conf_high
+    ) TO rs_result-call_bindings.
     "========================================================
     " ALV Output
     "========================================================
@@ -542,6 +566,116 @@ APPEND VALUE #(
       act = ls_actual-overview-readiness_score
     ).
 
+    READ TABLE ls_actual-database_objects
+  INDEX 1
+  INTO DATA(ls_actual_db).
+
+cl_abap_unit_assert=>assert_subrc(
+  exp = 0
+).
+
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 'CONDITIONAL'
+  act = ls_actual_db-execution_kind
+  msg = 'DB execution kind phải survive persistence'
+).
+
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 'IF P_ACTIVE = ABAP_TRUE.'
+  act = ls_actual_db-execution_context
+  msg = 'DB execution context phải survive persistence'
+).
+
+READ TABLE ls_actual-business_logic
+  INDEX 1
+  INTO DATA(ls_actual_logic).
+
+cl_abap_unit_assert=>assert_subrc(
+  exp = 0
+).
+
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 'CONDITIONAL'
+  act = ls_actual_logic-execution_kind
+  msg = 'Logic execution kind phải survive persistence'
+).
+
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 'IF P_COMMIT = ABAP_TRUE.'
+  act = ls_actual_logic-execution_context
+  msg = 'Logic execution context phải survive persistence'
+).
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 1
+  act = lines(
+          ls_actual-call_bindings
+        )
+  msg = 'Call bindings không survive persistence'
+).
+
+
+READ TABLE ls_actual-call_bindings
+  INDEX 1
+  INTO DATA(ls_actual_binding).
+
+
+cl_abap_unit_assert=>assert_subrc(
+  exp = 0
+).
+
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 'USERNAME'
+  act = ls_actual_binding-parameter_name
+).
+
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 'EXPORTING'
+  act = ls_actual_binding-direction
+).
+
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 'SY-UNAME'
+  act = ls_actual_binding-actual_expression
+).
+
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 1
+  act = ls_actual_binding-position
+  msg = 'BINDING_POSITION không map về POSITION'
+).
+
+
+cl_abap_unit_assert=>assert_subrc(
+  exp = 0
+  msg = 'Không đọc được Business Logic sau persistence'
+).
+
+
+cl_abap_unit_assert=>assert_equals(
+  exp = ls_actual_logic-item_id
+  act = ls_actual_binding-call_item_id
+  msg = 'Call binding mất relation với Business Logic'
+).
+
+cl_abap_unit_assert=>assert_subrc(
+  exp = 0
+).
+
+
+cl_abap_unit_assert=>assert_equals(
+  exp = ls_actual_logic-item_id
+  act = ls_actual_binding-call_item_id
+  msg = 'Call binding mất relation với Business Logic'
+).
 
   ENDMETHOD.
 

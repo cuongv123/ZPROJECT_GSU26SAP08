@@ -24,6 +24,9 @@ CLASS zcl_mig_db_analyzer DEFINITION
         statement_text     TYPE string,
         containing_routine TYPE c LENGTH 120,
 
+        execution_kind     TYPE c LENGTH 20,
+        execution_context  TYPE string,
+
         operation          TYPE c LENGTH 20,
         object_name        TYPE ty_object_name,
         object_type        TYPE c LENGTH 20,
@@ -246,6 +249,8 @@ CLASS zcl_mig_db_analyzer IMPLEMENTATION.
         aggregation        = ls_state-aggregation
         result_target      = ls_state-result_target
         containing_routine = ls_state-containing_routine
+        execution_kind     = ls_state-execution_kind
+        execution_context  = ls_state-execution_context
         dynamic_access     = ls_state-dynamic_access
         read_only          = ls_state-read_only
         paging_capability  = ls_state-paging_capability
@@ -343,7 +348,8 @@ CLASS zcl_mig_db_analyzer IMPLEMENTATION.
         end_line           = <statement>-end_line
         statement_text     = <statement>-statement_text
         containing_routine = <statement>-parent_routine
-
+        execution_kind     = <statement>-execution_kind
+        execution_context  = <statement>-execution_context
         operation          = lv_operation
         object_type        = 'TABLE_OR_VIEW'
         parse_phase        = lv_phase

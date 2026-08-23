@@ -180,6 +180,9 @@ CLASS zcl_mig_analysis_agg IMPLEMENTATION.
     DATA(lo_logic_analyzer) =
       NEW zcl_mig_logic_analyzer( ).
 
+    DATA(lo_call_bind_analyzer) =
+      NEW zcl_mig_call_bind_analyzer( ).
+
     DATA(lo_alv_analyzer) =
       NEW zcl_mig_alv_analyzer( ).
 
@@ -233,6 +236,35 @@ CLASS zcl_mig_analysis_agg IMPLEMENTATION.
 
     rs_result-business_logic =
       ls_logic_result-business_logic.
+
+    "========================================================
+    " 3.1 Call Parameter Bindings
+    "
+    " Chỉ enrich các call đã được Logic Analyzer phát hiện.
+    " Không detect call lần thứ hai.
+    "
+    " Binding dùng EvidenceId của business logic call để
+    " liên kết trở lại đúng source statement.
+    "========================================================
+    DATA(ls_call_bind_result) =
+      lo_call_bind_analyzer->zif_mig_call_bind_analyzer~analyze(
+
+        iv_analysis_id =
+          lv_analysis_id
+
+        it_source_units =
+          it_source_units
+
+        it_logic =
+          ls_logic_result-business_logic
+
+        it_evidences =
+          ls_logic_result-evidences
+
+      ).
+
+    rs_result-call_bindings =
+      ls_call_bind_result-call_bindings.
 
 
     "========================================================
@@ -417,6 +449,14 @@ CLASS zcl_mig_analysis_agg IMPLEMENTATION.
 
     append_messages(
       EXPORTING
+        it_source = ls_call_bind_result-messages
+
+      CHANGING
+        ct_target = rs_result-messages
+    ).
+
+    append_messages(
+      EXPORTING
         it_source = ls_alv_result-messages
       CHANGING
         ct_target = rs_result-messages
@@ -478,6 +518,11 @@ CLASS zcl_mig_analysis_agg IMPLEMENTATION.
         SORT rs_result-business_logic
           BY object_type
              object_name.
+
+        SORT rs_result-call_bindings
+          BY call_item_id
+             position
+             parameter_name.
 
         SORT rs_result-alv_outputs
           BY framework

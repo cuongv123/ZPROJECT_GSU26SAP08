@@ -69,6 +69,10 @@ CLASS ltc_logic_analyzer DEFINITION
     RAISING
       zcx_mig_analysis.
 
+      METHODS preserve_execution_context
+  FOR TESTING
+  RAISING zcx_mig_analysis.
+
 ENDCLASS.
 
 CLASS ltc_logic_analyzer IMPLEMENTATION.
@@ -637,6 +641,136 @@ METHOD classify_transaction.
   ).
 
 ENDMETHOD.
+METHOD preserve_execution_context.
+
+  CONSTANTS gc_program TYPE progname
+    VALUE 'ZRMIG_UT_LOG_EXEC'.
+
+
+  DATA lt_source
+    TYPE zif_mig_types=>tt_source_line.
+
+
+  lt_source = VALUE #(
+
+    (
+      source_object = gc_program
+      line_number   = 1
+      source_text   = `REPORT zrmig_ut_log_exec.`
+    )
+
+    (
+      source_object = gc_program
+      line_number   = 2
+      source_text   = `PARAMETERS p_commit AS CHECKBOX.`
+    )
+
+    (
+      source_object = gc_program
+      line_number   = 3
+      source_text   = `START-OF-SELECTION.`
+    )
+
+    (
+      source_object = gc_program
+      line_number   = 4
+      source_text   = `IF p_commit = abap_true.`
+    )
+
+    (
+      source_object = gc_program
+      line_number   = 5
+      source_text   =
+        `CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'.`
+    )
+
+    (
+      source_object = gc_program
+      line_number   = 6
+      source_text   = `ENDIF.`
+    )
+
+  ).
+
+
+  DATA(lo_scanner) =
+    NEW zcl_mig_abap_scanner( ).
+
+
+  DATA(ls_scan) =
+    lo_scanner->zif_mig_abap_scanner~scan(
+      iv_source_object = gc_program
+      it_source        = lt_source
+    ).
+
+
+  DATA(lo_normalizer) =
+    NEW zcl_mig_stmt_normalizer( ).
+
+
+  DATA(ls_normalized) =
+    lo_normalizer->zif_mig_stmt_normalizer~normalize(
+      is_scan_result = ls_scan
+    ).
+
+
+  DATA lt_source_units
+    TYPE zif_mig_types=>tt_source_unit.
+
+
+  APPEND VALUE #(
+    source_object = VALUE #(
+      object_name  = gc_program
+      object_type  = 'PROGRAM'
+      source_lines = lt_source
+    )
+    scan_result = ls_normalized
+  ) TO lt_source_units.
+
+
+  DATA(lo_analyzer) =
+    NEW zcl_mig_logic_analyzer( ).
+
+
+  DATA(ls_result) =
+    lo_analyzer->zif_mig_logic_analyzer~analyze(
+      it_source_units = lt_source_units
+    ).
+
+
+  READ TABLE ls_result-business_logic
+    WITH KEY
+      object_type = 'BAPI'
+      object_name = 'BAPI_TRANSACTION_COMMIT'
+    INTO DATA(ls_commit).
+
+
+  cl_abap_unit_assert=>assert_subrc(
+    exp = 0
+    msg = 'Không phát hiện BAPI_TRANSACTION_COMMIT'
+  ).
+
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = 'CONDITIONAL'
+    act = ls_commit-execution_kind
+    msg = 'BAPI trong IF phải là CONDITIONAL'
+  ).
+
+
+  DATA(lv_context) =
+    to_upper(
+      ls_commit-execution_context
+    ).
+
+
+  cl_abap_unit_assert=>assert_char_cp(
+    act = lv_context
+    exp = '*IF*P_COMMIT*=*ABAP_TRUE*'
+    msg = 'Business Logic fact phải giữ IF context'
+  ).
+
+ENDMETHOD.
 
 ENDCLASS.
 
@@ -851,6 +985,7 @@ CLASS ltc_cp2_logic_caller IMPLEMENTATION.
     ).
 
   ENDMETHOD.
+
 
 ENDCLASS.
 

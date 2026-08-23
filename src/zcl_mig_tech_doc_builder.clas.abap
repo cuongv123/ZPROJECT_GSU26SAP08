@@ -10,6 +10,15 @@ CLASS zcl_mig_tech_doc_builder DEFINITION
 
   PRIVATE SECTION.
 
+    TYPES:
+      BEGIN OF ty_binding_summary,
+        call_item_id TYPE zif_mig_types=>ty_item_id,
+        detail       TYPE string,
+      END OF ty_binding_summary,
+
+      tt_binding_summary TYPE HASHED TABLE OF ty_binding_summary
+        WITH UNIQUE KEY call_item_id.
+
     METHODS append_item
       IMPORTING
 
@@ -83,6 +92,12 @@ CLASS zcl_mig_tech_doc_builder DEFINITION
 
         ev_source_line
           TYPE i.
+
+    METHODS build_binding_summaries
+      IMPORTING
+        it_bindings TYPE zif_mig_types=>tt_call_binding
+      RETURNING
+        VALUE(rt_summaries) TYPE tt_binding_summary.
 
 ENDCLASS.
 
@@ -524,7 +539,7 @@ CLASS zcl_mig_tech_doc_builder IMPLEMENTATION.
 
     ENDLOOP.
 
-        "==========================================================
+    "==========================================================
     " 06. DATABASE ACCESS
     "==========================================================
 
@@ -558,6 +573,22 @@ CLASS zcl_mig_tech_doc_builder IMPLEMENTATION.
         |Operation={ <db>-operation }; Routine={
            <db>-containing_routine }|.
 
+      IF <db>-execution_kind IS NOT INITIAL.
+
+          lv_db_detail =
+            |{ lv_db_detail }; Execution={
+               <db>-execution_kind }|.
+
+        ENDIF.
+
+
+        IF <db>-execution_context IS NOT INITIAL.
+
+          lv_db_detail =
+            |{ lv_db_detail }; Context={
+               <db>-execution_context }|.
+
+        ENDIF.
 
       IF <db>-joined_objects IS NOT INITIAL.
 
@@ -639,7 +670,13 @@ CLASS zcl_mig_tech_doc_builder IMPLEMENTATION.
 
     ENDLOOP.
 
-        "==========================================================
+    DATA(lt_binding_summaries) =
+      build_binding_summaries(
+        it_bindings =
+          is_result-call_bindings
+      ).
+
+    "==========================================================
     " 07. BUSINESS LOGIC & DEPENDENCIES
     "==========================================================
 
@@ -672,6 +709,39 @@ CLASS zcl_mig_tech_doc_builder IMPLEMENTATION.
       DATA(lv_logic_detail) =
         |Type={ <logic>-object_type }; Caller={
            <logic>-calling_routine }|.
+
+      READ TABLE lt_binding_summaries
+          WITH TABLE KEY
+            call_item_id = <logic>-item_id
+          INTO DATA(ls_binding_summary).
+
+
+        IF sy-subrc = 0.
+
+          lv_logic_detail =
+            |{ lv_logic_detail }; ObservedBindings=[{
+               ls_binding_summary-detail }] |.
+
+          CONDENSE lv_logic_detail.
+
+        ENDIF.
+
+      IF <logic>-execution_kind IS NOT INITIAL.
+
+          lv_logic_detail =
+            |{ lv_logic_detail }; Execution={
+               <logic>-execution_kind }|.
+
+        ENDIF.
+
+
+        IF <logic>-execution_context IS NOT INITIAL.
+
+          lv_logic_detail =
+            |{ lv_logic_detail }; Context={
+               <logic>-execution_context }|.
+
+        ENDIF.
 
 
       IF <logic>-container_name IS NOT INITIAL.
@@ -1313,5 +1383,57 @@ CLASS zcl_mig_tech_doc_builder IMPLEMENTATION.
 
   ENDMETHOD.
 
+  METHOD build_binding_summaries.
+
+  DATA lt_bindings
+    TYPE zif_mig_types=>tt_call_binding.
+
+  lt_bindings =
+    it_bindings.
+
+
+  "Giữ thứ tự parameter ổn định trong document
+  SORT lt_bindings
+    BY call_item_id
+       position
+       parameter_name.
+
+
+  LOOP AT lt_bindings
+    ASSIGNING FIELD-SYMBOL(<binding>).
+
+
+    DATA(lv_piece) =
+      |{ <binding>-direction } {
+         <binding>-parameter_name } = {
+         <binding>-actual_expression }|.
+
+
+    READ TABLE rt_summaries
+      WITH TABLE KEY
+        call_item_id = <binding>-call_item_id
+      ASSIGNING FIELD-SYMBOL(<summary>).
+
+
+    IF sy-subrc = 0.
+
+      <summary>-detail =
+        |{ <summary>-detail }; { lv_piece }|.
+
+    ELSE.
+
+      INSERT VALUE #(
+        call_item_id =
+          <binding>-call_item_id
+
+        detail =
+          lv_piece
+      ) INTO TABLE rt_summaries.
+
+    ENDIF.
+
+  ENDLOOP.
+
+ENDMETHOD.
 
 ENDCLASS.
