@@ -1,4 +1,4 @@
-REPORT zinit_exp_col_missing.
+REPORT zinit_exp_col_miss.
 
 DATA lt_col TYPE TABLE OF ztb_exp_col.
 

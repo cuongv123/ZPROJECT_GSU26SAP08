@@ -4,25 +4,8 @@ CLASS zcl_mig_export_engine DEFINITION
   CREATE PUBLIC.
 
   PUBLIC SECTION.
+
     INTERFACES zif_mig_export_provider.
-
-  PRIVATE SECTION.
-    CONSTANTS:
-      gc_format_excel TYPE zmig_e_file_format VALUE 'X',
-      gc_format_csv   TYPE zmig_e_file_format VALUE 'C',
-      gc_format_pdf   TYPE zmig_e_file_format VALUE 'P',
-      gc_excel_name   TYPE string VALUE 'migration_report',
-      gc_csv_name     TYPE string VALUE 'migration_report',
-      gc_pdf_name     TYPE string VALUE 'migration_report'.
-
-    TYPES: BEGIN OF ty_col,
-             seq_no         TYPE ztb_exp_col-seq_no,
-             fieldname      TYPE ztb_exp_col-fieldname,
-             column_title   TYPE ztb_exp_col-column_title,
-             odata_property TYPE ztb_exp_col-odata_property,
-           END OF ty_col,
-           tt_col TYPE STANDARD TABLE OF ty_col WITH EMPTY KEY.
-
     TYPES: BEGIN OF ty_section_registry,
              section_code TYPE zif_mig_export_provider=>ty_export_section,
              view_name    TYPE tabname,
@@ -39,6 +22,63 @@ CLASS zcl_mig_export_engine DEFINITION
              fields       TYPE string_table,
            END OF ty_section_fields,
            tt_section_fields TYPE STANDARD TABLE OF ty_section_fields WITH NON-UNIQUE DEFAULT KEY.
+
+
+    TYPES: BEGIN OF ty_col,
+             seq_no         TYPE ztb_exp_col-seq_no,
+             fieldname      TYPE ztb_exp_col-fieldname,
+             column_title   TYPE ztb_exp_col-column_title,
+             odata_property TYPE ztb_exp_col-odata_property,
+           END OF ty_col,
+           tt_col TYPE STANDARD TABLE OF ty_col WITH EMPTY KEY.
+    TYPES tt_row_cells TYPE STANDARD TABLE OF string_table WITH EMPTY KEY.
+    " Build 1 dong text "|" - dung chung cho CSV/PDF renderer.
+     METHODS escape_pdf_text
+      IMPORTING
+        iv_text        TYPE string
+      RETURNING
+        VALUE(rv_text) TYPE string.
+    METHODS build_row_line
+      IMPORTING
+        it_cols         TYPE tt_col
+        is_row          TYPE any
+      RETURNING
+        VALUE(rt_cells) TYPE string_table.
+    TYPES: BEGIN OF ty_export_plan,
+             sections TYPE tt_section_registry,
+             fields   TYPE tt_section_fields,
+           END OF ty_export_plan.
+    METHODS resolve_export_plan
+      IMPORTING
+        iv_export_section  TYPE zif_mig_export_provider=>ty_export_section
+        iv_selected_fields TYPE string
+      RETURNING
+        VALUE(rs_plan)     TYPE ty_export_plan
+      RAISING
+        zcx_mig_export_error.
+    TYPES: BEGIN OF ty_pdf_layout,
+             header_text TYPE string,
+             footer_text TYPE string,
+           END OF ty_pdf_layout.
+    METHODS render_section_pages
+      IMPORTING
+        iv_title        TYPE string
+        it_header_cols  TYPE tt_col
+        it_lines        TYPE tt_row_cells
+        is_pdf_layout   TYPE ty_pdf_layout OPTIONAL
+      RETURNING
+        VALUE(rt_pages) TYPE string_table.
+  PRIVATE SECTION.
+    CONSTANTS:
+      gc_format_excel TYPE zmig_e_file_format VALUE 'X',
+      gc_format_csv   TYPE zmig_e_file_format VALUE 'C',
+      gc_format_pdf   TYPE zmig_e_file_format VALUE 'P',
+      gc_excel_name   TYPE string VALUE 'migration_report',
+      gc_csv_name     TYPE string VALUE 'migration_report',
+      gc_pdf_name     TYPE string VALUE 'migration_report'.
+
+
+
 
     " ------------------------------------------------------------
     " Helpers dùng chung cho cả 3 định dạng
@@ -60,10 +100,10 @@ CLASS zcl_mig_export_engine DEFINITION
     " và POST action chỉ có analysis_id, report_type rỗng).
     METHODS resolve_export_filename
       IMPORTING
-        iv_analysis_id    TYPE sysuuid_x16
-        iv_report_type    TYPE zmig_mail_job-report_type
-        iv_export_section TYPE zif_mig_export_provider=>ty_export_section
-        iv_extension      TYPE string
+        iv_analysis_id     TYPE sysuuid_x16
+        iv_report_type     TYPE zmig_mail_job-report_type
+        iv_export_section  TYPE zif_mig_export_provider=>ty_export_section
+        iv_extension       TYPE string
       RETURNING
         VALUE(rv_filename) TYPE string.
 
@@ -81,11 +121,11 @@ CLASS zcl_mig_export_engine DEFINITION
     " SELECT lần thứ 2 cho việc lọc.
     METHODS get_columns_for_section
       IMPORTING
-        iv_section_code     TYPE zif_mig_export_provider=>ty_export_section
-        it_selected_fields  TYPE string_table OPTIONAL
-        io_struct           TYPE REF TO cl_abap_structdescr OPTIONAL
+        iv_section_code    TYPE zif_mig_export_provider=>ty_export_section
+        it_selected_fields TYPE string_table OPTIONAL
+        io_struct          TYPE REF TO cl_abap_structdescr OPTIONAL
       RETURNING
-        VALUE(rt_cols)      TYPE tt_col.
+        VALUE(rt_cols)     TYPE tt_col.
 
     " Tách chuỗi SelectedFields: trim, loại trùng, giữ thứ tự người dùng chọn.
     METHODS parse_selected_fields
@@ -104,21 +144,18 @@ CLASS zcl_mig_export_engine DEFINITION
       RETURNING
         VALUE(rt_map)      TYPE tt_section_fields.
 
+
     " 1 SELECT duy nhất để đọc dữ liệu của 1 section theo analysis_id.
     METHODS read_section_data
       IMPORTING
-        iv_view_name    TYPE tabname
-        iv_analysis_id  TYPE sysuuid_x16
+        iv_view_name   TYPE tabname
+        iv_analysis_id TYPE sysuuid_x16
       RETURNING
-        VALUE(rr_data)  TYPE REF TO data
+        VALUE(rr_data) TYPE REF TO data
       RAISING
         cx_root.
 
-    METHODS escape_pdf_text
-      IMPORTING
-        iv_text        TYPE string
-      RETURNING
-        VALUE(rv_text) TYPE string.
+
 
     METHODS escape_csv_value
       IMPORTING
@@ -126,34 +163,12 @@ CLASS zcl_mig_export_engine DEFINITION
       RETURNING
         VALUE(rv_value) TYPE string.
 
-    " Build 1 dòng text "|" - dùng chung cho CSV/PDF renderer.
-    METHODS build_row_line
-      IMPORTING
-        it_cols          TYPE tt_col
-        is_row           TYPE any
-      RETURNING
-        VALUE(rv_line)   TYPE string.
 
-    METHODS build_pdf_document
-      IMPORTING
-        iv_title          TYPE string
-        it_header_cols    TYPE tt_col
-        it_lines          TYPE string_table
-      RETURNING
-        VALUE(rv_content) TYPE xstring
-      RAISING
-        cx_root.
 
-    " Render các trang (dạng PDF content-stream text) cho 1 section -
-    " chưa đóng gói thành file PDF hoàn chỉnh, dùng để gộp nhiều section
-    " vào cùng 1 file khi ExportSection = ALL.
-    METHODS render_section_pages
-      IMPORTING
-        iv_title        TYPE string
-        it_header_cols  TYPE tt_col
-        it_lines        TYPE string_table
-      RETURNING
-        VALUE(rt_pages) TYPE string_table.
+
+
+
+
 
     " Đóng gói danh sách trang (đã render) thành 1 file PDF nhị phân
     " hoàn chỉnh (xref/trailer) - dùng chung cho cả trường hợp 1 section
@@ -164,12 +179,6 @@ CLASS zcl_mig_export_engine DEFINITION
       RETURNING
         VALUE(rv_content) TYPE xstring.
 
-    METHODS build_csv_document
-      IMPORTING
-        it_cols           TYPE tt_col
-        it_lines          TYPE string_table
-      RETURNING
-        VALUE(rv_content) TYPE xstring.
 
     METHODS export_excel
       IMPORTING
@@ -200,6 +209,7 @@ CLASS zcl_mig_export_engine DEFINITION
         iv_report_type     TYPE zmig_mail_job-report_type
         iv_export_section  TYPE zif_mig_export_provider=>ty_export_section
         iv_selected_fields TYPE string
+        is_pdf_layout      TYPE ty_pdf_layout OPTIONAL
       RETURNING
         VALUE(rs_result)   TYPE zif_mig_export_provider=>ty_export_result.
 
@@ -404,6 +414,31 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       ) TO rt_map.
     ENDLOOP.
   ENDMETHOD.
+  METHOD resolve_export_plan.
+    DATA(lv_section) = CONV zif_mig_export_provider=>ty_export_section(
+      to_upper( condense( CONV string( iv_export_section ) ) ) ).
+
+    DATA(lt_registry) = get_section_registry( ).
+
+    IF lv_section = 'ALL'.
+      rs_plan-sections = lt_registry.
+      rs_plan-fields    = parse_section_field_map( iv_selected_fields ).
+      RETURN.
+    ENDIF.
+
+    READ TABLE lt_registry INTO DATA(ls_section) WITH KEY section_code = lv_section.
+    IF sy-subrc <> 0.
+      RAISE EXCEPTION TYPE zcx_mig_export_error
+        EXPORTING
+          mv_message = |Unknown export section { lv_section }.|.
+    ENDIF.
+
+    APPEND ls_section TO rs_plan-sections.
+    APPEND VALUE #(
+      section_code = lv_section
+      fields       = parse_selected_fields( iv_selected_fields )
+    ) TO rs_plan-fields.
+  ENDMETHOD.
 
 
   METHOD get_columns_for_section.
@@ -459,12 +494,10 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
 
 
   METHOD build_row_line.
-    CLEAR rv_line.
+    CLEAR rt_cells.
     LOOP AT it_cols INTO DATA(ls_col).
       ASSIGN COMPONENT ls_col-fieldname OF STRUCTURE is_row TO FIELD-SYMBOL(<lv_val>).
-      DATA(lv_val_str) = COND string( WHEN sy-subrc = 0 THEN CONV string( <lv_val> ) ELSE '' ).
-      rv_line = COND #( WHEN rv_line IS INITIAL THEN lv_val_str
-                         ELSE rv_line && '|' && lv_val_str ).
+      APPEND COND string( WHEN sy-subrc = 0 THEN CONV string( <lv_val> ) ELSE '' ) TO rt_cells.
     ENDLOOP.
   ENDMETHOD.
 
@@ -480,21 +513,21 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     lv_escaped = replace( val = lv_escaped sub = '\' with = '\\' occ = 0 ).
     lv_escaped = replace( val = lv_escaped sub = '(' with = '\(' occ = 0 ).
     lv_escaped = replace( val = lv_escaped sub = ')' with = '\)' occ = 0 ).
-    lv_escaped = replace( regex = '[^\x20-\x7E]' val = lv_escaped with = ' ' occ = 0 ).
+    lv_escaped = replace( regex = '[^ -~]' val = lv_escaped with = ' ' occ = 0 ).
     rv_text = lv_escaped.
   ENDMETHOD.
 
 
   METHOD export_excel.
-    DATA(lt_registry) = get_section_registry( ).
-    DATA(lv_is_all) = xsdbool( to_upper( condense( CONV string( iv_export_section ) ) ) = 'ALL' ).
-
-    " ALL: field theo từng section (định dạng "SEC:f1,f2;SEC2:f3").
-    " Khác ALL: field phẳng áp dụng cho đúng 1 section được chọn.
-    DATA(lt_sel_fields) = COND string_table(
-      WHEN lv_is_all = abap_false THEN parse_selected_fields( iv_selected_fields ) ).
-    DATA(lt_section_map) = COND #(
-      WHEN lv_is_all = abap_true THEN parse_section_field_map( iv_selected_fields ) ).
+    TRY.
+        DATA(ls_plan) = resolve_export_plan(
+          iv_export_section  = iv_export_section
+          iv_selected_fields = iv_selected_fields ).
+      CATCH zcx_mig_export_error INTO DATA(lx_plan).
+        rs_result-success = abap_false.
+        rs_result-message = lx_plan->get_text( ).
+        RETURN.
+    ENDTRY.
 
     TRY.
         DATA(lv_analysis_id) = get_analysis_id(
@@ -522,11 +555,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     ENDTRY.
 
     TRY.
-        LOOP AT lt_registry INTO DATA(ls_section).
-          IF iv_export_section <> 'ALL' AND ls_section-section_code <> iv_export_section.
-            CONTINUE.
-          ENDIF.
-
+        LOOP AT ls_plan-sections INTO DATA(ls_section).
           TRY.
               DATA(lo_struct) = CAST cl_abap_structdescr(
                 cl_abap_typedescr=>describe_by_name( ls_section-view_name ) ).
@@ -537,17 +566,8 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
           " Field áp dụng cho section đang xử lý: nếu ALL, tra trong map
           " (section nào không có trong map -> dùng cột mặc định); nếu
           " không phải ALL, dùng danh sách phẳng của chính section đó.
-          DATA lt_fields_for_section TYPE string_table.
-          CLEAR lt_fields_for_section.
-          IF lv_is_all = abap_true.
-            READ TABLE lt_section_map INTO DATA(ls_section_map)
-              WITH KEY section_code = ls_section-section_code.
-            IF sy-subrc = 0.
-              lt_fields_for_section = ls_section_map-fields.
-            ENDIF.
-          ELSE.
-            lt_fields_for_section = lt_sel_fields.
-          ENDIF.
+          READ TABLE ls_plan-fields INTO DATA(ls_map) WITH KEY section_code = ls_section-section_code.
+          DATA(lt_fields_for_section) = COND string_table( WHEN sy-subrc = 0 THEN ls_map-fields ).
 
           " 1 SELECT cho cột + 1 SELECT cho dữ liệu, cả hai nằm ngoài
           " mọi loop dòng dữ liệu (chỉ lặp theo số section, tối đa ~9).
@@ -720,32 +740,20 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
         RETURN.
     ENDTRY.
 
-    DATA(lt_registry) = get_section_registry( ).
-    DATA(lv_is_all) = xsdbool( to_upper( condense( CONV string( iv_export_section ) ) ) = 'ALL' ).
-    DATA(lt_sel_fields) = COND string_table(
-      WHEN lv_is_all = abap_false THEN parse_selected_fields( iv_selected_fields ) ).
-    DATA(lt_section_map) = COND #(
-      WHEN lv_is_all = abap_true THEN parse_section_field_map( iv_selected_fields ) ).
-
-    " Danh sách section cần xuất: ALL -> toàn bộ registry (~9, không phụ
-    " thuộc số dòng dữ liệu), khác ALL -> đúng 1 section được chọn.
-    DATA lt_target_sections LIKE lt_registry.
-    IF lv_is_all = abap_true.
-      lt_target_sections = lt_registry.
-    ELSE.
-      READ TABLE lt_registry INTO DATA(ls_only) WITH KEY section_code = iv_export_section.
-      IF sy-subrc <> 0.
+    TRY.
+        DATA(ls_plan) = resolve_export_plan(
+          iv_export_section  = iv_export_section
+          iv_selected_fields = iv_selected_fields ).
+      CATCH zcx_mig_export_error INTO DATA(lx_plan).
         rs_result-success = abap_false.
-        rs_result-message = |Unknown export section { iv_export_section }.|.
+        rs_result-message = lx_plan->get_text( ).
         RETURN.
-      ENDIF.
-      APPEND ls_only TO lt_target_sections.
-    ENDIF.
+    ENDTRY.
 
     DATA lv_csv_all TYPE string.
     DATA lv_any_section_ok TYPE abap_bool VALUE abap_false.
 
-    LOOP AT lt_target_sections INTO DATA(ls_section).
+    LOOP AT ls_plan-sections INTO DATA(ls_section).
 
       TRY.
           DATA(lo_struct) = CAST cl_abap_structdescr(
@@ -754,17 +762,8 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
           CONTINUE.
       ENDTRY.
 
-      DATA lt_fields_for_section TYPE string_table.
-      CLEAR lt_fields_for_section.
-      IF lv_is_all = abap_true.
-        READ TABLE lt_section_map INTO DATA(ls_section_map)
-          WITH KEY section_code = ls_section-section_code.
-        IF sy-subrc = 0.
-          lt_fields_for_section = ls_section_map-fields.
-        ENDIF.
-      ELSE.
-        lt_fields_for_section = lt_sel_fields.
-      ENDIF.
+      READ TABLE ls_plan-fields INTO DATA(ls_map) WITH KEY section_code = ls_section-section_code.
+      DATA(lt_fields_for_section) = COND string_table( WHEN sy-subrc = 0 THEN ls_map-fields ).
 
       DATA(lt_columns) = get_columns_for_section(
         iv_section_code    = ls_section-section_code
@@ -796,8 +795,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       lv_csv_all = lv_csv_all && lv_col_header && cl_abap_char_utilities=>cr_lf.
 
       LOOP AT <lt_data> ASSIGNING FIELD-SYMBOL(<ls_row>).
-        DATA(lv_line) = build_row_line( it_cols = lt_columns is_row = <ls_row> ).
-        SPLIT lv_line AT '|' INTO TABLE DATA(lt_vals).
+        DATA(lt_vals) = build_row_line( it_cols = lt_columns is_row = <ls_row> ).
         DATA(lv_csv_line) = REDUCE string(
           INIT s = ``
           FOR lv_v IN lt_vals
@@ -841,29 +839,19 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
         RETURN.
     ENDTRY.
 
-    DATA(lt_registry) = get_section_registry( ).
-    DATA(lv_is_all) = xsdbool( to_upper( condense( CONV string( iv_export_section ) ) ) = 'ALL' ).
-    DATA(lt_sel_fields) = COND string_table(
-      WHEN lv_is_all = abap_false THEN parse_selected_fields( iv_selected_fields ) ).
-    DATA(lt_section_map) = COND #(
-      WHEN lv_is_all = abap_true THEN parse_section_field_map( iv_selected_fields ) ).
-
-    DATA lt_target_sections LIKE lt_registry.
-    IF lv_is_all = abap_true.
-      lt_target_sections = lt_registry.
-    ELSE.
-      READ TABLE lt_registry INTO DATA(ls_only) WITH KEY section_code = iv_export_section.
-      IF sy-subrc <> 0.
+    TRY.
+        DATA(ls_plan) = resolve_export_plan(
+          iv_export_section  = iv_export_section
+          iv_selected_fields = iv_selected_fields ).
+      CATCH zcx_mig_export_error INTO DATA(lx_plan).
         rs_result-success = abap_false.
-        rs_result-message = |Unknown export section { iv_export_section }.|.
+        rs_result-message = lx_plan->get_text( ).
         RETURN.
-      ENDIF.
-      APPEND ls_only TO lt_target_sections.
-    ENDIF.
+    ENDTRY.
 
     DATA lt_all_pages TYPE string_table.
 
-    LOOP AT lt_target_sections INTO DATA(ls_section).
+    LOOP AT ls_plan-sections INTO DATA(ls_section).
 
       TRY.
           DATA(lo_struct) = CAST cl_abap_structdescr(
@@ -872,17 +860,8 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
           CONTINUE.
       ENDTRY.
 
-      DATA lt_fields_for_section TYPE string_table.
-      CLEAR lt_fields_for_section.
-      IF lv_is_all = abap_true.
-        READ TABLE lt_section_map INTO DATA(ls_section_map)
-          WITH KEY section_code = ls_section-section_code.
-        IF sy-subrc = 0.
-          lt_fields_for_section = ls_section_map-fields.
-        ENDIF.
-      ELSE.
-        lt_fields_for_section = lt_sel_fields.
-      ENDIF.
+      READ TABLE ls_plan-fields INTO DATA(ls_map) WITH KEY section_code = ls_section-section_code.
+      DATA(lt_fields_for_section) = COND string_table( WHEN sy-subrc = 0 THEN ls_map-fields ).
 
       DATA(lt_columns) = get_columns_for_section(
         iv_section_code    = ls_section-section_code
@@ -905,15 +884,12 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
         CONTINUE.
       ENDIF.
 
-      DATA(lv_header) = REDUCE string(
-        INIT s = ``
-        FOR ls_c IN lt_columns
-        NEXT s = COND #( WHEN s IS INITIAL THEN CONV string( ls_c-column_title )
-                          ELSE s && '|' && ls_c-column_title ) ).
+      DATA(lt_header_cells) = VALUE string_table(
+  FOR ls_c IN lt_columns ( CONV string( ls_c-column_title ) ) ).
 
-      DATA lt_lines TYPE string_table.
+      DATA lt_lines TYPE STANDARD TABLE OF string_table WITH EMPTY KEY.
       CLEAR lt_lines.
-      APPEND lv_header TO lt_lines.
+      APPEND lt_header_cells TO lt_lines.
       LOOP AT <lt_data> ASSIGNING FIELD-SYMBOL(<ls_row>).
         APPEND build_row_line( it_cols = lt_columns is_row = <ls_row> ) TO lt_lines.
       ENDLOOP.
@@ -921,8 +897,9 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       TRY.
           DATA(lt_section_pages) = render_section_pages(
             iv_title       = |{ ls_section-sheet_title } - { iv_report_type }|
-            it_header_cols = lt_columns
-            it_lines       = lt_lines ).
+  it_header_cols = lt_columns
+  it_lines       = lt_lines
+  is_pdf_layout  = is_pdf_layout ).
           APPEND LINES OF lt_section_pages TO lt_all_pages.
         CATCH cx_root.
           CONTINUE.
@@ -950,38 +927,10 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
   ENDMETHOD.
 
 
-  METHOD build_csv_document.
-    DATA lv_csv_string TYPE string.
-
-    " Header - áp escape_csv_value đúng chuẩn CSV (dấu ngoặc kép/xuống dòng).
-    DATA(lv_header_line) = REDUCE string(
-      INIT s = ``
-      FOR ls_c IN it_cols
-      NEXT s = COND #( WHEN s IS INITIAL THEN escape_csv_value( CONV string( ls_c-column_title ) )
-                        ELSE s && ',' && escape_csv_value( CONV string( ls_c-column_title ) ) ) ).
-    lv_csv_string = lv_header_line && cl_abap_char_utilities=>cr_lf.
-
-    LOOP AT it_lines INTO DATA(lv_line) FROM 2. " dòng 1 là header text-only, đã build riêng ở trên
-      SPLIT lv_line AT '|' INTO TABLE DATA(lt_vals).
-      DATA(lv_csv_line) = REDUCE string(
-        INIT s = ``
-        FOR lv_v IN lt_vals
-        NEXT s = COND #( WHEN s IS INITIAL THEN escape_csv_value( lv_v )
-                          ELSE s && ',' && escape_csv_value( lv_v ) ) ).
-      lv_csv_string = lv_csv_string && lv_csv_line && cl_abap_char_utilities=>cr_lf.
-    ENDLOOP.
-
-    rv_content = cl_abap_codepage=>convert_to( source = lv_csv_string codepage = 'UTF-8' ).
-  ENDMETHOD.
 
 
-  METHOD build_pdf_document.
-    DATA(lt_pages) = render_section_pages(
-      iv_title       = iv_title
-      it_header_cols = it_header_cols
-      it_lines       = it_lines ).
-    rv_content = assemble_pdf_binary( it_pages = lt_pages ).
-  ENDMETHOD.
+
+
 
 
   METHOD render_section_pages.
@@ -1001,8 +950,8 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     IF it_lines IS INITIAL.
       RETURN.
     ENDIF.
-    DATA(lv_header_line) = it_lines[ 1 ].
-    DATA lt_data_lines TYPE string_table.
+    DATA(lt_header_cells) = it_lines[ 1 ].
+    DATA lt_data_lines TYPE STANDARD TABLE OF string_table WITH EMPTY KEY.
     LOOP AT it_lines INTO DATA(lv_l) FROM 2.
       APPEND lv_l TO lt_data_lines.
     ENDLOOP.
@@ -1015,13 +964,18 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     DATA(lv_idx) = 0.
     DATA(lv_page_num) = 1.
     DATA(lv_generated_at) = |{ sy-datum DATE = USER } { sy-uzeit TIME = USER }|.
+    DATA(lv_header_text) = COND string( WHEN is_pdf_layout-header_text IS NOT INITIAL
+                                     THEN is_pdf_layout-header_text ELSE iv_title ).
+    DATA(lv_footer_left_text) = COND string( WHEN is_pdf_layout-footer_text IS NOT INITIAL
+                                              THEN is_pdf_layout-footer_text
+                                              ELSE |Generated: { lv_generated_at }| ).
 
     DO lv_total_pages TIMES.
       DATA(lv_from) = lv_idx + 1.
       DATA(lv_to)   = nmin( val1 = lv_total_data_lines val2 = lv_idx + lc_lines_per_page ).
 
       DATA(lv_page_content) = |BT\n/F1 12 Tf\n1 0 0 1 { lv_left_margin } { lc_page_height - 25 } Tm\n|
-        && |({ escape_pdf_text( iv_title ) }) Tj\nET\n|.
+        && |({ escape_pdf_text( lv_header_text ) }) Tj\nET\n|.
 
       DATA(lv_y) = lc_page_height - 50.
       DATA(lv_row_height) = 18.
@@ -1029,7 +983,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       lv_page_content = lv_page_content && |0.90 0.92 0.95 rg\n|
         && |{ lv_left_margin } { lv_y - 4 } { lv_table_width } { lv_row_height } re f\n0 g\n|.
 
-      SPLIT lv_header_line AT '|' INTO TABLE DATA(lt_header_cells).
+
       DATA(lv_x) = lv_left_margin.
       LOOP AT lt_header_cells INTO DATA(lv_hcell).
         lv_page_content = lv_page_content
@@ -1041,8 +995,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       IF lv_from <= lv_to.
         DATA(lv_line_counter) = lv_from.
         WHILE lv_line_counter <= lv_to.
-          DATA(lv_curr_str) = lt_data_lines[ lv_line_counter ].
-          SPLIT lv_curr_str AT '|' INTO TABLE DATA(lt_cells).
+          DATA(lt_cells) = lt_data_lines[ lv_line_counter ].
 
           lv_page_content = lv_page_content && |0.80 0.80 0.80 RG\n0.5 w\n|
             && |{ lv_left_margin } { lv_y - 4 } m { lv_left_margin + lv_table_width } { lv_y - 4 } l S\n|.
@@ -1065,10 +1018,9 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
         ENDWHILE.
       ENDIF.
 
-      lv_page_content = lv_page_content
-        && |BT\n/F1 7 Tf\n1 0 0 1 { lv_left_margin } 15 Tm\n({ escape_pdf_text( |Generated: { lv_generated_at }| ) }) Tj\nET\n|
-        && |BT\n/F1 7 Tf\n1 0 0 1 { lc_page_width - 80 } 15 Tm\n({ escape_pdf_text( |{ iv_title } - Page { lv_page_num } / { lv_total_pages }| ) }) Tj\nET\n|.
-
+     lv_page_content = lv_page_content
+  && |BT\n/F1 7 Tf\n1 0 0 1 { lv_left_margin } 15 Tm\n({ escape_pdf_text( lv_footer_left_text ) }) Tj\nET\n|
+  && |BT\n/F1 7 Tf\n1 0 0 1 { lc_page_width - 80 } 15 Tm\n({ escape_pdf_text( |{ iv_title } - Page { lv_page_num } / { lv_total_pages }| ) }) Tj\nET\n|.
       APPEND lv_page_content TO rt_pages.
       lv_idx = lv_idx + lc_lines_per_page.
       lv_page_num = lv_page_num + 1.
@@ -1141,6 +1093,8 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
   ENDMETHOD.
 
 ENDCLASS.
+
+
 
 
 

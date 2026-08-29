@@ -299,7 +299,7 @@ CLASS zcl_mig_analysis_agg IMPLEMENTATION.
       ls_fcat_result-alv_columns.
 
         DATA(ls_row_result) =
-          lo_row_analyzer->zif_mig_alv_fcat_analyzer~analyze(
+          lo_row_analyzer->zif_mig_alv_row_analyzer~analyze(
             iv_analysis_id  = lv_analysis_id
             it_source_units = it_source_units
             it_alv_outputs  = ls_alv_result-alv_outputs
@@ -341,7 +341,7 @@ CLASS zcl_mig_analysis_agg IMPLEMENTATION.
       lo_le_analyzer->zif_mig_alv_le_analyzer~analyze(
         iv_analysis_id  = lv_analysis_id
         it_source_units = it_source_units
-        it_alv_outputs  = ls_alv_result-alv_outputs
+        it_alv_outputs = ls_row_result-alv_outputs
       ).
 
     "Phải lấy output từ LE result, không lấy lại ALV result cũ

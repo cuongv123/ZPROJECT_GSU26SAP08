@@ -3390,6 +3390,13 @@ CLASS lhc_SourceObject DEFINITION
       RESULT    result
                   LINK association_links.
 
+    METHODS rba_SourceLines FOR READ
+      IMPORTING
+                keys_rba FOR READ SourceObject\_SourceLines
+                  FULL result_requested
+      RESULT    result
+                  LINK association_links.
+
 ENDCLASS.
 
 CLASS lhc_SourceObject IMPLEMENTATION.
@@ -3435,6 +3442,91 @@ CLASS lhc_SourceObject IMPLEMENTATION.
 
   ENDMETHOD.
 
+  METHOD rba_SourceLines.
+
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    TYPES:
+      BEGIN OF ty_requested_key,
+        analysis_id   TYPE zmig_anl_code-analysis_id,
+        source_item_id TYPE zmig_anl_code-source_item_id,
+      END OF ty_requested_key,
+
+      tt_requested_key TYPE SORTED TABLE OF ty_requested_key
+        WITH UNIQUE KEY analysis_id source_item_id.
+
+    DATA lt_source_keys    LIKE keys_rba.
+    DATA lt_requested_keys TYPE tt_requested_key.
+    DATA lt_rows           LIKE result.
+
+    lt_source_keys =
+      keys_rba.
+
+    SORT lt_source_keys
+      BY AnalysisId
+         ItemId.
+
+    DELETE ADJACENT DUPLICATES FROM lt_source_keys
+      COMPARING
+        AnalysisId
+        ItemId.
+
+    lt_requested_keys = VALUE #(
+      FOR ls_key IN lt_source_keys
+      (
+        analysis_id    = ls_key-AnalysisId
+        source_item_id = ls_key-ItemId
+      )
+    ).
+
+    SELECT FROM zi_mig_anl_code AS source_line
+      INNER JOIN @lt_requested_keys AS requested
+        ON  source_line~AnalysisId = requested~analysis_id
+        AND source_line~SourceItemId = requested~source_item_id
+      FIELDS source_line~*
+      INTO CORRESPONDING FIELDS OF TABLE @lt_rows.
+
+    SORT lt_rows
+      BY AnalysisId
+         SourceItemId
+         LineNumber.
+
+    LOOP AT lt_rows
+      ASSIGNING FIELD-SYMBOL(<source_line>).
+
+      READ TABLE lt_source_keys
+        ASSIGNING FIELD-SYMBOL(<source_key>)
+        WITH KEY
+          AnalysisId = <source_line>-AnalysisId
+          ItemId     = <source_line>-SourceItemId
+        BINARY SEARCH.
+
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+
+      APPEND VALUE #(
+        source-%tky =
+          <source_key>-%tky
+
+        target-%tky = VALUE #(
+          AnalysisId  = <source_line>-AnalysisId
+          SourceItemId = <source_line>-SourceItemId
+          LineNumber  = <source_line>-LineNumber
+        )
+      ) TO association_links.
+
+    ENDLOOP.
+
+    IF result_requested = abap_true.
+      result =
+        lt_rows.
+    ENDIF.
+
+  ENDMETHOD.
+
   METHOD rba_Analysis.
 
     IF keys_rba IS INITIAL.
@@ -3475,6 +3567,173 @@ CLASS lhc_SourceObject IMPLEMENTATION.
       ) TO association_links.
 
     ENDLOOP.
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS lhc_SourceLine DEFINITION
+  INHERITING FROM cl_abap_behavior_handler.
+
+  PRIVATE SECTION.
+
+    METHODS read FOR READ
+      IMPORTING
+                keys FOR READ SourceLine
+      RESULT    result.
+
+    METHODS rba_SourceObject FOR READ
+      IMPORTING
+                keys_rba FOR READ SourceLine\_SourceObject
+                  FULL result_requested
+      RESULT    result
+                  LINK association_links.
+
+    METHODS rba_Analysis FOR READ
+      IMPORTING
+                keys_rba FOR READ SourceLine\_Analysis
+                  FULL result_requested
+      RESULT    result
+                  LINK association_links.
+
+ENDCLASS.
+
+CLASS lhc_SourceLine IMPLEMENTATION.
+
+  METHOD read.
+
+    IF keys IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    DATA lt_keys LIKE keys.
+
+    lt_keys =
+      keys.
+
+    SORT lt_keys
+      BY AnalysisId
+         SourceItemId
+         LineNumber.
+
+    DELETE ADJACENT DUPLICATES FROM lt_keys
+      COMPARING
+        AnalysisId
+        SourceItemId
+        LineNumber.
+
+    SELECT FROM zmig_anl_code AS source_line
+      INNER JOIN @lt_keys AS requested
+        ON  source_line~analysis_id = requested~AnalysisId
+        AND source_line~source_item_id = requested~SourceItemId
+        AND source_line~line_number = requested~LineNumber
+      FIELDS
+        source_line~analysis_id    AS AnalysisId,
+        source_line~source_item_id AS SourceItemId,
+        source_line~line_number    AS LineNumber,
+        source_line~source_text    AS SourceText
+      INTO CORRESPONDING FIELDS OF TABLE @result.
+
+  ENDMETHOD.
+
+  METHOD rba_SourceObject.
+
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    LOOP AT keys_rba
+      ASSIGNING FIELD-SYMBOL(<key>).
+
+      APPEND VALUE #(
+        source-%tky =
+          <key>-%tky
+
+        target-%tky = VALUE #(
+          AnalysisId = <key>-AnalysisId
+          ItemId     = <key>-SourceItemId
+        )
+      ) TO association_links.
+
+    ENDLOOP.
+
+    IF result_requested = abap_true.
+
+      READ ENTITIES OF zi_mig_analysis
+        IN LOCAL MODE
+
+        ENTITY SourceObject
+        ALL FIELDS
+
+        WITH VALUE #(
+          FOR ls_key IN keys_rba
+          (
+            AnalysisId = ls_key-AnalysisId
+            ItemId     = ls_key-SourceItemId
+          )
+        )
+
+        RESULT DATA(lt_source_objects).
+
+      result =
+        lt_source_objects.
+
+    ENDIF.
+
+  ENDMETHOD.
+
+  METHOD rba_Analysis.
+
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
+
+
+    "==========================================================
+    " Association links:
+    " SourceLine -> Analysis (lock/authorization master)
+    "==========================================================
+    LOOP AT keys_rba
+      ASSIGNING FIELD-SYMBOL(<key>).
+
+      APPEND VALUE #(
+        source-%tky =
+          <key>-%tky
+
+        target-%tky = VALUE #(
+          AnalysisId =
+            <key>-AnalysisId
+        )
+      ) TO association_links.
+
+    ENDLOOP.
+
+
+    "==========================================================
+    " Only read parent data when the caller requests RESULT
+    "==========================================================
+    IF result_requested = abap_true.
+
+      READ ENTITIES OF zi_mig_analysis
+        IN LOCAL MODE
+
+        ENTITY Analysis
+        ALL FIELDS
+
+        WITH VALUE #(
+          FOR ls_key IN keys_rba
+          (
+            AnalysisId =
+              ls_key-AnalysisId
+          )
+        )
+
+        RESULT DATA(lt_analysis).
+
+      result =
+        lt_analysis.
+
+    ENDIF.
 
   ENDMETHOD.
 

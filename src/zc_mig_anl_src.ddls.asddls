@@ -15,5 +15,9 @@ define view entity ZC_MIG_ANL_SRC
       LineCount,
       SourceHash,
 
-      _Analysis : redirected to parent ZC_MIG_ANALYSIS
+      _SourceLines :
+        redirected to composition child ZC_MIG_ANL_CODE,
+
+      _Analysis :
+        redirected to parent ZC_MIG_ANALYSIS
 }

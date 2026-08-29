@@ -43,6 +43,10 @@ CLASS ltc_analysis_store DEFINITION
         FOR TESTING
         RAISING zcx_mig_analysis,
 
+      cleanup_source_insert_error
+        FOR TESTING
+        RAISING zcx_mig_analysis,
+
       reject_missing
         FOR TESTING
         RAISING zcx_mig_analysis,
@@ -742,6 +746,95 @@ cl_abap_unit_assert=>assert_equals(
         "Expected exception
 
     ENDTRY.
+
+  ENDMETHOD.
+
+    METHOD cleanup_source_insert_error.
+
+    DATA(ls_result) =
+      build_result( ).
+
+    READ TABLE ls_result-source_objects
+      INDEX 1
+      INTO DATA(ls_source_object).
+
+    cl_abap_unit_assert=>assert_subrc(
+      exp = 0
+      msg = 'Test fixture phải có ít nhất một source object'
+    ).
+
+    DATA lt_existing_source
+      TYPE STANDARD TABLE OF zmig_anl_src
+      WITH EMPTY KEY.
+
+    APPEND VALUE #(
+      analysis_id   = ls_result-analysis_id
+      item_id       = ls_source_object-item_id
+      object_name   = ls_source_object-object_name
+      object_type   = ls_source_object-object_type
+      parent_object = ls_source_object-parent_object
+      include_depth = ls_source_object-include_depth
+      line_count    = ls_source_object-line_count
+      source_hash   = ls_source_object-source_hash
+    ) TO lt_existing_source.
+
+    "Mô phỏng orphan source từ một lần ghi lỗi trước đó.
+    mo_sql_environment->insert_test_data(
+      i_data = lt_existing_source
+    ).
+
+    DATA(lo_store) =
+      NEW zcl_mig_analysis_store( ).
+
+    DATA(lv_expected_error) =
+      abap_false.
+
+    TRY.
+
+        lo_store->zif_mig_analysis_store~save(
+          is_result = ls_result
+        ).
+
+      CATCH zcx_mig_analysis.
+
+        lv_expected_error =
+          abap_true.
+
+      CATCH cx_sy_open_sql_db.
+
+        cl_abap_unit_assert=>fail(
+          msg = 'Open SQL exception không được thoát khỏi store'
+        ).
+
+    ENDTRY.
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = abap_true
+      act = lv_expected_error
+      msg = 'Source insert trùng khóa phải trả về domain exception'
+    ).
+
+    SELECT COUNT( * )
+      FROM zmig_anl_h
+      WHERE analysis_id = @ls_result-analysis_id
+      INTO @DATA(lv_header_count).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 0
+      act = lv_header_count
+      msg = 'Header chưa được dọn sau source insert lỗi'
+    ).
+
+    SELECT COUNT( * )
+      FROM zmig_anl_src
+      WHERE analysis_id = @ls_result-analysis_id
+      INTO @DATA(lv_source_count).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 0
+      act = lv_source_count
+      msg = 'Source record mồ côi chưa được dọn'
+    ).
 
   ENDMETHOD.
 

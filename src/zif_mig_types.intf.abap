@@ -580,6 +580,19 @@
       END OF ty_alv_fcat_result.
 
     "============================================================
+    " ALV Row Contract Analysis Result
+    "============================================================
+    TYPES:
+      BEGIN OF ty_alv_row_result,
+
+        alv_outputs TYPE tt_alv_output,
+        alv_columns TYPE tt_alv_column,
+        evidences   TYPE tt_evidence,
+        messages    TYPE tt_message,
+
+      END OF ty_alv_row_result.
+
+    "============================================================
     " ALV Sort and Filter Analysis Result
     "============================================================
     TYPES:

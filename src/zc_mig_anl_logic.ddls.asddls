@@ -24,6 +24,7 @@ define view entity ZC_MIG_ANL_LOGIC
       GuiDependency,
       ReuseFeasibility,
       Confidence,
-
+      
+      _CallBindings : redirected to composition child ZC_MIG_ANL_BIND,
       _Analysis : redirected to parent ZC_MIG_ANALYSIS
 }

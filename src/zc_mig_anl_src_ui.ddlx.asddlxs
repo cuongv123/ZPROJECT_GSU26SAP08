@@ -13,7 +13,25 @@
 }
 
 annotate view ZC_MIG_ANL_SRC with
-{
+{  
+
+  @UI.facet: [
+  {
+    id:       'Overview',
+    purpose:  #STANDARD,
+    type:     #IDENTIFICATION_REFERENCE,
+    label:    'Source Object',
+    position: 10
+  },
+  {
+    id:            'SourceCode',
+    purpose:       #STANDARD,
+    type:          #LINEITEM_REFERENCE,
+    label:         'Source Code',
+    position:      20,
+    targetElement: '_SourceLines'
+  }
+]
   @UI.hidden: true
   AnalysisId;
 

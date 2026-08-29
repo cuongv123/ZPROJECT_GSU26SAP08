@@ -1,4 +1,4 @@
-REPORT zfix_exp_col_paging.
+REPORT znit_exp_col_misss.
 
 UPDATE ztb_exp_col
    SET fieldname      = 'PAGING_CAPABILITY'

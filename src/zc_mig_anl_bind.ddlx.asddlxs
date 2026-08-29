@@ -1,0 +1,100 @@
+@Metadata.layer: #CORE
+
+@UI.headerInfo: {
+  typeName:       'Call Binding',
+  typeNamePlural: 'Call Bindings',
+  title: {
+    type:  #STANDARD,
+    value: 'ParameterName'
+  },
+  description: {
+    value: 'Direction'
+  }
+}
+
+annotate view ZC_MIG_ANL_BIND with
+{
+  @UI.hidden: true
+  AnalysisId;
+
+  @UI.hidden: true
+  ItemId;
+
+  @UI.hidden: true
+  CallItemId;
+
+  @UI.hidden: true
+  EvidenceId;
+
+
+  @UI.lineItem: [
+    {
+      position: 10,
+      importance: #HIGH,
+      label: 'Direction'
+    }
+  ]
+  @UI.identification: [
+    {
+      position: 10,
+      label: 'Direction'
+    }
+  ]
+  Direction;
+
+
+  @UI.lineItem: [
+    {
+      position: 20,
+      importance: #HIGH,
+      label: 'Parameter'
+    }
+  ]
+  @UI.identification: [
+    {
+      position: 20,
+      label: 'Parameter'
+    }
+  ]
+  ParameterName;
+
+
+  @UI.lineItem: [
+    {
+      position: 30,
+      importance: #HIGH,
+      label: 'Actual Expression'
+    }
+  ]
+  @UI.identification: [
+    {
+      position: 30,
+      label: 'Actual Expression'
+    }
+  ]
+  ActualExpression;
+
+
+  @UI.lineItem: [
+    {
+      position: 40,
+      label: 'Position'
+    }
+  ]
+  BindingPosition;
+
+
+  @UI.lineItem: [
+    {
+      position: 50,
+      label: 'Confidence'
+    }
+  ]
+  @UI.identification: [
+    {
+      position: 40,
+      label: 'Confidence'
+    }
+  ]
+  Confidence;
+}

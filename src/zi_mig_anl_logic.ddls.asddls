@@ -7,6 +7,9 @@ define view entity ZI_MIG_ANL_LOGIC
 
   association to parent ZI_MIG_ANALYSIS as _Analysis
     on $projection.AnalysisId = _Analysis.AnalysisId
+    
+  composition [0..*] of ZI_MIG_ANL_BIND
+    as _CallBindings
 {
   key analysis_id             as AnalysisId,
   key item_id                 as ItemId,
@@ -28,5 +31,6 @@ define view entity ZI_MIG_ANL_LOGIC
       reuse_feasibility       as ReuseFeasibility,
       confidence              as Confidence,
 
+      _CallBindings,
       _Analysis
 }

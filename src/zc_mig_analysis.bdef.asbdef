@@ -69,9 +69,15 @@ define behavior for ZC_MIG_ANL_EVD //alias <alias_name>
   use association _Analysis;
 }
 
-define behavior for ZC_MIG_ANL_LOGIC //alias <alias_name>
+define behavior for ZC_MIG_ANL_LOGIC
 {
+  use association _Analysis;
+  use association _CallBindings;
+}
 
+define behavior for ZC_MIG_ANL_BIND
+{
+  use association _BusinessLogic;
   use association _Analysis;
 }
 
@@ -95,12 +101,19 @@ define behavior for ZC_MIG_ANL_ANN //alias <alias_name>
   use association _Analysis;
 }
 
-define behavior for ZC_MIG_ANL_UI //alias <alias_name>
+define behavior for ZC_MIG_ANL_UI
 {
-
   use association _Analysis;
 }
+
 define behavior for ZC_MIG_ANL_SRC
 {
+  use association _SourceLines;
+  use association _Analysis;
+}
+
+define behavior for ZC_MIG_ANL_CODE
+{
+  use association _SourceObject;
   use association _Analysis;
 }

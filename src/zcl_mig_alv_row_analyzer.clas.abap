@@ -5,7 +5,7 @@ CLASS zcl_mig_alv_row_analyzer DEFINITION
 
   PUBLIC SECTION.
 
-    INTERFACES zif_mig_alv_fcat_analyzer.
+    INTERFACES zif_mig_alv_row_analyzer.
 
   PRIVATE SECTION.
 
@@ -149,7 +149,7 @@ ENDCLASS.
 
 CLASS zcl_mig_alv_row_analyzer IMPLEMENTATION.
 
-  METHOD zif_mig_alv_fcat_analyzer~analyze.
+  METHOD zif_mig_alv_row_analyzer~analyze.
 
     DATA lv_analysis_id
       TYPE zif_mig_types=>ty_analysis_id.
@@ -157,6 +157,8 @@ CLASS zcl_mig_alv_row_analyzer IMPLEMENTATION.
     lv_analysis_id =
       iv_analysis_id.
 
+    rs_result-alv_outputs =
+     it_alv_outputs.
 
     IF lv_analysis_id IS INITIAL.
 
@@ -200,8 +202,8 @@ CLASS zcl_mig_alv_row_analyzer IMPLEMENTATION.
     ).
 
 
-    LOOP AT it_alv_outputs
-      INTO DATA(ls_output)
+    LOOP AT rs_result-alv_outputs
+      ASSIGNING FIELD-SYMBOL(<output>)
       WHERE field_catalog IS INITIAL
         AND output_table IS NOT INITIAL.
 
@@ -210,7 +212,7 @@ CLASS zcl_mig_alv_row_analyzer IMPLEMENTATION.
         normalize_identifier(
           iv_value =
             CONV string(
-              ls_output-output_table
+              <output>-output_table
             )
         ).
 
@@ -224,21 +226,40 @@ CLASS zcl_mig_alv_row_analyzer IMPLEMENTATION.
 
 
       IF lv_row_type IS INITIAL.
-
         CONTINUE.
-
       ENDIF.
+
+
+      "==========================================================
+      " FIX 4:
+      " Persist resolved output contract into the ALV header.
+      "==========================================================
+      <output>-row_type =
+        lv_row_type.
 
 
       append_local_columns(
         EXPORTING
-          iv_analysis_id = lv_analysis_id
-          is_output      = ls_output
-          iv_row_type    = lv_row_type
-          it_components  = lt_components
+
+          iv_analysis_id =
+            lv_analysis_id
+
+          is_output =
+            <output>
+
+          iv_row_type =
+            lv_row_type
+
+          it_components =
+            lt_components
+
         CHANGING
-          ct_columns     = rs_result-alv_columns
-          ct_evidences   = rs_result-evidences
+
+          ct_columns =
+            rs_result-alv_columns
+
+          ct_evidences =
+            rs_result-evidences
       ).
 
     ENDLOOP.
@@ -1141,14 +1162,11 @@ CLASS zcl_mig_alv_row_analyzer IMPLEMENTATION.
       fill_ddic_field_metadata(
         EXPORTING
           iv_table =
-            CONV tabname(
               cs_component-reference_table
-            )
+
 
           iv_field =
-            CONV fieldname(
               cs_component-reference_field
-            )
 
         CHANGING
           cs_component =

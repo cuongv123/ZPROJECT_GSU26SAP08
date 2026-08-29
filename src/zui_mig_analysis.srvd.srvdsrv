@@ -2,9 +2,11 @@
 define service ZUI_MIG_ANALYSIS {
   expose ZC_MIG_ANALYSIS as Analyses;
   expose ZC_MIG_ANL_SRC as SourceObjects;
+  expose ZC_MIG_ANL_CODE as SourceLines;
   expose ZC_MIG_ANL_UI as UiFilters;
   expose ZC_MIG_ANL_DB as DatabaseObjects;
   expose ZC_MIG_ANL_LOGIC as BusinessLogic;
+  expose ZC_MIG_ANL_BIND as CallBindings;
   expose ZC_MIG_ANL_ALV as AlvOutputs;
   expose ZC_MIG_ANL_COL as AlvColumns;
   expose ZC_MIG_ANL_SRT as AlvSorts;
