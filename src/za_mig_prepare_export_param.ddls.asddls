@@ -4,4 +4,6 @@ define abstract entity ZA_MIG_PREPARE_EXPORT_PARAM
   FileFormat     : zmig_e_file_format;
   ExportSection  : zmig_e_report_section;
   SelectedFields : abap.string(0);
+  PdfHeaderText  : abap.string(0);
+  PdfFooterText  : abap.string(0);
 }

@@ -1445,14 +1445,16 @@ LOOP AT keys
         CONTINUE.
       ENDIF.
 
-      DATA(lo_engine) = NEW zcl_mig_export_engine( ).
+            DATA(lo_engine) = NEW zcl_mig_export_engine( ).
       DATA(ls_export_result) = CAST zif_mig_export_provider( lo_engine )->generate(
         iv_job_id          = VALUE #( )
         iv_analysis_id     = lv_analysis_id
         iv_report_type     = VALUE #( )
         iv_file_format     = ls_param-FileFormat
         iv_export_section  = lv_section
-        iv_selected_fields = lv_fields ).
+        iv_selected_fields = lv_fields
+        iv_pdf_header      = ls_param-PdfHeaderText
+        iv_pdf_footer      = ls_param-PdfFooterText ).
 
       IF ls_export_result-success = abap_false.
         APPEND VALUE #( %tky = <key>-%tky ) TO failed-Analysis.

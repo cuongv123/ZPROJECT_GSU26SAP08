@@ -4,7 +4,7 @@ strict ( 2 );
 define behavior for ZI_MIG_EXP_JOB alias ExportJob
 persistent table zmig_exp_job
 lock master
-authorization master ( global )
+authorization master ( instance )
 {
   // Chỉ đọc qua OData. Dữ liệu được ghi bằng INSERT thuần trong
   // action PrepareSelectedExport (ZBP_I_MIG_ANALYSIS), không qua

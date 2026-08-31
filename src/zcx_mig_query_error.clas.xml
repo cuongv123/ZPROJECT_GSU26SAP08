@@ -3,14 +3,14 @@
  <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
   <asx:values>
    <VSEOCLASS>
-    <CLSNAME>ZCL_MIG_XCO_GEN</CLSNAME>
+    <CLSNAME>ZCX_MIG_QUERY_ERROR</CLSNAME>
     <LANGU>E</LANGU>
-    <DESCRIPT>CLAS Query Provider</DESCRIPT>
+    <DESCRIPT>exception query</DESCRIPT>
+    <CATEGORY>40</CATEGORY>
     <STATE>1</STATE>
     <CLSCCINCL>X</CLSCCINCL>
     <FIXPT>X</FIXPT>
     <UNICODE>X</UNICODE>
-    <WITH_UNIT_TESTS>X</WITH_UNIT_TESTS>
    </VSEOCLASS>
   </asx:values>
  </asx:abap>

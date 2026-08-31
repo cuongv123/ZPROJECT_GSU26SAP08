@@ -3,18 +3,17 @@
  <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
   <asx:values>
    <PROGDIR>
-    <NAME>ZTEST_CLEANUP_EXPIRED_JOBS</NAME>
-    <DBAPL>S</DBAPL>
+    <NAME>ZRMIG_SAMPLE_READONLY</NAME>
     <SUBC>1</SUBC>
+    <RLOAD>E</RLOAD>
     <FIXPT>X</FIXPT>
-    <LDBNAME>D$S</LDBNAME>
     <UCCHECK>X</UCCHECK>
    </PROGDIR>
    <TPOOL>
     <item>
      <ID>R</ID>
-     <ENTRY>test expired job</ENTRY>
-     <LENGTH>16</LENGTH>
+     <ENTRY>test report read-only</ENTRY>
+     <LENGTH>21</LENGTH>
     </item>
    </TPOOL>
   </asx:values>

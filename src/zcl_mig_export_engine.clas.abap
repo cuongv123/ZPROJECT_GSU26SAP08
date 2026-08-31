@@ -245,13 +245,15 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
               iv_export_section  = lv_section
               iv_selected_fields = iv_selected_fields ).
 
-          WHEN gc_format_pdf OR 'PDF'.
+                   WHEN gc_format_pdf OR 'PDF'.
             rs_result = export_pdf(
               iv_job_id          = iv_job_id
               iv_analysis_id     = iv_analysis_id
               iv_report_type     = iv_report_type
               iv_export_section  = lv_section
-              iv_selected_fields = iv_selected_fields ).
+              iv_selected_fields = iv_selected_fields
+              is_pdf_layout      = VALUE ty_pdf_layout( header_text = iv_pdf_header
+                                                         footer_text = iv_pdf_footer ) ).
 
           WHEN OTHERS.
             rs_result-success = abap_false.

@@ -5,6 +5,27 @@ CLASS zcl_mig_xco_gen DEFINITION
 
   PUBLIC SECTION.
 
+    METHODS validate_query_contract
+      IMPORTING
+        is_bp
+          TYPE zif_mig_types=>ty_service_blueprint_result
+
+        is_prv
+          TYPE zif_mig_types=>ty_provider_contract
+
+        is_sig
+          TYPE zif_mig_types=>ty_sig_result
+
+        is_smap
+          TYPE zif_mig_types=>ty_svc_map_result
+
+        is_row
+          TYPE zif_mig_types=>ty_row_result
+
+      RAISING
+        zcx_mig_analysis.
+
+
     METHODS generate_query
       IMPORTING
         is_mfst
@@ -21,6 +42,10 @@ CLASS zcl_mig_xco_gen DEFINITION
 
         is_smap
           TYPE zif_mig_types=>ty_svc_map_result
+
+        is_row
+          TYPE zif_mig_types=>ty_row_result
+
         it_shared_services
           TYPE zif_mig_types=>tt_shared_service
           OPTIONAL
@@ -62,6 +87,9 @@ CLASS zcl_mig_xco_gen DEFINITION
         is_smap
          TYPE zif_mig_types=>ty_svc_map_result
 
+        is_row
+          TYPE zif_mig_types=>ty_row_result
+
         iv_package
           TYPE devclass
 
@@ -96,6 +124,9 @@ CLASS zcl_mig_xco_gen DEFINITION
 
             is_smap
               TYPE zif_mig_types=>ty_svc_map_result
+
+            is_row
+              TYPE zif_mig_types=>ty_row_result
 
           RAISING
             zcx_mig_analysis.
@@ -154,6 +185,9 @@ CLASS zcl_mig_xco_gen DEFINITION
             is_smap
               TYPE zif_mig_types=>ty_svc_map_result
 
+            is_row
+              TYPE zif_mig_types=>ty_row_result
+
           RETURNING
             VALUE(rt_source)
               TYPE string_table
@@ -161,15 +195,241 @@ CLASS zcl_mig_xco_gen DEFINITION
           RAISING
             zcx_mig_analysis.
 
+      METHODS norm_name
+        IMPORTING
+          VALUE(iv_name) TYPE string
+        RETURNING
+          VALUE(rv_name) TYPE string.
+
 ENDCLASS.
 
 CLASS zcl_mig_xco_gen IMPLEMENTATION.
+
+  METHOD validate_query_contract.
+
+    DATA(lv_program) =
+      is_bp-blueprint-source_program.
+
+    DATA(lv_is_class_provider) =
+      xsdbool(
+        is_prv-provider_kind =
+          zif_mig_types=>gc_provider_class_method
+      ).
+
+    DATA(lv_is_fm_provider) =
+      xsdbool(
+        is_prv-provider_kind =
+          zif_mig_types=>gc_provider_function
+      ).
+
+
+    IF is_bp-blueprint-strategy <> zif_mig_types=>gc_svc_query
+       OR is_bp-blueprint-manual_review = abap_true
+       OR is_bp-blueprint-entity_name IS INITIAL
+       OR strlen( is_bp-blueprint-entity_name ) > 30
+       OR is_bp-fields IS INITIAL.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid      = zcx_mig_analysis=>analysis_failed
+        program_name = lv_program
+      ).
+
+    ENDIF.
+
+
+    IF is_prv-service_strategy <> zif_mig_types=>gc_svc_query
+       OR (
+            is_prv-provider_status <> zif_mig_types=>gc_provider_ready
+            AND is_prv-provider_status <> zif_mig_types=>gc_provider_signature
+          )
+       OR is_prv-manual_review = abap_true
+       OR is_prv-source_object_name IS INITIAL
+       OR (
+            lv_is_class_provider = abap_false
+            AND lv_is_fm_provider = abap_false
+          )
+       OR (
+            lv_is_class_provider = abap_true
+            AND is_prv-source_container_name IS INITIAL
+          ).
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid      = zcx_mig_analysis=>analysis_failed
+        program_name = lv_program
+      ).
+
+    ENDIF.
+
+
+    IF is_sig-status <> zif_mig_types=>gc_sig_ready
+       OR is_sig-manual_review = abap_true
+       OR is_sig-provider_kind <> is_prv-provider_kind.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid      = zcx_mig_analysis=>analysis_failed
+        program_name = lv_program
+      ).
+
+    ENDIF.
+
+
+    IF is_row-status <> zif_mig_types=>gc_row_ready
+       OR is_row-manual_review = abap_true
+       OR is_row-analysis_id <> is_bp-blueprint-analysis_id
+       OR is_row-field_maps IS INITIAL.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid      = zcx_mig_analysis=>analysis_failed
+        program_name = lv_program
+      ).
+
+    ENDIF.
+
+
+    DATA lv_key_count TYPE i.
+
+    LOOP AT is_bp-fields
+      INTO DATA(ls_bp_field)
+      WHERE visible = abap_true.
+
+      IF ls_bp_field-key_field = abap_true.
+        lv_key_count += 1.
+      ENDIF.
+
+      READ TABLE is_row-field_maps
+        WITH KEY svc_name = ls_bp_field-field_name
+        INTO DATA(ls_row_map).
+
+      IF sy-subrc <> 0
+         OR ls_row_map-map_state <> zif_mig_types=>gc_row_auto
+         OR ls_row_map-comp_name IS INITIAL.
+
+        RAISE EXCEPTION NEW zcx_mig_analysis(
+          textid      = zcx_mig_analysis=>analysis_failed
+          program_name = lv_program
+        ).
+
+      ENDIF.
+
+    ENDLOOP.
+
+
+    IF lv_key_count = 0.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid      = zcx_mig_analysis=>analysis_failed
+        program_name = lv_program
+      ).
+
+    ENDIF.
+
+
+    LOOP AT is_sig-input_params
+      TRANSPORTING NO FIELDS
+      WHERE direction <> zif_mig_types=>gc_sig_imp
+         OR is_ref = abap_true
+         OR is_deep = abap_true.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid      = zcx_mig_analysis=>analysis_failed
+        program_name = lv_program
+      ).
+
+    ENDLOOP.
+
+
+    LOOP AT is_sig-all_params
+      TRANSPORTING NO FIELDS
+      WHERE direction = zif_mig_types=>gc_sig_chg
+         OR direction = zif_mig_types=>gc_sig_tab.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid      = zcx_mig_analysis=>analysis_failed
+        program_name = lv_program
+      ).
+
+    ENDLOOP.
+
+
+    DATA lv_output_table_count TYPE i.
+
+    LOOP AT is_sig-output_params
+      INTO DATA(ls_output_param)
+      WHERE is_table = abap_true.
+
+      IF lv_is_class_provider = abap_true
+         AND ls_output_param-direction = zif_mig_types=>gc_sig_ret.
+
+        lv_output_table_count += 1.
+
+      ELSEIF lv_is_fm_provider = abap_true
+         AND ls_output_param-direction = zif_mig_types=>gc_sig_exp.
+
+        lv_output_table_count += 1.
+
+      ENDIF.
+
+    ENDLOOP.
+
+
+    IF lv_output_table_count <> 1
+       OR is_smap-status <> zif_mig_types=>gc_smap_ready
+       OR is_smap-manual_review = abap_true
+       OR is_smap-selected_out-par_name IS INITIAL
+       OR is_smap-selected_out-type_name IS INITIAL
+       OR is_smap-selected_out-is_table <> abap_true
+       OR (
+            lv_is_class_provider = abap_true
+            AND is_smap-selected_out-direction <> zif_mig_types=>gc_sig_ret
+          )
+       OR (
+            lv_is_fm_provider = abap_true
+            AND is_smap-selected_out-direction <> zif_mig_types=>gc_sig_exp
+          ).
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid      = zcx_mig_analysis=>analysis_failed
+        program_name = lv_program
+      ).
+
+    ENDIF.
+
+
+    DATA(lt_source) =
+      build_select_src(
+        it_fields = is_bp-fields
+        is_prv    = is_prv
+        is_sig    = is_sig
+        is_smap   = is_smap
+        is_row    = is_row
+      ).
+
+
+    IF lt_source IS INITIAL.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid      = zcx_mig_analysis=>analysis_failed
+        program_name = lv_program
+      ).
+
+    ENDIF.
+
+  ENDMETHOD.
 
   METHOD generate_query.
 
     validate(
       is_mfst    = is_mfst
       iv_request = iv_request
+    ).
+
+
+    validate_query_contract(
+      is_bp   = is_bp
+      is_prv  = is_prv
+      is_sig  = is_sig
+      is_smap = is_smap
+      is_row  = is_row
     ).
 
 
@@ -233,10 +493,6 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
 
     ENDIF.
 
-    CONSTANTS gc_shared_srvb
-      TYPE zif_mig_types=>ty_art_name
-      VALUE 'ZUI_MIG_SHARED_O4'.
-
     DATA(lv_srv_alias) =
       CONV string(
         is_bp-blueprint-entity_name
@@ -258,82 +514,6 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
 
     ENDIF.
 
-    IF is_bp-blueprint-strategy <>
-         zif_mig_types=>gc_svc_query
-       OR is_bp-blueprint-manual_review =
-            abap_true
-       OR is_bp-fields IS INITIAL.
-
-      RAISE EXCEPTION NEW zcx_mig_analysis(
-        textid =
-          zcx_mig_analysis=>analysis_failed
-
-        program_name =
-          is_mfst-source_program
-      ).
-
-    ENDIF.
-
-    DATA(lv_is_class_provider) =
-      xsdbool(
-        is_prv-provider_kind =
-          zif_mig_types=>gc_provider_class_method
-      ).
-
-
-    DATA(lv_is_fm_provider) =
-      xsdbool(
-        is_prv-provider_kind =
-          zif_mig_types=>gc_provider_function
-      ).
-
-
-    IF is_prv-service_strategy <>
-         zif_mig_types=>gc_svc_query
-       OR is_prv-provider_status <>
-            zif_mig_types=>gc_provider_ready
-       OR is_prv-manual_review =
-            abap_true
-       OR is_prv-source_object_name IS INITIAL
-       OR (
-            lv_is_class_provider = abap_false
-            AND lv_is_fm_provider = abap_false
-          )
-       OR (
-            lv_is_class_provider = abap_true
-            AND is_prv-source_container_name IS INITIAL
-          ).
-
-      RAISE EXCEPTION NEW zcx_mig_analysis(
-        textid =
-          zcx_mig_analysis=>analysis_failed
-
-        program_name =
-          is_mfst-source_program
-      ).
-
-    ENDIF.
-
-
-
-    IF is_sig-status <>
-         zif_mig_types=>gc_sig_ready
-       OR is_sig-manual_review =
-            abap_true
-       OR is_sig-provider_kind <>
-            is_prv-provider_kind.
-
-      RAISE EXCEPTION NEW zcx_mig_analysis(
-        textid =
-          zcx_mig_analysis=>analysis_failed
-
-        program_name =
-          is_mfst-source_program
-      ).
-
-    ENDIF.
-
-
     IF is_mfst-analysis_id IS NOT INITIAL
        AND is_bp-blueprint-analysis_id <>
              is_mfst-analysis_id.
@@ -347,137 +527,6 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
       ).
 
     ENDIF.
-
-    LOOP AT is_sig-input_params
-      TRANSPORTING NO FIELDS
-      WHERE optional = abap_false.
-
-      RAISE EXCEPTION NEW zcx_mig_analysis(
-        textid =
-          zcx_mig_analysis=>analysis_failed
-
-        program_name =
-          is_mfst-source_program
-      ).
-
-    ENDLOOP.
-
-    IF lv_is_fm_provider = abap_true.
-
-      LOOP AT is_sig-input_params
-        TRANSPORTING NO FIELDS
-        WHERE direction <>
-                zif_mig_types=>gc_sig_imp
-           OR is_table =
-                abap_true
-           OR is_ref =
-                abap_true
-           OR is_deep =
-                abap_true.
-
-        RAISE EXCEPTION NEW zcx_mig_analysis(
-          textid =
-            zcx_mig_analysis=>analysis_failed
-
-          program_name =
-            is_mfst-source_program
-        ).
-
-      ENDLOOP.
-
-
-      LOOP AT is_sig-all_params
-        TRANSPORTING NO FIELDS
-        WHERE direction =
-                zif_mig_types=>gc_sig_chg
-           OR direction =
-                zif_mig_types=>gc_sig_tab.
-
-        RAISE EXCEPTION NEW zcx_mig_analysis(
-          textid =
-            zcx_mig_analysis=>analysis_failed
-
-          program_name =
-            is_mfst-source_program
-        ).
-
-      ENDLOOP.
-
-    ENDIF.
-
-    DATA lv_output_table_count
-      TYPE i.
-
-    CLEAR lv_output_table_count.
-
-
-    LOOP AT is_sig-output_params
-      INTO DATA(ls_output_param)
-      WHERE is_table = abap_true.
-
-      IF lv_is_class_provider = abap_true
-         AND ls_output_param-direction =
-               zif_mig_types=>gc_sig_ret.
-
-        lv_output_table_count += 1.
-
-      ELSEIF lv_is_fm_provider = abap_true
-         AND ls_output_param-direction =
-               zif_mig_types=>gc_sig_exp.
-
-        lv_output_table_count += 1.
-
-      ENDIF.
-
-    ENDLOOP.
-
-
-    IF lv_output_table_count <> 1
-       OR is_smap-selected_out-par_name IS INITIAL
-       OR is_smap-selected_out-type_name IS INITIAL
-       OR is_smap-selected_out-is_table <>
-            abap_true.
-
-      RAISE EXCEPTION NEW zcx_mig_analysis(
-        textid =
-          zcx_mig_analysis=>analysis_failed
-
-        program_name =
-          is_mfst-source_program
-      ).
-
-    ENDIF.
-
-
-    IF lv_is_class_provider = abap_true
-       AND is_smap-selected_out-direction <>
-             zif_mig_types=>gc_sig_ret.
-
-      RAISE EXCEPTION NEW zcx_mig_analysis(
-        textid =
-          zcx_mig_analysis=>analysis_failed
-
-        program_name =
-          is_mfst-source_program
-      ).
-
-    ENDIF.
-
-
-    IF lv_is_fm_provider = abap_true
-       AND is_smap-selected_out-direction <>
-             zif_mig_types=>gc_sig_exp.
-
-      RAISE EXCEPTION NEW zcx_mig_analysis(
-        textid =
-          zcx_mig_analysis=>analysis_failed
-
-        program_name =
-          is_mfst-source_program
-      ).
-
-    ENDIF.
-
 
     DATA(lo_env) =
       xco_cp_generation=>environment->dev_system(
@@ -512,6 +561,9 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
 
       is_smap =
         is_smap
+
+      is_row =
+        is_row
     ).
 
     add_ddls(
@@ -532,6 +584,9 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
 
       is_smap =
         is_smap
+
+      is_row =
+        is_row
     ).
 
 
@@ -693,6 +748,9 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
 
         is_smap =
           is_smap
+
+        is_row =
+          is_row
       ).
 
 
@@ -773,33 +831,6 @@ METHOD add_ddls.
     lv_has_key =
       abap_false.
 
-    DATA(lv_key_name) =
-      VALUE zif_mig_types=>ty_art_name( ).
-
-    READ TABLE lt_fields
-      WITH KEY key_field = abap_true
-      INTO DATA(ls_key).
-
-    IF sy-subrc = 0.
-
-      lv_key_name =
-        ls_key-field_name.
-
-    ELSE.
-
-      READ TABLE lt_fields
-        INDEX 1
-        INTO ls_key.
-
-      IF sy-subrc = 0.
-
-        lv_key_name =
-          ls_key-field_name.
-
-      ENDIF.
-
-    ENDIF.
-
     LOOP AT lt_fields
       INTO DATA(ls_field).
 
@@ -829,7 +860,90 @@ METHOD add_ddls.
           ).
 
 
-        CASE lv_edm_type.
+        DATA(lv_type_set) =
+          abap_false.
+
+
+        READ TABLE is_row-field_maps
+          WITH KEY svc_name = ls_field-field_name
+          INTO DATA(ls_ddls_row_map).
+
+
+        IF sy-subrc = 0.
+
+          READ TABLE is_row-components
+            WITH KEY comp_name = ls_ddls_row_map-comp_name
+            INTO DATA(ls_ddls_component).
+
+
+          IF sy-subrc = 0
+             AND ls_ddls_component-is_deep = abap_false.
+
+            DATA(lv_data_element) =
+              CONV string( ls_ddls_component-type_name ).
+
+            CONDENSE lv_data_element NO-GAPS.
+
+
+            IF lv_data_element CP '\TYPE=*'.
+
+              REPLACE FIRST OCCURRENCE OF '\TYPE='
+                IN lv_data_element
+                WITH ''.
+
+            ENDIF.
+
+
+            DATA(lv_use_data_element) =
+              xsdbool(
+                lv_data_element NS '\'
+                AND lv_data_element NS '=>'
+                AND strlen( lv_data_element ) > 1
+                AND strlen( lv_data_element ) <= 30
+              ).
+
+
+            CASE to_upper( lv_data_element ).
+
+              WHEN 'STRING'
+                OR 'XSTRING'
+                OR 'INT1'
+                OR 'INT2'
+                OR 'INT4'
+                OR 'INT8'
+                OR 'FLTP'
+                OR 'DECFLOAT16'
+                OR 'DECFLOAT34'
+                OR 'UTCLONG'
+                OR 'DATS'
+                OR 'TIMS'
+                OR 'ABAP_BOOL'.
+
+                lv_use_data_element = abap_false.
+
+            ENDCASE.
+
+
+            IF lv_use_data_element = abap_true.
+
+              lo_field->set_type(
+                xco_cp_abap_dictionary=>data_element(
+                  CONV #( lv_data_element )
+                )
+              ).
+
+              lv_type_set = abap_true.
+
+            ENDIF.
+
+          ENDIF.
+
+        ENDIF.
+
+
+        IF lv_type_set = abap_false.
+
+          CASE lv_edm_type.
 
           WHEN 'EDM.BOOLEAN'.
 
@@ -917,7 +1031,9 @@ METHOD add_ddls.
               )
             ).
 
-        ENDCASE.
+          ENDCASE.
+
+        ENDIF.
 
       IF ls_field-key_field = abap_true.
 
@@ -992,19 +1108,23 @@ METHOD add_ddls.
              abap_true.
 
           DATA(lv_field_up) =
-            to_upper(
-              CONV string(
+            norm_name(
+              iv_name = CONV string(
                 ls_field-field_name
               )
             ).
-
-          CONDENSE lv_field_up NO-GAPS.
 
 
           DATA lv_filter_mapped
             TYPE abap_bool.
 
+          DATA lv_filter_mandatory
+            TYPE abap_bool.
+
           lv_filter_mapped =
+            abap_false.
+
+          lv_filter_mandatory =
             abap_false.
 
 
@@ -1014,13 +1134,11 @@ METHOD add_ddls.
               zif_mig_types=>gc_smap_auto.
 
             DATA(lv_svc_up) =
-              to_upper(
-                CONV string(
+              norm_name(
+                iv_name = CONV string(
                   ls_input_map-svc_name
                 )
               ).
-
-            CONDENSE lv_svc_up NO-GAPS.
 
 
     IF lv_svc_up =
@@ -1028,6 +1146,12 @@ METHOD add_ddls.
 
       lv_filter_mapped =
         abap_true.
+
+      lv_filter_mandatory =
+        xsdbool(
+          ls_input_map-mandatory = abap_true
+          OR ls_input_map-prv_optional = abap_false
+        ).
 
       EXIT.
 
@@ -1051,33 +1175,29 @@ METHOD add_ddls.
     )->end_record(
     )->end_array( ).
 
+    IF lv_filter_mandatory = abap_true.
+
+      lo_field->add_annotation(
+        'Consumption.filter.mandatory'
+      )->value->build(
+      )->add_boolean(
+        abap_true
+      ).
+
+    ENDIF.
+
   ENDIF.
 
 ENDIF.
-
-      IF ls_field-field_name =
-         lv_key_name.
-
-      lo_field->set_key( ).
-
-    ENDIF.
 
     ENDLOOP.
 
     IF lv_has_key = abap_false.
 
-      READ TABLE lt_fields
-        INDEX 1
-        INTO DATA(ls_first).
-
-      IF sy-subrc <> 0.
-
-        RAISE EXCEPTION NEW zcx_mig_analysis(
-          textid =
-            zcx_mig_analysis=>analysis_failed
-        ).
-
-      ENDIF.
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid =
+          zcx_mig_analysis=>analysis_failed
+      ).
 
     ENDIF.
 
@@ -1360,9 +1480,9 @@ METHOD build_select_src.
 
   "============================================================
   " Checkpoint input:
-  " - SCALAR optional:
+  " - SCALAR optional or mandatory:
   "   String / Int32 / Int64 / Decimal / Double / Date
-  " - RANGE optional:
+  " - RANGE optional or mandatory:
   "   Edm.String, provider named table type
   " - Service Mapping = AUTO
   "============================================================
@@ -1377,6 +1497,10 @@ METHOD build_select_src.
   SORT lt_input_maps
     BY svc_name
        prv_name.
+
+
+  DATA lt_resolved_input_maps
+    TYPE zif_mig_types=>tt_svc_in_map.
 
 
   LOOP AT lt_input_maps
@@ -1411,10 +1535,6 @@ METHOD build_select_src.
     IF sy-subrc <> 0
        OR ls_input_map-map_state <>
             zif_mig_types=>gc_smap_auto
-       OR ls_input_map-mandatory =
-            abap_true
-       OR ls_input_map-prv_optional <>
-            abap_true
        OR ls_input_map-svc_name IS INITIAL
        OR ls_input_map-prv_name IS INITIAL.
 
@@ -1492,20 +1612,20 @@ METHOD build_select_src.
 
     "Service parameter phải có output field filterable tương ứng
     DATA(lv_svc_name_up) =
-      to_upper(
-        CONV string(
+      norm_name(
+        iv_name = CONV string(
           ls_input_map-svc_name
         )
       ).
 
-    CONDENSE lv_svc_name_up NO-GAPS.
 
+    DATA:
+      lv_filter_field_hits TYPE i,
+      lv_filter_field_name TYPE string.
 
-    DATA lv_filter_field_ok
-      TYPE abap_bool.
-
-    lv_filter_field_ok =
-      abap_false.
+    CLEAR:
+      lv_filter_field_hits,
+      lv_filter_field_name.
 
 
     LOOP AT lt_fields
@@ -1513,30 +1633,28 @@ METHOD build_select_src.
       WHERE filterable = abap_true.
 
       DATA(lv_field_name_up) =
-        to_upper(
-          CONV string(
+        norm_name(
+          iv_name = CONV string(
             ls_filter_field-field_name
           )
         ).
-
-      CONDENSE lv_field_name_up NO-GAPS.
 
 
       IF lv_field_name_up =
            lv_svc_name_up.
 
-        lv_filter_field_ok =
-          abap_true.
+        lv_filter_field_hits += 1.
 
-        EXIT.
+        lv_filter_field_name =
+          ls_filter_field-field_name.
 
       ENDIF.
 
     ENDLOOP.
 
 
-    IF lv_filter_field_ok =
-         abap_false.
+    IF lv_filter_field_hits <> 1
+       OR lv_filter_field_name IS INITIAL.
 
       RAISE EXCEPTION NEW zcx_mig_analysis(
         textid =
@@ -1545,7 +1663,20 @@ METHOD build_select_src.
 
     ENDIF.
 
+
+    "Use the actual entity field in generated OData filter code.
+    "For example, P_BUKRS is resolved to BUKRS.
+    ls_input_map-svc_name =
+      lv_filter_field_name.
+
+    APPEND ls_input_map
+      TO lt_resolved_input_maps.
+
   ENDLOOP.
+
+
+  lt_input_maps =
+    lt_resolved_input_maps.
 
 
   "============================================================
@@ -1559,6 +1690,37 @@ METHOD build_select_src.
   CONDENSE lv_output_type NO-GAPS.
 
 
+  IF lv_output_type CP '\CLASS=*\TYPE=*'.
+
+    REPLACE FIRST OCCURRENCE OF '\CLASS='
+      IN lv_output_type
+      WITH ''.
+
+    REPLACE FIRST OCCURRENCE OF '\TYPE='
+      IN lv_output_type
+      WITH '=>'.
+
+
+  ELSEIF lv_output_type CP '\INTERFACE=*\TYPE=*'.
+
+    REPLACE FIRST OCCURRENCE OF '\INTERFACE='
+      IN lv_output_type
+      WITH ''.
+
+    REPLACE FIRST OCCURRENCE OF '\TYPE='
+      IN lv_output_type
+      WITH '=>'.
+
+
+  ELSEIF lv_output_type CP '\TYPE=*'.
+
+    REPLACE FIRST OCCURRENCE OF '\TYPE='
+      IN lv_output_type
+      WITH ''.
+
+  ENDIF.
+
+
   DATA(lv_output_param) =
     to_upper(
       CONV string(
@@ -1570,6 +1732,7 @@ METHOD build_select_src.
 
 
   IF lv_output_type IS INITIAL
+     OR lv_output_type CS '\'
      OR lv_output_param IS INITIAL.
 
     RAISE EXCEPTION NEW zcx_mig_analysis(
@@ -1619,7 +1782,74 @@ METHOD build_select_src.
       TYPE string.
 
 
-    CASE lv_edm_type.
+    READ TABLE is_row-field_maps
+      WITH KEY svc_name = ls_field-field_name
+      INTO DATA(ls_local_row_map).
+
+
+    IF sy-subrc = 0.
+
+      READ TABLE is_row-components
+        WITH KEY comp_name = ls_local_row_map-comp_name
+        INTO DATA(ls_component).
+
+      IF sy-subrc = 0
+         AND ls_component-is_deep = abap_false
+         AND ls_component-type_name IS NOT INITIAL.
+
+        DATA(lv_component_type) =
+          CONV string( ls_component-type_name ).
+
+        CONDENSE lv_component_type NO-GAPS.
+
+
+        IF lv_component_type CP '\CLASS=*\TYPE=*'.
+
+          REPLACE FIRST OCCURRENCE OF '\CLASS='
+            IN lv_component_type
+            WITH ''.
+
+          REPLACE FIRST OCCURRENCE OF '\TYPE='
+            IN lv_component_type
+            WITH '=>'.
+
+
+        ELSEIF lv_component_type CP '\INTERFACE=*\TYPE=*'.
+
+          REPLACE FIRST OCCURRENCE OF '\INTERFACE='
+            IN lv_component_type
+            WITH ''.
+
+          REPLACE FIRST OCCURRENCE OF '\TYPE='
+            IN lv_component_type
+            WITH '=>'.
+
+
+        ELSEIF lv_component_type CP '\TYPE=*'.
+
+          REPLACE FIRST OCCURRENCE OF '\TYPE='
+            IN lv_component_type
+            WITH ''.
+
+        ENDIF.
+
+
+        IF lv_component_type NS '\'
+           AND strlen( lv_component_type ) > 1.
+
+          lv_type_decl =
+            |TYPE { lv_component_type }|.
+
+        ENDIF.
+
+      ENDIF.
+
+    ENDIF.
+
+
+    IF lv_type_decl IS INITIAL.
+
+      CASE lv_edm_type.
 
       WHEN 'EDM.BOOLEAN'.
 
@@ -1680,7 +1910,9 @@ METHOD build_select_src.
         lv_type_decl =
           'TYPE c LENGTH 120'.
 
-    ENDCASE.
+      ENDCASE.
+
+    ENDIF.
 
 
     APPEND
@@ -1713,7 +1945,6 @@ METHOD build_select_src.
       |DATA(lv_page_size) = lo_paging->get_page_size( ).|
       TO rt_source.
 
-  "============================================================
   "============================================================
   " Chuẩn hóa tên provider
   "============================================================
@@ -1800,6 +2031,11 @@ METHOD build_select_src.
     TO rt_source.
 
 
+  APPEND
+    |DATA(lv_mandatory_missing) = abap_false.|
+    TO rt_source.
+
+
   "============================================================
   " Khai báo variable cho từng mapped input
   "
@@ -1880,9 +2116,9 @@ METHOD build_select_src.
     |lv_f{ lv_filter_idx }|.
 
 
-  "Function Module dynamic call cần đúng kiểu parameter thật
-  IF lv_is_fm_provider = abap_true
-     AND ls_sig_input-type_name IS NOT INITIAL.
+  "Dynamic calls require a data reference with the provider's
+  "actual declared parameter type for both FM and class methods.
+  IF ls_sig_input-type_name IS NOT INITIAL.
 
     lv_prv_type =
       CONV string(
@@ -1892,7 +2128,29 @@ METHOD build_select_src.
     CONDENSE lv_prv_type NO-GAPS.
 
 
-    IF lv_prv_type CP '\TYPE=*'.
+    IF lv_prv_type CP '\CLASS=*\TYPE=*'.
+
+      REPLACE FIRST OCCURRENCE OF '\CLASS='
+        IN lv_prv_type
+        WITH ''.
+
+      REPLACE FIRST OCCURRENCE OF '\TYPE='
+        IN lv_prv_type
+        WITH '=>'.
+
+
+    ELSEIF lv_prv_type CP '\INTERFACE=*\TYPE=*'.
+
+      REPLACE FIRST OCCURRENCE OF '\INTERFACE='
+        IN lv_prv_type
+        WITH ''.
+
+      REPLACE FIRST OCCURRENCE OF '\TYPE='
+        IN lv_prv_type
+        WITH '=>'.
+
+
+    ELSEIF lv_prv_type CP '\TYPE=*'.
 
       REPLACE FIRST OCCURRENCE OF '\TYPE='
         IN lv_prv_type
@@ -1901,7 +2159,8 @@ METHOD build_select_src.
     ENDIF.
 
 
-    IF lv_prv_type IS INITIAL.
+    IF lv_prv_type IS INITIAL
+       OR lv_prv_type CS '\'.
 
       RAISE EXCEPTION NEW zcx_mig_analysis(
         textid =
@@ -2529,6 +2788,68 @@ ENDIF.
     TO rt_source.
 
 
+  "============================================================
+  " Mandatory selection parameters must be present in the request.
+  " A non-optional provider input is mandatory even when legacy
+  " selection metadata did not mark it correctly.
+  "============================================================
+  CLEAR lv_filter_idx.
+
+
+  LOOP AT lt_input_maps
+    INTO ls_input_map.
+
+    lv_filter_idx += 1.
+
+    IF ls_input_map-mandatory = abap_false
+       AND ls_input_map-prv_optional = abap_true.
+
+      CONTINUE.
+
+    ENDIF.
+
+
+    lv_filter_set =
+      |lv_f{ lv_filter_idx }_set|.
+
+
+    APPEND
+      |IF { lv_filter_set } = abap_false.|
+      TO rt_source.
+
+
+    APPEND
+      |  lv_mandatory_missing = abap_true.|
+      TO rt_source.
+
+
+    APPEND
+      |ENDIF.|
+      TO rt_source.
+
+  ENDLOOP.
+
+
+  APPEND
+    |IF lv_mandatory_missing = abap_true.|
+    TO rt_source.
+
+
+  APPEND
+    |  RAISE EXCEPTION TYPE zcx_mig_query_error|
+    TO rt_source.
+
+
+  APPEND
+    |    EXPORTING iv_message = 'A mandatory OData filter is missing'.|
+    TO rt_source.
+
+
+  APPEND
+    |ENDIF.|
+    TO rt_source.
+
+
 
   "============================================================
   " Không trả toàn bộ dữ liệu khi request filter không hỗ trợ
@@ -2539,37 +2860,12 @@ ENDIF.
 
 
   APPEND
-    |  IF io_request->is_total_numb_of_rec_requested( ).|
+    |  RAISE EXCEPTION TYPE zcx_mig_query_error|
     TO rt_source.
 
 
   APPEND
-    |    io_response->set_total_number_of_records( 0 ).|
-    TO rt_source.
-
-
-  APPEND
-    |  ENDIF.|
-    TO rt_source.
-
-
-  APPEND
-    |  IF io_request->is_data_requested( ).|
-    TO rt_source.
-
-
-  APPEND
-    |    io_response->set_data( lt_result ).|
-    TO rt_source.
-
-
-  APPEND
-    |  ENDIF.|
-    TO rt_source.
-
-
-  APPEND
-    |  RETURN.|
+    |    EXPORTING iv_message = 'Unsupported or invalid OData filter expression'.|
     TO rt_source.
 
 
@@ -2580,7 +2876,7 @@ ENDIF.
 
   "============================================================
   " Dynamic provider call:
-  " - chỉ bind optional parameter thực sự có trong request
+  " - only bind parameters that are present in the request
   " - class method dùng ABAP_PARMBIND_TAB
   " - function module dùng ABAP_FUNC_PARMBIND_TAB
   "============================================================
@@ -2770,42 +3066,42 @@ ENDIF.
 
 
     APPEND
-      |  CATCH cx_sy_dyn_call_error.|
+      |  CATCH cx_sy_dyn_call_error INTO DATA(lx_dyn_call).|
       TO rt_source.
 
 
     APPEND
-      |    IF io_request->is_total_numb_of_rec_requested( ).|
+      |    RAISE EXCEPTION TYPE zcx_mig_query_error|
       TO rt_source.
 
 
     APPEND
-      |      io_response->set_total_number_of_records( 0 ).|
+      |      EXPORTING previous = lx_dyn_call|
       TO rt_source.
 
 
     APPEND
-      |    ENDIF.|
+      |                iv_message = 'Function module provider call failed'.|
       TO rt_source.
 
 
     APPEND
-      |    IF io_request->is_data_requested( ).|
+      |  CATCH cx_root INTO DATA(lx_provider).|
       TO rt_source.
 
 
     APPEND
-      |      io_response->set_data( lt_result ).|
+      |    RAISE EXCEPTION TYPE zcx_mig_query_error|
       TO rt_source.
 
 
     APPEND
-      |    ENDIF.|
+      |      EXPORTING previous = lx_provider|
       TO rt_source.
 
 
     APPEND
-      |    RETURN.|
+      |                iv_message = 'Function module provider raised an exception'.|
       TO rt_source.
 
 
@@ -2820,37 +3116,12 @@ ENDIF.
 
 
     APPEND
-      |  IF io_request->is_total_numb_of_rec_requested( ).|
+      |  RAISE EXCEPTION TYPE zcx_mig_query_error|
       TO rt_source.
 
 
     APPEND
-      |    io_response->set_total_number_of_records( 0 ).|
-      TO rt_source.
-
-
-    APPEND
-      |  ENDIF.|
-      TO rt_source.
-
-
-    APPEND
-      |  IF io_request->is_data_requested( ).|
-      TO rt_source.
-
-
-    APPEND
-      |    io_response->set_data( lt_result ).|
-      TO rt_source.
-
-
-    APPEND
-      |  ENDIF.|
-      TO rt_source.
-
-
-    APPEND
-      |  RETURN.|
+      |    EXPORTING iv_message = 'Function module provider returned an exception'.|
       TO rt_source.
 
 
@@ -2887,42 +3158,42 @@ ENDIF.
 
 
     APPEND
-      |  CATCH cx_sy_dyn_call_error.|
+      |  CATCH cx_sy_dyn_call_error INTO DATA(lx_dyn_call).|
       TO rt_source.
 
 
     APPEND
-      |    IF io_request->is_total_numb_of_rec_requested( ).|
+      |    RAISE EXCEPTION TYPE zcx_mig_query_error|
       TO rt_source.
 
 
     APPEND
-      |      io_response->set_total_number_of_records( 0 ).|
+      |      EXPORTING previous = lx_dyn_call|
       TO rt_source.
 
 
     APPEND
-      |    ENDIF.|
+      |                iv_message = 'Static class provider call failed'.|
       TO rt_source.
 
 
     APPEND
-      |    IF io_request->is_data_requested( ).|
+      |  CATCH cx_root INTO DATA(lx_provider).|
       TO rt_source.
 
 
     APPEND
-      |      io_response->set_data( lt_result ).|
+      |    RAISE EXCEPTION TYPE zcx_mig_query_error|
       TO rt_source.
 
 
     APPEND
-      |    ENDIF.|
+      |      EXPORTING previous = lx_provider|
       TO rt_source.
 
 
     APPEND
-      |    RETURN.|
+      |                iv_message = 'Static class provider raised an exception'.|
       TO rt_source.
 
 
@@ -2933,8 +3204,59 @@ ENDIF.
   ENDIF.
 
 
+  "============================================================
+  " Explicit provider-row -> service-row mapping
+  "
+  " Do not use CORRESPONDING here. Normalized service names can
+  " legitimately differ from the provider component names.
+  "============================================================
   APPEND
-    |lt_result = CORRESPONDING #( lt_provider ).|
+    |lt_result = VALUE #(|
+    TO rt_source.
+
+
+  APPEND
+    |  FOR ls_provider IN lt_provider|
+    TO rt_source.
+
+
+  APPEND
+    |  (|
+    TO rt_source.
+
+
+  LOOP AT lt_fields
+    INTO DATA(ls_result_field).
+
+    READ TABLE is_row-field_maps
+      WITH KEY svc_name = ls_result_field-field_name
+      INTO DATA(ls_result_map).
+
+    IF sy-subrc <> 0
+       OR ls_result_map-map_state <> zif_mig_types=>gc_row_auto
+       OR ls_result_map-comp_name IS INITIAL.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid = zcx_mig_analysis=>analysis_failed
+      ).
+
+    ENDIF.
+
+
+    APPEND
+      |    { ls_result_field-field_name } = ls_provider-{ ls_result_map-comp_name }|
+      TO rt_source.
+
+  ENDLOOP.
+
+
+  APPEND
+    |  )|
+    TO rt_source.
+
+
+  APPEND
+    |).|
     TO rt_source.
 
 
@@ -3166,4 +3488,72 @@ ENDIF.
 
 ENDMETHOD.
 
+
+METHOD norm_name.
+
+  rv_name =
+    to_upper(
+      iv_name
+    ).
+
+  CONDENSE rv_name NO-GAPS.
+
+
+  DO 3 TIMES.
+
+    IF rv_name CP 'IV_*'
+       OR rv_name CP 'IS_*'
+       OR rv_name CP 'IT_*'
+       OR rv_name CP 'EV_*'
+       OR rv_name CP 'ES_*'
+       OR rv_name CP 'ET_*'
+       OR rv_name CP 'CV_*'
+       OR rv_name CP 'CS_*'
+       OR rv_name CP 'CT_*'
+       OR rv_name CP 'RV_*'
+       OR rv_name CP 'RS_*'
+       OR rv_name CP 'RT_*'
+       OR rv_name CP 'GT_*'
+       OR rv_name CP 'GS_*'.
+
+      rv_name =
+        substring(
+          val = rv_name
+          off = 3
+        ).
+
+
+    ELSEIF rv_name CP 'I_*'
+       OR rv_name CP 'E_*'
+       OR rv_name CP 'C_*'
+       OR rv_name CP 'R_*'
+       OR rv_name CP 'P_*'
+       OR rv_name CP 'S_*'
+       OR rv_name CP 'T_*'.
+
+      rv_name =
+        substring(
+          val = rv_name
+          off = 2
+        ).
+
+
+    ELSE.
+
+      EXIT.
+
+    ENDIF.
+
+  ENDDO.
+
+
+  REPLACE ALL OCCURRENCES OF '_'
+    IN rv_name
+    WITH ''.
+
+  CONDENSE rv_name NO-GAPS.
+
+ENDMETHOD.
+
 ENDCLASS.
+
