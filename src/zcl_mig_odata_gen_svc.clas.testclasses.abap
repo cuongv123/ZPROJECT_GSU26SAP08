@@ -16,7 +16,8 @@ CLASS lcl_mig_odata_pipeline_fake DEFINITION
 
     METHODS constructor
       IMPORTING
-        iv_block_blueprint TYPE abap_bool DEFAULT abap_false.
+        iv_block_blueprint      TYPE abap_bool DEFAULT abap_false
+        iv_unsupported_boundary TYPE abap_bool DEFAULT abap_false.
 
     DATA provider_called TYPE abap_bool READ-ONLY.
     DATA binding_exists TYPE abap_bool.
@@ -25,6 +26,7 @@ CLASS lcl_mig_odata_pipeline_fake DEFINITION
   PRIVATE SECTION.
 
     DATA mv_block_blueprint TYPE abap_bool.
+    DATA mv_unsupported_boundary TYPE abap_bool.
 
 ENDCLASS.
 
@@ -77,6 +79,7 @@ CLASS lcl_mig_odata_pipeline_fake IMPLEMENTATION.
   METHOD constructor.
 
     mv_block_blueprint = iv_block_blueprint.
+    mv_unsupported_boundary = iv_unsupported_boundary.
 
   ENDMETHOD.
 
@@ -119,7 +122,12 @@ CLASS lcl_mig_odata_pipeline_fake IMPLEMENTATION.
 
     APPEND VALUE #(
       field_name = 'CompanyCode'
-      edm_type   = 'Edm.String'
+      edm_type   = COND #(
+        WHEN mv_unsupported_boundary = abap_true
+        THEN 'Edm.Binary'
+        ELSE 'Edm.String'
+      )
+      length     = 4
       position   = 10
       key_field  = abap_true
       visible    = abap_true
@@ -342,6 +350,8 @@ CLASS lcl_mig_odata_repo_fake IMPLEMENTATION.
       label          = 'Company Code'
       position       = 10
       data_type      = 'C'
+      data_element   = 'BUKRS'
+      length         = 4
       visible        = abap_true
       key_field      = abap_true
       technical      = abap_false
@@ -468,6 +478,12 @@ CLASS ltc_mig_odata_gen_svc DEFINITION
         cx_xco_gen_put_exception.
 
     METHODS blocked_blueprint_stops
+      FOR TESTING
+      RAISING
+        zcx_mig_analysis
+        cx_xco_gen_put_exception.
+
+    METHODS unsupported_boundary_stops
       FOR TESTING
       RAISING
         zcx_mig_analysis
@@ -611,6 +627,55 @@ CLASS ltc_mig_odata_gen_svc IMPLEMENTATION.
       exp = abap_false
       act = lo_fake->provider_called
       msg = 'A blocked blueprint must stop before provider selection'
+    ).
+
+  ENDMETHOD.
+
+
+  METHOD unsupported_boundary_stops.
+
+    DATA(lo_fake) =
+      NEW lcl_mig_odata_pipeline_fake(
+        iv_unsupported_boundary = abap_true
+      ).
+
+    DATA(lo_executor) = NEW lcl_mig_xco_executor_fake( ).
+
+    DATA(ls_result) =
+      NEW zcl_mig_odata_gen_svc(
+        io_reader       = lo_fake
+        io_blueprint    = lo_fake
+        io_provider     = lo_fake
+        io_signature    = lo_fake
+        io_service_map  = lo_fake
+        io_row_resolver = lo_fake
+        io_manifest     = lo_fake
+        io_preflight    = lo_fake
+        io_art_repo     = lo_fake
+        io_executor     = lo_executor
+      )->zif_mig_odata_gen_svc~generate(
+        is_request = VALUE #(
+          analysis_id = gc_analysis_id
+          package     = 'ZMIG_TEST'
+          execute     = abap_false
+        )
+      ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = zif_mig_odata_gen_svc=>gc_status_blocked
+      act = ls_result-status
+      msg = 'An unsupported boundary type must be blocked in dry-run'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 1
+      act = ls_result-block_count
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = abap_false
+      act = lo_executor->called
+      msg = 'A blocked boundary contract must not execute XCO generation'
     ).
 
   ENDMETHOD.

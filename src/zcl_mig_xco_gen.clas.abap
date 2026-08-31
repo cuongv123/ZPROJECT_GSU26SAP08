@@ -195,6 +195,12 @@ CLASS zcl_mig_xco_gen DEFINITION
           RAISING
             zcx_mig_analysis.
 
+      METHODS norm_name
+        IMPORTING
+          VALUE(iv_name) TYPE string
+        RETURNING
+          VALUE(rv_name) TYPE string.
+
 ENDCLASS.
 
 CLASS zcl_mig_xco_gen IMPLEMENTATION.
@@ -1501,6 +1507,10 @@ METHOD build_select_src.
        prv_name.
 
 
+  DATA lt_resolved_input_maps
+    TYPE zif_mig_types=>tt_svc_in_map.
+
+
   LOOP AT lt_input_maps
     INTO DATA(ls_input_map).
 
@@ -1610,20 +1620,20 @@ METHOD build_select_src.
 
     "Service parameter phải có output field filterable tương ứng
     DATA(lv_svc_name_up) =
-      to_upper(
-        CONV string(
+      norm_name(
+        iv_name = CONV string(
           ls_input_map-svc_name
         )
       ).
 
-    CONDENSE lv_svc_name_up NO-GAPS.
 
+    DATA:
+      lv_filter_field_hits TYPE i,
+      lv_filter_field_name TYPE string.
 
-    DATA lv_filter_field_ok
-      TYPE abap_bool.
-
-    lv_filter_field_ok =
-      abap_false.
+    CLEAR:
+      lv_filter_field_hits,
+      lv_filter_field_name.
 
 
     LOOP AT lt_fields
@@ -1631,30 +1641,28 @@ METHOD build_select_src.
       WHERE filterable = abap_true.
 
       DATA(lv_field_name_up) =
-        to_upper(
-          CONV string(
+        norm_name(
+          iv_name = CONV string(
             ls_filter_field-field_name
           )
         ).
-
-      CONDENSE lv_field_name_up NO-GAPS.
 
 
       IF lv_field_name_up =
            lv_svc_name_up.
 
-        lv_filter_field_ok =
-          abap_true.
+        lv_filter_field_hits += 1.
 
-        EXIT.
+        lv_filter_field_name =
+          ls_filter_field-field_name.
 
       ENDIF.
 
     ENDLOOP.
 
 
-    IF lv_filter_field_ok =
-         abap_false.
+    IF lv_filter_field_hits <> 1
+       OR lv_filter_field_name IS INITIAL.
 
       RAISE EXCEPTION NEW zcx_mig_analysis(
         textid =
@@ -1663,7 +1671,20 @@ METHOD build_select_src.
 
     ENDIF.
 
+
+    "Generated OData filters must use the actual entity field.
+    "For example, P_BUKRS is resolved to BUKRS.
+    ls_input_map-svc_name =
+      lv_filter_field_name.
+
+    APPEND ls_input_map
+      TO lt_resolved_input_maps.
+
   ENDLOOP.
+
+
+  lt_input_maps =
+    lt_resolved_input_maps.
 
 
   "============================================================
@@ -3473,6 +3494,82 @@ ENDIF.
   APPEND
     |ENDIF.|
     TO rt_source.
+
+ENDMETHOD.
+
+
+METHOD norm_name.
+
+  DATA:
+    lv_prefix  TYPE string,
+    lv_changed TYPE abap_bool.
+
+  rv_name = to_upper( iv_name ).
+  CONDENSE rv_name NO-GAPS.
+
+  DO 3 TIMES.
+
+    lv_changed = abap_false.
+
+    IF strlen( rv_name ) >= 3.
+
+      lv_prefix = substring(
+        val = rv_name
+        len = 3
+      ).
+
+      CASE lv_prefix.
+        WHEN 'IV_' OR 'IS_' OR 'IT_'
+          OR 'EV_' OR 'ES_' OR 'ET_'
+          OR 'CV_' OR 'CS_' OR 'CT_'
+          OR 'RV_' OR 'RS_' OR 'RT_'
+          OR 'GT_' OR 'GS_'.
+
+          rv_name = substring(
+            val = rv_name
+            off = 3
+          ).
+
+          lv_changed = abap_true.
+
+      ENDCASE.
+
+    ENDIF.
+
+    IF lv_changed = abap_false
+       AND strlen( rv_name ) >= 2.
+
+      lv_prefix = substring(
+        val = rv_name
+        len = 2
+      ).
+
+      CASE lv_prefix.
+        WHEN 'I_' OR 'E_' OR 'C_' OR 'R_'
+          OR 'P_' OR 'S_' OR 'T_'.
+
+          rv_name = substring(
+            val = rv_name
+            off = 2
+          ).
+
+          lv_changed = abap_true.
+
+      ENDCASE.
+
+    ENDIF.
+
+    IF lv_changed = abap_false.
+      EXIT.
+    ENDIF.
+
+  ENDDO.
+
+  REPLACE ALL OCCURRENCES OF '_'
+    IN rv_name
+    WITH ''.
+
+  CONDENSE rv_name NO-GAPS.
 
 ENDMETHOD.
 

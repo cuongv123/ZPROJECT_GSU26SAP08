@@ -99,6 +99,8 @@ CLASS ltc_service_blueprint IMPLEMENTATION.
       label         = 'Company Code'
       position      = 1
       data_type     = 'C'
+      data_element  = 'BUKRS'
+      length        = 4
       visible       = abap_true
       key_field     = abap_true
       technical     = abap_false
@@ -417,6 +419,10 @@ CLASS ltc_service_blueprint IMPLEMENTATION.
       label          = 'Amount'
       position       = 3
       data_type      = 'P'
+      data_element   = 'DMBTR'
+      length         = 13
+      decimals       = 2
+      currency_field = 'WAERS'
       visible        = abap_true
       technical      = abap_false
       icon           = abap_false
@@ -432,6 +438,8 @@ CLASS ltc_service_blueprint IMPLEMENTATION.
       label          = 'Company Code'
       position       = 1
       data_type      = 'C'
+      data_element   = 'BUKRS'
+      length         = 4
       visible        = abap_true
       key_field      = abap_true
       technical      = abap_false
@@ -526,6 +534,18 @@ CLASS ltc_service_blueprint IMPLEMENTATION.
     ).
 
     cl_abap_unit_assert=>assert_equals(
+      exp = 'BUKRS'
+      act = ls_bukrs_field-source_data_element
+      msg = 'BUKRS data element phải được giữ làm source metadata'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 4
+      act = ls_bukrs_field-length
+      msg = 'BUKRS length phải được truyền sang service field'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
       exp = abap_true
       act = ls_bukrs_field-key_field
       msg = 'BUKRS phải giữ key flag'
@@ -567,6 +587,24 @@ CLASS ltc_service_blueprint IMPLEMENTATION.
       exp = 'GT_RESULT-AMOUNT'
       act = ls_amount_field-source_mapping
       msg = 'Source mapping của AMOUNT không đúng'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 13
+      act = ls_amount_field-length
+      msg = 'Amount length không đúng'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 2
+      act = ls_amount_field-decimals
+      msg = 'Amount decimals không đúng'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'WAERS'
+      act = ls_amount_field-currency_field
+      msg = 'Amount currency reference không đúng'
     ).
 
 

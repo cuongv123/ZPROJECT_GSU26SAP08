@@ -21,6 +21,9 @@ CLASS ltc_mig_xco_gen DEFINITION
       FOR TESTING
       RAISING zcx_mig_analysis.
 
+    METHODS normalize_filter_names
+      FOR TESTING.
+
     METHODS make_fields
       RETURNING
         VALUE(rt_fields) TYPE zif_mig_types=>tt_service_field.
@@ -45,6 +48,27 @@ ENDCLASS.
 
 
 CLASS ltc_mig_xco_gen IMPLEMENTATION.
+
+  METHOD normalize_filter_names.
+
+    DATA(lo_cut) = NEW zcl_mig_xco_gen( ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'BUKRS'
+      act = lo_cut->norm_name( 'P_BUKRS' )
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'BUKRS'
+      act = lo_cut->norm_name( 'IV_BUKRS' )
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'BUKRS'
+      act = lo_cut->norm_name( 'BUKRS' )
+    ).
+
+  ENDMETHOD.
 
   METHOD make_fields.
 

@@ -580,6 +580,19 @@ INTERFACE zif_mig_types
       END OF ty_alv_fcat_result.
 
     "============================================================
+    " ALV Row Contract Analysis Result
+    "============================================================
+    TYPES:
+      BEGIN OF ty_alv_row_result,
+
+        alv_outputs TYPE tt_alv_output,
+        alv_columns TYPE tt_alv_column,
+        evidences   TYPE tt_evidence,
+        messages    TYPE tt_message,
+
+      END OF ty_alv_row_result.
+
+    "============================================================
     " ALV Sort and Filter Analysis Result
     "============================================================
     TYPES:
@@ -631,18 +644,26 @@ INTERFACE zif_mig_types
 
 
       TYPES:
-        BEGIN OF ty_service_field,
-          source_item_id TYPE ty_item_id,
-          field_name     TYPE c LENGTH 40,
-          label          TYPE c LENGTH 120,
-          edm_type       TYPE c LENGTH 30,
-          position       TYPE i,
-          key_field      TYPE abap_bool,
-          visible        TYPE abap_bool,
-          filterable     TYPE abap_bool,
-          sortable       TYPE abap_bool,
-          source_mapping TYPE string,
-        END OF ty_service_field,
+  BEGIN OF ty_service_field,
+    source_item_id     TYPE ty_item_id,
+    field_name         TYPE c LENGTH 40,
+    label              TYPE c LENGTH 120,
+    edm_type           TYPE c LENGTH 30,
+
+    source_data_type    TYPE c LENGTH 30,
+    source_data_element TYPE c LENGTH 30,
+    length              TYPE i,
+    decimals            TYPE i,
+    currency_field      TYPE c LENGTH 40,
+    unit_field          TYPE c LENGTH 40,
+
+    position           TYPE i,
+    key_field          TYPE abap_bool,
+    visible            TYPE abap_bool,
+    filterable         TYPE abap_bool,
+    sortable           TYPE abap_bool,
+    source_mapping     TYPE string,
+  END OF ty_service_field,
 
         tt_service_field
           TYPE STANDARD TABLE OF ty_service_field

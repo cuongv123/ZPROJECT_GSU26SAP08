@@ -382,6 +382,36 @@ CLASS zcl_mig_odata_gen_svc IMPLEMENTATION.
     ENDIF.
 
 
+    "Validate the source that will be generated before repository
+    "preflight reports READY. This includes the released OData boundary
+    "type policy, key, provider signature, filter and row mapping.
+    TRY.
+
+        NEW zcl_mig_xco_gen( )->validate_query_contract(
+          is_bp   = ls_bp
+          is_prv  = ls_prv
+          is_sig  = ls_sig
+          is_smap = ls_smap
+          is_row  = ls_row
+        ).
+
+      CATCH zcx_mig_analysis.
+
+        rs_result-block_count += 1.
+
+        block_result(
+          EXPORTING
+            iv_message =
+              'Generated query contract is not safe for the OData boundary. Check field type/length, key, filter and row mapping.'
+          CHANGING
+            cs_result = rs_result
+        ).
+
+        RETURN.
+
+    ENDTRY.
+
+
     "==========================================================
     " 7. Build artifact plan and resolve supported XCO types
     "==========================================================
