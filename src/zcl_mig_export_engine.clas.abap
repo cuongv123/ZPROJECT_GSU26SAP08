@@ -796,7 +796,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
                           ELSE s && ',' && escape_csv_value( CONV string( ls_c-column_title ) ) ) ).
       lv_csv_all = lv_csv_all && lv_col_header && cl_abap_char_utilities=>cr_lf.
 
-      LOOP AT <lt_data> ASSIGNING FIELD-SYMBOL(<ls_row>).
+            LOOP AT <lt_data> ASSIGNING FIELD-SYMBOL(<ls_row>).
         DATA(lt_vals) = build_row_line( it_cols = lt_columns is_row = <ls_row> ).
         DATA(lv_csv_line) = REDUCE string(
           INIT s = ``
@@ -805,6 +805,10 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
                             ELSE s && ',' && escape_csv_value( lv_v ) ) ).
         lv_csv_all = lv_csv_all && lv_csv_line && cl_abap_char_utilities=>cr_lf.
       ENDLOOP.
+
+      IF <lt_data> IS INITIAL.
+        lv_csv_all = lv_csv_all && escape_csv_value( |(No data available for this section)| ) && cl_abap_char_utilities=>cr_lf.
+      ENDIF.
 
       lv_csv_all = lv_csv_all && cl_abap_char_utilities=>cr_lf.
 
@@ -852,7 +856,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     ENDTRY.
 
     DATA lt_all_pages TYPE string_table.
-
+    CONSTANTS lc_max_cols_per_block TYPE i VALUE 12.  " 752pt / ~60pt mỗi cột để còn đọc được - đồng bộ với lv_table_width trong render_section_pages
     LOOP AT ls_plan-sections INTO DATA(ls_section).
 
       TRY.
@@ -882,12 +886,26 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       ENDTRY.
       ASSIGN lr_data->* TO FIELD-SYMBOL(<lt_data>).
 
-      IF <lt_data> IS INITIAL.
+            IF <lt_data> IS INITIAL.
+        DATA lt_empty_lines TYPE STANDARD TABLE OF string_table WITH EMPTY KEY.
+        CLEAR lt_empty_lines.
+        APPEND VALUE string_table( ( `Note` ) ) TO lt_empty_lines.
+        APPEND VALUE string_table( ( |No data available for section { ls_section-sheet_title }.| ) ) TO lt_empty_lines.
+
+        TRY.
+            DATA(lt_empty_pages) = render_section_pages(
+              iv_title       = |{ ls_section-sheet_title } - { iv_report_type }|
+              it_header_cols = VALUE tt_col( ( ) )
+              it_lines       = lt_empty_lines
+              is_pdf_layout  = is_pdf_layout ).
+            APPEND LINES OF lt_empty_pages TO lt_all_pages.
+          CATCH cx_root.
+        ENDTRY.
         CONTINUE.
       ENDIF.
 
-      DATA(lt_header_cells) = VALUE string_table(
-  FOR ls_c IN lt_columns ( CONV string( ls_c-column_title ) ) ).
+            DATA(lt_header_cells) = VALUE string_table(
+        FOR ls_c IN lt_columns ( CONV string( ls_c-column_title ) ) ).
 
       DATA lt_lines TYPE STANDARD TABLE OF string_table WITH EMPTY KEY.
       CLEAR lt_lines.
@@ -896,16 +914,78 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
         APPEND build_row_line( it_cols = lt_columns is_row = <ls_row> ) TO lt_lines.
       ENDLOOP.
 
-      TRY.
-          DATA(lt_section_pages) = render_section_pages(
-            iv_title       = |{ ls_section-sheet_title } - { iv_report_type }|
-  it_header_cols = lt_columns
-  it_lines       = lt_lines
-  is_pdf_layout  = is_pdf_layout ).
-          APPEND LINES OF lt_section_pages TO lt_all_pages.
-        CATCH cx_root.
-          CONTINUE.
-      ENDTRY.
+      DATA(lv_total_cols) = lines( lt_columns ).
+
+      IF lv_total_cols <= lc_max_cols_per_block.
+        " So cot binh thuong - 1 khoi duy nhat, hanh vi giu nguyen nhu cu.
+        TRY.
+            DATA(lt_section_pages) = render_section_pages(
+              iv_title       = |{ ls_section-sheet_title } - { iv_report_type }|
+              it_header_cols = lt_columns
+              it_lines       = lt_lines
+              is_pdf_layout  = is_pdf_layout ).
+            APPEND LINES OF lt_section_pages TO lt_all_pages.
+          CATCH cx_root.
+            CONTINUE.
+        ENDTRY.
+      ELSE.
+        " Qua nhieu cot cho 1 bang - chia thanh nhieu khoi, moi khoi toi da
+        " lc_max_cols_per_block cot. Tu khoi thu 2 tro di, luon lap lai cot
+        " dau tien (cot 1) lam "cot khoa" de doi chieu dong giua cac khoi.
+        DATA(lv_extra_cols)           = lv_total_cols - lc_max_cols_per_block.
+        DATA(lv_cols_per_extra_block) = lc_max_cols_per_block - 1.
+        DATA(lv_extra_blocks)         = ( lv_extra_cols + lv_cols_per_extra_block - 1 ) DIV lv_cols_per_extra_block.
+        DATA(lv_num_blocks)           = 1 + lv_extra_blocks.
+
+        DO lv_num_blocks TIMES.
+          DATA(lv_block_no) = sy-index.
+          DATA lt_idx TYPE STANDARD TABLE OF i WITH EMPTY KEY.
+          CLEAR lt_idx.
+          DATA(lv_new_from) = 0.
+          DATA(lv_new_to)   = 0.
+
+          IF lv_block_no = 1.
+            lv_new_from = 1.
+            lv_new_to   = nmin( val1 = lv_total_cols val2 = lc_max_cols_per_block ).
+            DATA(lv_i1) = lv_new_from.
+            WHILE lv_i1 <= lv_new_to.
+              APPEND lv_i1 TO lt_idx.
+              lv_i1 = lv_i1 + 1.
+            ENDWHILE.
+          ELSE.
+            lv_new_from = lc_max_cols_per_block + 1 + ( lv_block_no - 2 ) * lv_cols_per_extra_block.
+            lv_new_to   = nmin( val1 = lv_total_cols val2 = lc_max_cols_per_block + ( lv_block_no - 1 ) * lv_cols_per_extra_block ).
+            APPEND 1 TO lt_idx.
+            DATA(lv_i2) = lv_new_from.
+            WHILE lv_i2 <= lv_new_to.
+              APPEND lv_i2 TO lt_idx.
+              lv_i2 = lv_i2 + 1.
+            ENDWHILE.
+          ENDIF.
+
+          DATA(lt_columns_block) = VALUE tt_col( FOR lv_ix IN lt_idx ( lt_columns[ lv_ix ] ) ).
+
+          DATA lt_lines_block TYPE STANDARD TABLE OF string_table WITH EMPTY KEY.
+          CLEAR lt_lines_block.
+          LOOP AT lt_lines INTO DATA(lt_full_row).
+            DATA(lt_row_block) = VALUE string_table( FOR lv_ix2 IN lt_idx ( lt_full_row[ lv_ix2 ] ) ).
+            APPEND lt_row_block TO lt_lines_block.
+          ENDLOOP.
+
+          DATA(lv_block_title) = |{ ls_section-sheet_title } - { iv_report_type } (Columns { lv_new_from }-{ lv_new_to } of { lv_total_cols })|.
+
+          TRY.
+              DATA(lt_block_pages) = render_section_pages(
+                iv_title       = lv_block_title
+                it_header_cols = lt_columns_block
+                it_lines       = lt_lines_block
+                is_pdf_layout  = is_pdf_layout ).
+              APPEND LINES OF lt_block_pages TO lt_all_pages.
+            CATCH cx_root.
+              CONTINUE.
+          ENDTRY.
+        ENDDO.
+      ENDIF.
 
     ENDLOOP.
 
@@ -939,7 +1019,9 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     " it_lines[1] = header text-only, từ dòng 2 trở đi mới là data row thật.
     CONSTANTS: lc_lines_per_page TYPE i VALUE 20,
                lc_page_width     TYPE i VALUE 792,
-               lc_page_height    TYPE i VALUE 612.
+               lc_page_height    TYPE i VALUE 612,
+               lc_min_col_chars  TYPE i VALUE 6,
+               lc_max_col_chars  TYPE i VALUE 30.
 
     DATA(lv_left_margin)  = 20.
     DATA(lv_table_width)  = 752.
@@ -947,7 +1029,6 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     IF lv_num_cols = 0.
       lv_num_cols = 1.
     ENDIF.
-    DATA(lv_col_width) = lv_table_width / lv_num_cols.
 
     IF it_lines IS INITIAL.
       RETURN.
@@ -957,6 +1038,49 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     LOOP AT it_lines INTO DATA(lv_l) FROM 2.
       APPEND lv_l TO lt_data_lines.
     ENDLOOP.
+
+    " --- Tinh be rong rieng cho tung cot, theo do dai noi dung thuc te ---
+    " (thay vi chia deu nhu truoc) - cot ngan tu dong hep lai, cot dai tu dong
+    " rong ra, co san toi thieu va tran toi da de khong cot nao "nuot" het cho.
+    DATA lt_col_weight TYPE STANDARD TABLE OF i WITH EMPTY KEY.
+    CLEAR lt_col_weight.
+    DO lv_num_cols TIMES.
+      DATA(lv_col_ix) = sy-index.
+      DATA(lv_w) = COND i( WHEN lv_col_ix <= lines( lt_header_cells )
+                            THEN strlen( condense( lt_header_cells[ lv_col_ix ] ) )
+                            ELSE 0 ).
+      LOOP AT lt_data_lines INTO DATA(lt_row_w).
+        IF lv_col_ix <= lines( lt_row_w ).
+          DATA(lv_cl) = strlen( condense( lt_row_w[ lv_col_ix ] ) ).
+          IF lv_cl > lv_w.
+            lv_w = lv_cl.
+          ENDIF.
+        ENDIF.
+      ENDLOOP.
+      IF lv_w < lc_min_col_chars.
+        lv_w = lc_min_col_chars.
+      ENDIF.
+      IF lv_w > lc_max_col_chars.
+        lv_w = lc_max_col_chars.
+      ENDIF.
+      APPEND lv_w TO lt_col_weight.
+    ENDDO.
+
+    DATA(lv_total_weight) = REDUCE i( INIT s = 0 FOR lv_wv IN lt_col_weight NEXT s = s + lv_wv ).
+    IF lv_total_weight = 0.
+      lv_total_weight = 1.
+    ENDIF.
+
+    DATA lt_col_widths TYPE STANDARD TABLE OF i WITH EMPTY KEY.
+    CLEAR lt_col_widths.
+    LOOP AT lt_col_weight INTO DATA(lv_wv2).
+      DATA(lv_cw) = CONV i( lv_table_width * lv_wv2 / lv_total_weight ).
+      IF lv_cw < 1.
+        lv_cw = 1.
+      ENDIF.
+      APPEND lv_cw TO lt_col_widths.
+    ENDLOOP.
+    " ---------------------------------------------------------------------
 
     DATA(lv_total_data_lines) = lines( lt_data_lines ).
     DATA(lv_total_pages) = COND i(
@@ -985,12 +1109,18 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       lv_page_content = lv_page_content && |0.90 0.92 0.95 rg\n|
         && |{ lv_left_margin } { lv_y - 4 } { lv_table_width } { lv_row_height } re f\n0 g\n|.
 
-
       DATA(lv_x) = lv_left_margin.
       LOOP AT lt_header_cells INTO DATA(lv_hcell).
+        DATA(lv_hidx) = sy-tabix.
+        DATA(lv_this_width) = COND i( WHEN lv_hidx <= lines( lt_col_widths ) THEN lt_col_widths[ lv_hidx ] ELSE lv_table_width / lv_num_cols ).
+        DATA(lv_header_txt) = condense( lv_hcell ).
+        DATA(lv_max_char_hdr) = CONV i( lv_this_width / 5 ) - 1.
+        IF lv_max_char_hdr > 0 AND strlen( lv_header_txt ) > lv_max_char_hdr.
+          lv_header_txt = lv_header_txt(lv_max_char_hdr) && '..'.
+        ENDIF.
         lv_page_content = lv_page_content
-          && |BT\n/F1 8 Tf\n1 0 0 1 { lv_x + 4 } { lv_y + 2 } Tm\n({ escape_pdf_text( condense( lv_hcell ) ) }) Tj\nET\n|.
-        lv_x = lv_x + lv_col_width.
+          && |BT\n/F1 8 Tf\n1 0 0 1 { lv_x + 4 } { lv_y + 2 } Tm\n({ escape_pdf_text( lv_header_txt ) }) Tj\nET\n|.
+        lv_x = lv_x + lv_this_width.
       ENDLOOP.
       lv_y = lv_y - lv_row_height.
 
@@ -1004,15 +1134,17 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
 
           lv_x = lv_left_margin.
           LOOP AT lt_cells INTO DATA(lv_cell).
+            DATA(lv_cidx) = sy-tabix.
+            DATA(lv_this_width2) = COND i( WHEN lv_cidx <= lines( lt_col_widths ) THEN lt_col_widths[ lv_cidx ] ELSE lv_table_width / lv_num_cols ).
             DATA(lv_cell_txt) = condense( lv_cell ).
-            DATA(lv_max_char) = CONV i( lv_col_width / 5 ) - 1.
+            DATA(lv_max_char) = CONV i( lv_this_width2 / 5 ) - 1.
             IF lv_max_char > 0 AND strlen( lv_cell_txt ) > lv_max_char.
               lv_cell_txt = lv_cell_txt(lv_max_char) && '..'.
             ENDIF.
 
             lv_page_content = lv_page_content
               && |BT\n/F1 7 Tf\n1 0 0 1 { lv_x + 4 } { lv_y + 3 } Tm\n({ escape_pdf_text( lv_cell_txt ) }) Tj\nET\n|.
-            lv_x = lv_x + lv_col_width.
+            lv_x = lv_x + lv_this_width2.
           ENDLOOP.
 
           lv_y = lv_y - lv_row_height.
@@ -1028,7 +1160,6 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       lv_page_num = lv_page_num + 1.
     ENDDO.
   ENDMETHOD.
-
 
   METHOD assemble_pdf_binary.
     CONSTANTS: lc_page_width  TYPE i VALUE 792,

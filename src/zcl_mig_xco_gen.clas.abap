@@ -64,6 +64,26 @@ CLASS zcl_mig_xco_gen DEFINITION
 
   PRIVATE SECTION.
 
+    TYPES:
+      ty_boundary_kind TYPE c LENGTH 20,
+
+      BEGIN OF ty_boundary_type,
+        supported   TYPE abap_bool,
+        kind        TYPE ty_boundary_kind,
+        abap_decl   TYPE string,
+        char_length TYPE i,
+        reason      TYPE string,
+      END OF ty_boundary_type.
+
+    CONSTANTS:
+      gc_boundary_char       TYPE ty_boundary_kind VALUE 'CHAR',
+      gc_boundary_int4       TYPE ty_boundary_kind VALUE 'INT4',
+      gc_boundary_int8       TYPE ty_boundary_kind VALUE 'INT8',
+      gc_boundary_decfloat34 TYPE ty_boundary_kind VALUE 'DECFLOAT34',
+      gc_boundary_date       TYPE ty_boundary_kind VALUE 'DATE',
+      gc_boundary_time       TYPE ty_boundary_kind VALUE 'TIME',
+      gc_boundary_utclong    TYPE ty_boundary_kind VALUE 'UTCLONG'.
+
     METHODS validate
       IMPORTING
         is_mfst
@@ -201,6 +221,12 @@ CLASS zcl_mig_xco_gen DEFINITION
         RETURNING
           VALUE(rv_name) TYPE string.
 
+      METHODS resolve_boundary_type
+        IMPORTING
+          is_field TYPE zif_mig_types=>ty_service_field
+        RETURNING
+          VALUE(rs_type) TYPE ty_boundary_type.
+
 ENDCLASS.
 
 CLASS zcl_mig_xco_gen IMPLEMENTATION.
@@ -298,6 +324,20 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
 
       IF ls_bp_field-key_field = abap_true.
         lv_key_count += 1.
+      ENDIF.
+
+      DATA(ls_boundary_type) =
+        resolve_boundary_type(
+          is_field = ls_bp_field
+        ).
+
+      IF ls_boundary_type-supported = abap_false.
+
+        RAISE EXCEPTION NEW zcx_mig_analysis(
+          textid       = zcx_mig_analysis=>analysis_failed
+          program_name = lv_program
+        ).
+
       ENDIF.
 
       READ TABLE is_row-field_maps
@@ -856,188 +896,80 @@ METHOD add_ddls.
       ).
 
 
-      DATA(lv_edm_type) =
-          to_upper(
-            val = CONV string(
-              ls_field-edm_type
-            )
+      "Do not expose legacy DDIC data elements in the custom entity.
+      "The same boundary policy is used by DDLS and query source.
+      DATA(ls_ddls_type) =
+        resolve_boundary_type(
+          is_field = ls_field
+        ).
+
+      IF ls_ddls_type-supported = abap_false.
+
+        RAISE EXCEPTION NEW zcx_mig_analysis(
+          textid = zcx_mig_analysis=>analysis_failed
+        ).
+
+      ENDIF.
+
+      CASE ls_ddls_type-kind.
+
+        WHEN gc_boundary_char.
+
+          lo_field->set_type(
+             xco_cp_abap_dictionary=>built_in_type->char(
+              CONV #( ls_ddls_type-char_length ) )
+            ).
+
+
+        WHEN gc_boundary_int4.
+
+          lo_field->set_type(
+            xco_cp_abap_dictionary=>built_in_type->int4
           ).
 
 
-        DATA(lv_type_set) =
-          abap_false.
+        WHEN gc_boundary_int8.
 
+          lo_field->set_type(
+            xco_cp_abap_dictionary=>built_in_type->int8
+          ).
 
-        READ TABLE is_row-field_maps
-          WITH KEY svc_name = ls_field-field_name
-          INTO DATA(ls_ddls_row_map).
 
+        WHEN gc_boundary_decfloat34.
 
-        IF sy-subrc = 0.
+          lo_field->set_type(
+            xco_cp_abap_dictionary=>built_in_type->decfloat34
+          ).
 
-          READ TABLE is_row-components
-            WITH KEY comp_name = ls_ddls_row_map-comp_name
-            INTO DATA(ls_ddls_component).
 
+        WHEN gc_boundary_date.
 
-          IF sy-subrc = 0
-             AND ls_ddls_component-is_deep = abap_false.
+          lo_field->set_type(
+            xco_cp_abap_dictionary=>built_in_type->dats
+          ).
 
-            DATA(lv_data_element) =
-              CONV string( ls_ddls_component-type_name ).
 
-            CONDENSE lv_data_element NO-GAPS.
+        WHEN gc_boundary_time.
 
+          lo_field->set_type(
+            xco_cp_abap_dictionary=>built_in_type->tims
+          ).
 
-            IF lv_data_element CP '\TYPE=*'.
 
-              REPLACE FIRST OCCURRENCE OF '\TYPE='
-                IN lv_data_element
-                WITH ''.
+        WHEN gc_boundary_utclong.
 
-            ENDIF.
+          lo_field->set_type(
+            xco_cp_abap_dictionary=>built_in_type->utclong
+          ).
 
 
-            DATA(lv_use_data_element) =
-              xsdbool(
-                lv_data_element NS '\'
-                AND lv_data_element NS '=>'
-                AND strlen( lv_data_element ) > 1
-                AND strlen( lv_data_element ) <= 30
-              ).
+        WHEN OTHERS.
 
+          RAISE EXCEPTION NEW zcx_mig_analysis(
+            textid = zcx_mig_analysis=>analysis_failed
+          ).
 
-            CASE to_upper( lv_data_element ).
-
-              WHEN 'STRING'
-                OR 'XSTRING'
-                OR 'INT1'
-                OR 'INT2'
-                OR 'INT4'
-                OR 'INT8'
-                OR 'FLTP'
-                OR 'DECFLOAT16'
-                OR 'DECFLOAT34'
-                OR 'UTCLONG'
-                OR 'DATS'
-                OR 'TIMS'
-                OR 'ABAP_BOOL'.
-
-                lv_use_data_element = abap_false.
-
-            ENDCASE.
-
-
-            IF lv_use_data_element = abap_true.
-
-              lo_field->set_type(
-                xco_cp_abap_dictionary=>data_element(
-                  CONV #( lv_data_element )
-                )
-              ).
-
-              lv_type_set = abap_true.
-
-            ENDIF.
-
-          ENDIF.
-
-        ENDIF.
-
-
-        IF lv_type_set = abap_false.
-
-          CASE lv_edm_type.
-
-          WHEN 'EDM.BOOLEAN'.
-
-            "Không có Boolean riêng trong XCO API của release này
-            lo_field->set_type(
-              xco_cp_abap_dictionary=>built_in_type->char(
-                1
-              )
-            ).
-
-
-          WHEN 'EDM.INT32'.
-
-            lo_field->set_type(
-              xco_cp_abap_dictionary=>built_in_type->int4
-            ).
-
-
-          WHEN 'EDM.INT64'.
-
-            lo_field->set_type(
-              xco_cp_abap_dictionary=>built_in_type->int8
-            ).
-
-
-          WHEN 'EDM.DECIMAL'.
-
-            lo_field->set_type(
-              xco_cp_abap_dictionary=>built_in_type->decfloat16
-            ).
-
-
-          WHEN 'EDM.DOUBLE'.
-
-            lo_field->set_type(
-              xco_cp_abap_dictionary=>built_in_type->decfloat34
-            ).
-
-
-          WHEN 'EDM.DATE'.
-
-            lo_field->set_type(
-              xco_cp_abap_dictionary=>built_in_type->dats
-            ).
-
-
-          WHEN 'EDM.TIMEOFDAY'.
-
-            lo_field->set_type(
-              xco_cp_abap_dictionary=>built_in_type->tims
-            ).
-
-
-          WHEN 'EDM.DATETIMEOFFSET'.
-
-            lo_field->set_type(
-              xco_cp_abap_dictionary=>built_in_type->utclong
-            ).
-
-
-          WHEN 'EDM.GUID'.
-
-            lo_field->set_type(
-              xco_cp_abap_dictionary=>built_in_type->char(
-                36
-              )
-            ).
-
-
-          WHEN 'EDM.STRING'.
-
-            lo_field->set_type(
-              xco_cp_abap_dictionary=>built_in_type->char(
-                120
-              )
-            ).
-
-
-          WHEN OTHERS.
-
-            "Fallback an toàn cho type chưa hỗ trợ
-            lo_field->set_type(
-              xco_cp_abap_dictionary=>built_in_type->char(
-                120
-              )
-            ).
-
-          ENDCASE.
-
-        ENDIF.
+      ENDCASE.
 
       IF ls_field-key_field = abap_true.
 
@@ -1778,153 +1710,25 @@ METHOD build_select_src.
     ENDIF.
 
 
-    DATA(lv_edm_type) =
-      to_upper(
-        CONV string(
-          ls_field-edm_type
-        )
+    "The query class and DDLS must use exactly the same OData
+    "boundary type. The provider table itself keeps its original
+    "DDIC type; only the generated result structure is converted.
+    DATA(ls_query_type) =
+      resolve_boundary_type(
+        is_field = ls_field
       ).
 
+    IF ls_query_type-supported = abap_false.
 
-    DATA lv_type_decl
-      TYPE string.
-
-
-    READ TABLE is_row-field_maps
-      WITH KEY svc_name = ls_field-field_name
-      INTO DATA(ls_local_row_map).
-
-
-    IF sy-subrc = 0.
-
-      READ TABLE is_row-components
-        WITH KEY comp_name = ls_local_row_map-comp_name
-        INTO DATA(ls_component).
-
-      IF sy-subrc = 0
-         AND ls_component-is_deep = abap_false
-         AND ls_component-type_name IS NOT INITIAL.
-
-        DATA(lv_component_type) =
-          CONV string( ls_component-type_name ).
-
-        CONDENSE lv_component_type NO-GAPS.
-
-
-        IF lv_component_type CP '\CLASS=*\TYPE=*'.
-
-          REPLACE FIRST OCCURRENCE OF '\CLASS='
-            IN lv_component_type
-            WITH ''.
-
-          REPLACE FIRST OCCURRENCE OF '\TYPE='
-            IN lv_component_type
-            WITH '=>'.
-
-
-        ELSEIF lv_component_type CP '\INTERFACE=*\TYPE=*'.
-
-          REPLACE FIRST OCCURRENCE OF '\INTERFACE='
-            IN lv_component_type
-            WITH ''.
-
-          REPLACE FIRST OCCURRENCE OF '\TYPE='
-            IN lv_component_type
-            WITH '=>'.
-
-
-        ELSEIF lv_component_type CP '\TYPE=*'.
-
-          REPLACE FIRST OCCURRENCE OF '\TYPE='
-            IN lv_component_type
-            WITH ''.
-
-        ENDIF.
-
-
-        IF lv_component_type NS '\'
-           AND strlen( lv_component_type ) > 1.
-
-          lv_type_decl =
-            |TYPE { lv_component_type }|.
-
-        ENDIF.
-
-      ENDIF.
-
-    ENDIF.
-
-
-    IF lv_type_decl IS INITIAL.
-
-      CASE lv_edm_type.
-
-      WHEN 'EDM.BOOLEAN'.
-
-        lv_type_decl =
-          'TYPE abap_bool'.
-
-
-      WHEN 'EDM.INT32'.
-
-        lv_type_decl =
-          'TYPE i'.
-
-
-      WHEN 'EDM.INT64'.
-
-        lv_type_decl =
-          'TYPE int8'.
-
-
-      WHEN 'EDM.DECIMAL'.
-
-        lv_type_decl =
-          'TYPE decfloat16'.
-
-
-      WHEN 'EDM.DOUBLE'.
-
-        lv_type_decl =
-          'TYPE decfloat34'.
-
-
-      WHEN 'EDM.DATE'.
-
-        lv_type_decl =
-          'TYPE d'.
-
-
-      WHEN 'EDM.TIMEOFDAY'.
-
-        lv_type_decl =
-          'TYPE t'.
-
-
-      WHEN 'EDM.DATETIMEOFFSET'.
-
-        lv_type_decl =
-          'TYPE utclong'.
-
-
-      WHEN 'EDM.GUID'.
-
-        lv_type_decl =
-          'TYPE c LENGTH 36'.
-
-
-      WHEN OTHERS.
-
-        lv_type_decl =
-          'TYPE c LENGTH 120'.
-
-      ENDCASE.
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid = zcx_mig_analysis=>analysis_failed
+      ).
 
     ENDIF.
 
 
     APPEND
-      |    { lv_name } { lv_type_decl },|
+      |    { lv_name } { ls_query_type-abap_decl },|
       TO rt_source.
 
   ENDLOOP.
@@ -3494,6 +3298,123 @@ ENDIF.
   APPEND
     |ENDIF.|
     TO rt_source.
+
+ENDMETHOD.
+
+
+METHOD resolve_boundary_type.
+
+  DATA(lv_edm_type) =
+    to_upper(
+      CONV string( is_field-edm_type )
+    ).
+
+  CONDENSE lv_edm_type NO-GAPS.
+
+  CASE lv_edm_type.
+
+    WHEN 'EDM.BOOLEAN'.
+
+      rs_type-supported = abap_true.
+      rs_type-kind = gc_boundary_char.
+      rs_type-char_length = 1.
+      rs_type-abap_decl = 'TYPE abap_bool'.
+
+
+    WHEN 'EDM.INT32'.
+
+      rs_type-supported = abap_true.
+      rs_type-kind = gc_boundary_int4.
+      rs_type-abap_decl = 'TYPE i'.
+
+
+    WHEN 'EDM.INT64'.
+
+      rs_type-supported = abap_true.
+      rs_type-kind = gc_boundary_int8.
+      rs_type-abap_decl = 'TYPE int8'.
+
+
+    WHEN 'EDM.DECIMAL'.
+
+      rs_type-supported = abap_true.
+      rs_type-kind = gc_boundary_decfloat34.
+      rs_type-abap_decl = 'TYPE decfloat34'.
+
+
+    WHEN 'EDM.DOUBLE'.
+
+      rs_type-supported = abap_true.
+      rs_type-kind = gc_boundary_decfloat34.
+      rs_type-abap_decl = 'TYPE decfloat34'.
+
+
+    WHEN 'EDM.DATE'.
+
+      rs_type-supported = abap_true.
+      rs_type-kind = gc_boundary_date.
+      rs_type-abap_decl = 'TYPE d'.
+
+
+    WHEN 'EDM.TIMEOFDAY'.
+
+      rs_type-supported = abap_true.
+      rs_type-kind = gc_boundary_time.
+      rs_type-abap_decl = 'TYPE t'.
+
+
+    WHEN 'EDM.DATETIMEOFFSET'.
+
+      rs_type-supported = abap_true.
+      rs_type-kind = gc_boundary_utclong.
+      rs_type-abap_decl = 'TYPE utclong'.
+
+
+    WHEN 'EDM.GUID'.
+
+      rs_type-supported = abap_true.
+      rs_type-kind = gc_boundary_char.
+      rs_type-char_length = 36.
+      rs_type-abap_decl = 'TYPE c LENGTH 36'.
+
+
+    WHEN 'EDM.STRING'.
+
+      DATA(lv_length) = is_field-length.
+
+      IF lv_length <= 0.
+
+        rs_type-supported = abap_false.
+        rs_type-reason =
+          |Field { is_field-field_name } has no resolved character length.|.
+
+        RETURN.
+
+      ENDIF.
+
+      IF lv_length > 1333.
+
+        rs_type-supported = abap_false.
+        rs_type-reason =
+          |Field { is_field-field_name } exceeds the supported character length of 1333.|.
+
+        RETURN.
+
+      ENDIF.
+
+      rs_type-supported = abap_true.
+      rs_type-kind = gc_boundary_char.
+      rs_type-char_length = lv_length.
+      rs_type-abap_decl = |TYPE c LENGTH { lv_length }|.
+
+
+    WHEN OTHERS.
+
+      rs_type-supported = abap_false.
+      rs_type-reason =
+        |Field { is_field-field_name } has unsupported EDM type { is_field-edm_type }.|.
+
+  ENDCASE.
 
 ENDMETHOD.
 

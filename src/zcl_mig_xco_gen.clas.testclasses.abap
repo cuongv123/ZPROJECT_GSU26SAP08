@@ -24,6 +24,9 @@ CLASS ltc_mig_xco_gen DEFINITION
     METHODS normalize_filter_names
       FOR TESTING.
 
+    METHODS reject_unsupported_boundary
+      FOR TESTING.
+
     METHODS make_fields
       RETURNING
         VALUE(rt_fields) TYPE zif_mig_types=>tt_service_field.
@@ -70,16 +73,52 @@ CLASS ltc_mig_xco_gen IMPLEMENTATION.
 
   ENDMETHOD.
 
+
+  METHOD reject_unsupported_boundary.
+
+    DATA(ls_type) =
+      NEW zcl_mig_xco_gen( )->resolve_boundary_type(
+        is_field = VALUE #(
+          field_name = 'BINARY_DATA'
+          edm_type   = 'Edm.Binary'
+          length     = 16
+          visible    = abap_true
+        )
+      ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = abap_false
+      act = ls_type-supported
+      msg = 'Unsupported EDM types must not fall back to CHAR120'
+    ).
+
+  ENDMETHOD.
+
   METHOD make_fields.
 
     APPEND VALUE #(
       field_name = 'BUKRS'
       label      = 'Company Code'
       edm_type   = 'Edm.String'
+      source_data_type = 'C'
+      source_data_element = 'BUKRS'
+      length     = 4
       position   = 10
       key_field  = abap_true
       visible    = abap_true
       filterable = abap_true
+      sortable   = abap_true
+    ) TO rt_fields.
+
+    APPEND VALUE #(
+      field_name = 'BUTXT'
+      label      = 'Company Name'
+      edm_type   = 'Edm.String'
+      source_data_type = 'C'
+      source_data_element = 'BUTXT'
+      length     = 25
+      position   = 20
+      visible    = abap_true
       sortable   = abap_true
     ) TO rt_fields.
 
@@ -178,6 +217,24 @@ CLASS ltc_mig_xco_gen IMPLEMENTATION.
       edm_type  = 'Edm.String'
     ) TO rs_row-components.
 
+    APPEND VALUE #(
+      svc_name  = 'BUTXT'
+      comp_name = 'BUTXT'
+      svc_edm   = 'Edm.String'
+      comp_edm  = 'Edm.String'
+      position  = 20
+      map_state = zif_mig_types=>gc_row_auto
+      type_match = abap_true
+    ) TO rs_row-field_maps.
+
+    APPEND VALUE #(
+      comp_name = 'BUTXT'
+      position  = 2
+      abap_type = 'C'
+      type_name = '\TYPE=BUTXT'
+      edm_type  = 'Edm.String'
+    ) TO rs_row-components.
+
   ENDMETHOD.
 
 
@@ -195,7 +252,8 @@ CLASS ltc_mig_xco_gen IMPLEMENTATION.
     DATA:
       lv_has_mandatory_check TYPE abap_bool,
       lv_has_explicit_map    TYPE abap_bool,
-      lv_has_exact_type      TYPE abap_bool,
+      lv_has_boundary_type   TYPE abap_bool,
+      lv_has_legacy_type     TYPE abap_bool,
       lv_has_query_error     TYPE abap_bool,
       lv_has_resolved_filter TYPE abap_bool,
       lv_has_wrong_filter    TYPE abap_bool.
@@ -211,8 +269,12 @@ CLASS ltc_mig_xco_gen IMPLEMENTATION.
         lv_has_explicit_map = abap_true.
       ENDIF.
 
-      IF lv_line CS 'BUKRS TYPE BUKRS'.
-        lv_has_exact_type = abap_true.
+      IF lv_line CS 'BUTXT TYPE c LENGTH 25'.
+        lv_has_boundary_type = abap_true.
+      ENDIF.
+
+      IF lv_line CS 'BUTXT TYPE BUTXT'.
+        lv_has_legacy_type = abap_true.
       ENDIF.
 
       IF lv_line CS 'zcx_mig_query_error'.
@@ -241,7 +303,12 @@ CLASS ltc_mig_xco_gen IMPLEMENTATION.
 
     cl_abap_unit_assert=>assert_equals(
       exp = abap_true
-      act = lv_has_exact_type
+      act = lv_has_boundary_type
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = abap_false
+      act = lv_has_legacy_type
     ).
 
     cl_abap_unit_assert=>assert_equals(
