@@ -142,6 +142,10 @@ CLASS zcl_mig_sig_rslv IMPLEMENTATION.
       ).
 
 
+    rs_result-provider_static =
+      ls_sig-is_static.
+
+
     IF ls_sig-exists = abap_false.
 
       rs_result-status =
@@ -457,3 +461,4 @@ CLASS zcl_mig_sig_rslv IMPLEMENTATION.
   ENDMETHOD.
 
 ENDCLASS.
+

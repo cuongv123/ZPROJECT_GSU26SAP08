@@ -1,4 +1,4 @@
-    INTERFACE zif_mig_types
+INTERFACE zif_mig_types
   PUBLIC.
 
   "============================================================
@@ -69,8 +69,8 @@
       line_count     TYPE i,
       source_hash    TYPE c LENGTH 64,
 
-      "Chỉ tồn tại trong pipeline runtime.
-      "Không persist toàn bộ source text.
+      "Pipeline giữ source lines trong runtime; Analysis Store
+      "persist snapshot để Fiori hiển thị đúng source đã phân tích.
       source_lines   TYPE tt_source_line,
     END OF ty_source_object,
 
@@ -580,19 +580,6 @@
       END OF ty_alv_fcat_result.
 
     "============================================================
-    " ALV Row Contract Analysis Result
-    "============================================================
-    TYPES:
-      BEGIN OF ty_alv_row_result,
-
-        alv_outputs TYPE tt_alv_output,
-        alv_columns TYPE tt_alv_column,
-        evidences   TYPE tt_evidence,
-        messages    TYPE tt_message,
-
-      END OF ty_alv_row_result.
-
-    "============================================================
     " ALV Sort and Filter Analysis Result
     "============================================================
     TYPES:
@@ -895,6 +882,10 @@
           analysis_id      TYPE ty_analysis_id,
           service_strategy TYPE ty_service_strategy,
           provider_kind    TYPE ty_provider_kind,
+
+          "Only static class methods are supported by the read-only
+          "query generator. Function modules leave this flag initial.
+          provider_static  TYPE abap_bool,
 
           object_name      TYPE ty_sig_name,
           container_name   TYPE ty_sig_name,

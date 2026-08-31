@@ -85,8 +85,32 @@ START-OF-SELECTION.
 
     CATCH cx_xco_gen_put_exception INTO DATA(lx_xco).
 
+  WRITE:
+    / 'XCO repository generation failed:',
+    / lx_xco->get_text( ).
+
+  DATA(lt_messages) =
+    lx_xco->if_xco_news~get_messages( ).
+
+  IF lt_messages IS INITIAL.
+
+    WRITE:
+      / 'No detailed XCO message returned.'.
+
+  ELSE.
+
+    SKIP.
+    WRITE:
+      / 'Detailed XCO messages:'.
+
+    LOOP AT lt_messages
+      INTO DATA(lo_message).
+
       WRITE:
-        / 'XCO repository generation failed:',
-        / lx_xco->get_text( ).
+        / lo_message->get_text( ).
+
+    ENDLOOP.
+
+  ENDIF.
 
   ENDTRY.

@@ -195,12 +195,6 @@ CLASS zcl_mig_xco_gen DEFINITION
           RAISING
             zcx_mig_analysis.
 
-      METHODS norm_name
-        IMPORTING
-          VALUE(iv_name) TYPE string
-        RETURNING
-          VALUE(rv_name) TYPE string.
-
 ENDCLASS.
 
 CLASS zcl_mig_xco_gen IMPLEMENTATION.
@@ -263,7 +257,11 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
 
     IF is_sig-status <> zif_mig_types=>gc_sig_ready
        OR is_sig-manual_review = abap_true
-       OR is_sig-provider_kind <> is_prv-provider_kind.
+       OR is_sig-provider_kind <> is_prv-provider_kind
+       OR (
+            lv_is_class_provider = abap_true
+            AND is_sig-provider_static = abap_false
+          ).
 
       RAISE EXCEPTION NEW zcx_mig_analysis(
         textid      = zcx_mig_analysis=>analysis_failed
@@ -1108,11 +1106,13 @@ METHOD add_ddls.
              abap_true.
 
           DATA(lv_field_up) =
-            norm_name(
-              iv_name = CONV string(
+            to_upper(
+              CONV string(
                 ls_field-field_name
               )
             ).
+
+          CONDENSE lv_field_up NO-GAPS.
 
 
           DATA lv_filter_mapped
@@ -1134,11 +1134,13 @@ METHOD add_ddls.
               zif_mig_types=>gc_smap_auto.
 
             DATA(lv_svc_up) =
-              norm_name(
-                iv_name = CONV string(
+              to_upper(
+                CONV string(
                   ls_input_map-svc_name
                 )
               ).
+
+            CONDENSE lv_svc_up NO-GAPS.
 
 
     IF lv_svc_up =
@@ -1499,10 +1501,6 @@ METHOD build_select_src.
        prv_name.
 
 
-  DATA lt_resolved_input_maps
-    TYPE zif_mig_types=>tt_svc_in_map.
-
-
   LOOP AT lt_input_maps
     INTO DATA(ls_input_map).
 
@@ -1612,20 +1610,20 @@ METHOD build_select_src.
 
     "Service parameter phải có output field filterable tương ứng
     DATA(lv_svc_name_up) =
-      norm_name(
-        iv_name = CONV string(
+      to_upper(
+        CONV string(
           ls_input_map-svc_name
         )
       ).
 
+    CONDENSE lv_svc_name_up NO-GAPS.
 
-    DATA:
-      lv_filter_field_hits TYPE i,
-      lv_filter_field_name TYPE string.
 
-    CLEAR:
-      lv_filter_field_hits,
-      lv_filter_field_name.
+    DATA lv_filter_field_ok
+      TYPE abap_bool.
+
+    lv_filter_field_ok =
+      abap_false.
 
 
     LOOP AT lt_fields
@@ -1633,28 +1631,30 @@ METHOD build_select_src.
       WHERE filterable = abap_true.
 
       DATA(lv_field_name_up) =
-        norm_name(
-          iv_name = CONV string(
+        to_upper(
+          CONV string(
             ls_filter_field-field_name
           )
         ).
+
+      CONDENSE lv_field_name_up NO-GAPS.
 
 
       IF lv_field_name_up =
            lv_svc_name_up.
 
-        lv_filter_field_hits += 1.
+        lv_filter_field_ok =
+          abap_true.
 
-        lv_filter_field_name =
-          ls_filter_field-field_name.
+        EXIT.
 
       ENDIF.
 
     ENDLOOP.
 
 
-    IF lv_filter_field_hits <> 1
-       OR lv_filter_field_name IS INITIAL.
+    IF lv_filter_field_ok =
+         abap_false.
 
       RAISE EXCEPTION NEW zcx_mig_analysis(
         textid =
@@ -1663,20 +1663,7 @@ METHOD build_select_src.
 
     ENDIF.
 
-
-    "Use the actual entity field in generated OData filter code.
-    "For example, P_BUKRS is resolved to BUKRS.
-    ls_input_map-svc_name =
-      lv_filter_field_name.
-
-    APPEND ls_input_map
-      TO lt_resolved_input_maps.
-
   ENDLOOP.
-
-
-  lt_input_maps =
-    lt_resolved_input_maps.
 
 
   "============================================================
@@ -1945,6 +1932,7 @@ METHOD build_select_src.
       |DATA(lv_page_size) = lo_paging->get_page_size( ).|
       TO rt_source.
 
+  "============================================================
   "============================================================
   " Chuẩn hóa tên provider
   "============================================================
@@ -3485,73 +3473,6 @@ ENDIF.
   APPEND
     |ENDIF.|
     TO rt_source.
-
-ENDMETHOD.
-
-
-METHOD norm_name.
-
-  rv_name =
-    to_upper(
-      iv_name
-    ).
-
-  CONDENSE rv_name NO-GAPS.
-
-
-  DO 3 TIMES.
-
-    IF rv_name CP 'IV_*'
-       OR rv_name CP 'IS_*'
-       OR rv_name CP 'IT_*'
-       OR rv_name CP 'EV_*'
-       OR rv_name CP 'ES_*'
-       OR rv_name CP 'ET_*'
-       OR rv_name CP 'CV_*'
-       OR rv_name CP 'CS_*'
-       OR rv_name CP 'CT_*'
-       OR rv_name CP 'RV_*'
-       OR rv_name CP 'RS_*'
-       OR rv_name CP 'RT_*'
-       OR rv_name CP 'GT_*'
-       OR rv_name CP 'GS_*'.
-
-      rv_name =
-        substring(
-          val = rv_name
-          off = 3
-        ).
-
-
-    ELSEIF rv_name CP 'I_*'
-       OR rv_name CP 'E_*'
-       OR rv_name CP 'C_*'
-       OR rv_name CP 'R_*'
-       OR rv_name CP 'P_*'
-       OR rv_name CP 'S_*'
-       OR rv_name CP 'T_*'.
-
-      rv_name =
-        substring(
-          val = rv_name
-          off = 2
-        ).
-
-
-    ELSE.
-
-      EXIT.
-
-    ENDIF.
-
-  ENDDO.
-
-
-  REPLACE ALL OCCURRENCES OF '_'
-    IN rv_name
-    WITH ''.
-
-  CONDENSE rv_name NO-GAPS.
 
 ENDMETHOD.
 

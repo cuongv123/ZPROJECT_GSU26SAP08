@@ -284,6 +284,9 @@ CLASS ltc_mig_xco_gen IMPLEMENTATION.
     ls_signature-provider_kind =
       zif_mig_types=>gc_provider_class_method.
 
+    ls_signature-provider_static =
+      abap_true.
+
     CLEAR ls_signature-output_params.
 
     APPEND VALUE #(
