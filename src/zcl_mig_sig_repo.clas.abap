@@ -611,17 +611,20 @@ CLASS zcl_mig_sig_repo IMPLEMENTATION.
           io_type->absolute_name
         ).
 
-      IF lv_absolute_name CP '\TYPE=*'.
+      IF lv_absolute_name NS '\TYPE=%_'.
 
-        REPLACE FIRST OCCURRENCE OF '\TYPE='
-          IN lv_absolute_name
-          WITH ''.
+        IF lv_absolute_name CP '\TYPE=*'.
+
+          REPLACE FIRST OCCURRENCE OF '\TYPE='
+            IN lv_absolute_name
+            WITH ''.
+
+        ENDIF.
+
+        cs_par-type_name =
+          lv_absolute_name.
 
       ENDIF.
-
-
-      cs_par-type_name =
-        lv_absolute_name.
 
     ENDIF.
 

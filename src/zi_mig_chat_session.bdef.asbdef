@@ -1,0 +1,62 @@
+managed implementation in class zbp_i_mig_chat_session unique;
+strict ( 2 );
+
+define behavior for ZI_MIG_CHAT_SESSION alias ChatSession
+persistent table zmig_chat_sesion
+lock master
+authorization master ( global )
+etag master LocalLastChangedAt
+{
+  create;
+  update;
+  delete;
+
+  action ask parameter ZI_MIG_CHAT_ASK result [1] $self;
+  association _Messages { create; }
+
+  validation validateProgramExists on save
+  {
+    create;
+    field ProgramName;
+  }
+
+  field ( numbering : managed, readonly ) SessionId;
+  field ( readonly ) CreatedBy, CreatedAt, LocalLastChangedBy, LocalLastChangedAt, LastChangedAt;
+
+  mapping for zmig_chat_sesion
+  {
+    SessionId              = session_id;
+    ProgramName             = program_name;
+    SessionName             = session_name;
+    Status                  = status;
+    CreatedBy               = created_by;
+    CreatedAt               = created_at;
+    LocalLastChangedBy      = last_changed_by;
+    LocalLastChangedAt      = local_last_changed_at;
+    LastChangedAt           = last_changed_at;
+  }
+}
+
+define behavior for ZI_MIG_CHAT_MSG alias ChatMsg
+persistent table zmig_chat_msg
+lock dependent by _Session
+authorization dependent by _Session
+{
+  association _Session;
+
+  field ( readonly ) SessionId, Role, Content, AnalysisIdUsed, AiProvider, IsOutdated, CreatedBy, CreatedAt;
+  field ( numbering : managed, readonly ) MessageId;
+
+  mapping for zmig_chat_msg
+  {
+    SessionId       = session_id;
+    MessageId       = message_id;
+    Role            = role;
+    Content         = content;
+    AnalysisIdUsed  = analysis_id_used;
+    AiProvider      = ai_provider;
+    IsOutdated      = is_outdated;
+    CreatedBy       = created_by;
+    CreatedAt       = created_at;
+  }
+}

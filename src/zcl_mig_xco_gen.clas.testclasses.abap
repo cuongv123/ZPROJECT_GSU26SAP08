@@ -256,7 +256,11 @@ CLASS ltc_mig_xco_gen IMPLEMENTATION.
       lv_has_legacy_type     TYPE abap_bool,
       lv_has_query_error     TYPE abap_bool,
       lv_has_resolved_filter TYPE abap_bool,
-      lv_has_wrong_filter    TYPE abap_bool.
+      lv_has_wrong_filter    TYPE abap_bool,
+      lv_has_fm_call         TYPE abap_bool,
+      lv_has_fm_input_bind   TYPE abap_bool,
+      lv_has_fm_output_bind  TYPE abap_bool,
+      lv_has_fm_output_type  TYPE abap_bool.
 
     LOOP AT lt_source
       INTO DATA(lv_line).
@@ -287,6 +291,25 @@ CLASS ltc_mig_xco_gen IMPLEMENTATION.
 
       IF lv_line CS `WHEN 'P_BUKRS'.`.
         lv_has_wrong_filter = abap_true.
+      ENDIF.
+
+      IF lv_line CS 'CALL FUNCTION lv_provider_fm'.
+        lv_has_fm_call = abap_true.
+      ENDIF.
+
+      IF lv_line CS 'kind = abap_func_exporting'.
+        lv_has_fm_input_bind = abap_true.
+      ENDIF.
+
+      IF lv_line CS 'kind = abap_func_importing'.
+        lv_has_fm_output_bind = abap_true.
+      ENDIF.
+
+      IF lv_line CS
+           'DATA lt_provider TYPE ZTT_MIG_TEST_RESULT'.
+
+        lv_has_fm_output_type = abap_true.
+
       ENDIF.
 
     ENDLOOP.
@@ -324,6 +347,30 @@ CLASS ltc_mig_xco_gen IMPLEMENTATION.
     cl_abap_unit_assert=>assert_equals(
       exp = abap_false
       act = lv_has_wrong_filter
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = abap_true
+      act = lv_has_fm_call
+      msg = 'FM query source must contain a dynamic function call'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = abap_true
+      act = lv_has_fm_input_bind
+      msg = 'FM IMPORTING input must be bound as function EXPORTING'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = abap_true
+      act = lv_has_fm_output_bind
+      msg = 'FM EXPORTING output must be bound as function IMPORTING'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = abap_true
+      act = lv_has_fm_output_type
+      msg = 'Generated provider table must keep the named FM table type'
     ).
 
   ENDMETHOD.

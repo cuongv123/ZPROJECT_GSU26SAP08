@@ -33,7 +33,7 @@ CLASS zcl_mig_export_engine DEFINITION
            tt_col TYPE STANDARD TABLE OF ty_col WITH EMPTY KEY.
     TYPES tt_row_cells TYPE STANDARD TABLE OF string_table WITH EMPTY KEY.
     " Build 1 dong text "|" - dung chung cho CSV/PDF renderer.
-     METHODS escape_pdf_text
+    METHODS escape_pdf_text
       IMPORTING
         iv_text        TYPE string
       RETURNING
@@ -245,7 +245,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
               iv_export_section  = lv_section
               iv_selected_fields = iv_selected_fields ).
 
-                   WHEN gc_format_pdf OR 'PDF'.
+          WHEN gc_format_pdf OR 'PDF'.
             rs_result = export_pdf(
               iv_job_id          = iv_job_id
               iv_analysis_id     = iv_analysis_id
@@ -633,6 +633,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
           " --- Data rows + gom tổng cho cột số (1 lượt duyệt dữ liệu) ---
           DATA lt_is_numeric TYPE STANDARD TABLE OF abap_bool WITH EMPTY KEY.
           DATA lt_totals     TYPE STANDARD TABLE OF decfloat34 WITH EMPTY KEY.
+          DATA lt_max_len    TYPE STANDARD TABLE OF i WITH EMPTY KEY.
           DATA(lt_struct_components) = lo_struct->get_components( ).
           LOOP AT lt_columns INTO ls_col.
             DATA(lv_is_num) = abap_false.
@@ -647,6 +648,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
             ENDIF.
             APPEND lv_is_num TO lt_is_numeric.
             APPEND 0 TO lt_totals.
+            APPEND strlen( CONV string( ls_col-column_title ) ) + 2 TO lt_max_len.
           ENDLOOP.
 
           DATA(lv_row) = 2.
@@ -662,6 +664,11 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
                     CATCH cx_root.
                   ENDTRY.
                 ENDIF.
+                DATA(lv_cell_len) = strlen( CONV string( <lv_val> ) ).
+                IF lv_cell_len > lt_max_len[ lv_col ].
+                  lt_max_len[ lv_col ] = lv_cell_len.
+                ENDIF.
+
               ENDIF.
               lv_col = lv_col + 1.
             ENDLOOP.
@@ -686,11 +693,17 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
           lo_sheet->set_cell( ip_column = 1 ip_row = lv_total_row + 1
             ip_value = |Rows: { lines( <lt_data> ) }| ).
 
-          lo_sheet->calculate_column_widths( ).
+          DO lines( lt_columns ) TIMES.
+            DATA(lv_wcol) = sy-index.
+            lo_sheet->set_column_width(
+              ip_column         = lv_wcol
+              ip_width_fix      = lt_max_len[ lv_wcol ]
+              ip_width_autosize = abap_false ).
+          ENDDO.
+
           lv_sheet_count = lv_sheet_count + 1.
 
         ENDLOOP.
-
       CATCH zcx_excel INTO DATA(lx_excel_build).
         rs_result-success = abap_false.
         rs_result-message = |Excel build error: { lx_excel_build->get_text( ) }.|.
@@ -796,7 +809,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
                           ELSE s && ',' && escape_csv_value( CONV string( ls_c-column_title ) ) ) ).
       lv_csv_all = lv_csv_all && lv_col_header && cl_abap_char_utilities=>cr_lf.
 
-            LOOP AT <lt_data> ASSIGNING FIELD-SYMBOL(<ls_row>).
+      LOOP AT <lt_data> ASSIGNING FIELD-SYMBOL(<ls_row>).
         DATA(lt_vals) = build_row_line( it_cols = lt_columns is_row = <ls_row> ).
         DATA(lv_csv_line) = REDUCE string(
           INIT s = ``
@@ -886,7 +899,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       ENDTRY.
       ASSIGN lr_data->* TO FIELD-SYMBOL(<lt_data>).
 
-            IF <lt_data> IS INITIAL.
+      IF <lt_data> IS INITIAL.
         DATA lt_empty_lines TYPE STANDARD TABLE OF string_table WITH EMPTY KEY.
         CLEAR lt_empty_lines.
         APPEND VALUE string_table( ( `Note` ) ) TO lt_empty_lines.
@@ -904,8 +917,8 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
         CONTINUE.
       ENDIF.
 
-            DATA(lt_header_cells) = VALUE string_table(
-        FOR ls_c IN lt_columns ( CONV string( ls_c-column_title ) ) ).
+      DATA(lt_header_cells) = VALUE string_table(
+  FOR ls_c IN lt_columns ( CONV string( ls_c-column_title ) ) ).
 
       DATA lt_lines TYPE STANDARD TABLE OF string_table WITH EMPTY KEY.
       CLEAR lt_lines.
@@ -1152,9 +1165,9 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
         ENDWHILE.
       ENDIF.
 
-     lv_page_content = lv_page_content
-  && |BT\n/F1 7 Tf\n1 0 0 1 { lv_left_margin } 15 Tm\n({ escape_pdf_text( lv_footer_left_text ) }) Tj\nET\n|
-  && |BT\n/F1 7 Tf\n1 0 0 1 { lc_page_width - 80 } 15 Tm\n({ escape_pdf_text( |{ iv_title } - Page { lv_page_num } / { lv_total_pages }| ) }) Tj\nET\n|.
+      lv_page_content = lv_page_content
+   && |BT\n/F1 7 Tf\n1 0 0 1 { lv_left_margin } 15 Tm\n({ escape_pdf_text( lv_footer_left_text ) }) Tj\nET\n|
+   && |BT\n/F1 7 Tf\n1 0 0 1 { lc_page_width - 80 } 15 Tm\n({ escape_pdf_text( |{ iv_title } - Page { lv_page_num } / { lv_total_pages }| ) }) Tj\nET\n|.
       APPEND lv_page_content TO rt_pages.
       lv_idx = lv_idx + lc_lines_per_page.
       lv_page_num = lv_page_num + 1.

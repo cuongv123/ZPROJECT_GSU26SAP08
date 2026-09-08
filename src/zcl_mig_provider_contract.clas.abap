@@ -254,6 +254,7 @@ CLASS zcl_mig_provider_contract IMPLEMENTATION.
 
     IF is_logic-container_name CP 'CL_SALV_*'
        OR is_logic-container_name CP 'CL_GUI_ALV_*'
+       OR is_logic-object_name CP 'REUSE_ALV_*'
        OR is_logic-object_name = 'FACTORY'
        OR is_logic-object_name = 'DISPLAY'
        OR is_logic-object_name = 'GET_COLUMNS'
