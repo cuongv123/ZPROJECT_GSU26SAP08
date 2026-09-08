@@ -213,6 +213,13 @@ CLASS zcl_mig_svc_map IMPLEMENTATION.
         ).
 
 
+      DATA(lv_svc_field_norm) =
+        norm_name(
+          iv_name =
+            CONV string( ls_svc-source_field_name )
+        ).
+
+
       LOOP AT is_sig-input_params
         INTO DATA(ls_prv).
 
@@ -222,7 +229,11 @@ CLASS zcl_mig_svc_map IMPLEMENTATION.
               CONV string( ls_prv-par_name )
           ).
 
-        IF lv_svc_norm <> lv_prv_norm.
+        IF lv_svc_norm <> lv_prv_norm
+           AND (
+                 lv_svc_field_norm IS INITIAL
+                 OR lv_svc_field_norm <> lv_prv_norm
+               ).
           CONTINUE.
         ENDIF.
 
@@ -238,8 +249,17 @@ CLASS zcl_mig_svc_map IMPLEMENTATION.
       ls_map-svc_item_id =
         ls_svc-source_item_id.
 
-      ls_map-svc_name =
-        ls_svc-parameter_name.
+      IF ls_svc-source_field_name IS NOT INITIAL.
+
+        ls_map-svc_name =
+          ls_svc-source_field_name.
+
+      ELSE.
+
+        ls_map-svc_name =
+          ls_svc-parameter_name.
+
+      ENDIF.
 
       ls_map-svc_kind =
         ls_svc-odata_kind.
@@ -724,6 +744,67 @@ CLASS zcl_mig_svc_map IMPLEMENTATION.
   CONDENSE lv_name NO-GAPS.
 
 
+  "BAPI selection-table conventions:
+  "SELPARAMPRODUCTID -> PRODUCTID
+  "SELECTIONCATEGORY -> CATEGORY
+  IF lv_name CP 'SELPARAM*'.
+
+    lv_name =
+      substring(
+        val = lv_name
+        off = 8
+      ).
+
+  ELSEIF lv_name CP 'SELECTION*'.
+
+    lv_name =
+      substring(
+        val = lv_name
+        off = 9
+      ).
+
+  ELSEIF lv_name CP 'FILTER*'.
+
+    lv_name =
+      substring(
+        val = lv_name
+        off = 6
+      ).
+
+  ELSEIF lv_name CP 'RANGE*'.
+
+    lv_name =
+      substring(
+        val = lv_name
+        off = 5
+      ).
+
+  ENDIF.
+
+
+  "Classic BAPI selection-table names are sometimes plural while
+  "the result component is singular.
+  IF lv_name CP '*IES'
+     AND strlen( lv_name ) > 3.
+
+    lv_name =
+      substring(
+        val = lv_name
+        len = strlen( lv_name ) - 3
+      ) && 'Y'.
+
+  ELSEIF lv_name CP '*NAMES'
+     AND strlen( lv_name ) > 1.
+
+    lv_name =
+      substring(
+        val = lv_name
+        len = strlen( lv_name ) - 1
+      ).
+
+  ENDIF.
+
+
   rv_name =
     lv_name.
 
@@ -872,3 +953,4 @@ ENDMETHOD.
   ENDMETHOD.
 
 ENDCLASS.
+

@@ -54,6 +54,13 @@ CLASS zcl_mig_provider_contract DEFINITION
       RETURNING
         VALUE(rv_name) TYPE ty_target_name.
 
+
+    METHODS is_read_bapi_name
+      IMPORTING
+        VALUE(iv_name) TYPE string
+      RETURNING
+        VALUE(rv_read_only) TYPE abap_bool.
+
 ENDCLASS.
 
 CLASS zcl_mig_provider_contract IMPLEMENTATION.
@@ -429,6 +436,40 @@ CLASS zcl_mig_provider_contract IMPLEMENTATION.
         rs_candidate-provider_kind =
           zif_mig_types=>gc_provider_bapi.
 
+        IF is_logic-transaction_dependency = abap_true
+           OR is_logic-side_effect = 'WRITE'
+           OR is_logic-side_effect = 'TRANSACTION'.
+
+          rs_candidate-priority = 90.
+
+          rs_candidate-provider_status =
+            zif_mig_types=>gc_provider_unsupported.
+
+          rs_candidate-decision_reason =
+            'Transactional BAPI is blocked by the read-only generator.'.
+
+          RETURN.
+
+        ENDIF.
+
+
+        IF is_read_bapi_name(
+             iv_name = CONV string( is_logic-object_name )
+           ) = abap_false.
+
+          rs_candidate-priority = 40.
+
+          rs_candidate-provider_status =
+            zif_mig_types=>gc_provider_review.
+
+          rs_candidate-decision_reason =
+            'BAPI is not covered by the read-only method policy.'.
+
+          RETURN.
+
+        ENDIF.
+
+
         rs_candidate-priority = 20.
 
         IF is_logic-interface_summary IS INITIAL.
@@ -437,7 +478,7 @@ CLASS zcl_mig_provider_contract IMPLEMENTATION.
             zif_mig_types=>gc_provider_signature.
 
           rs_candidate-decision_reason =
-            'BAPI selected; interface and transaction behavior must be resolved.'.
+            'Read-only BAPI selected; interface signature must be resolved.'.
 
         ELSE.
 
@@ -445,7 +486,7 @@ CLASS zcl_mig_provider_contract IMPLEMENTATION.
             zif_mig_types=>gc_provider_ready.
 
           rs_candidate-decision_reason =
-            'BAPI can be wrapped through a RAP action adapter.'.
+            'Read-only BAPI can be wrapped by the query adapter.'.
 
         ENDIF.
 
@@ -667,6 +708,43 @@ CLASS zcl_mig_provider_contract IMPLEMENTATION.
 
 
     "==========================================================
+    " BAPI was identified but is outside the proven read-only policy
+    "==========================================================
+    LOOP AT ct_candidates
+      INTO ls_candidate
+      WHERE provider_kind = zif_mig_types=>gc_provider_bapi
+        AND (
+              provider_status = zif_mig_types=>gc_provider_review
+              OR provider_status = zif_mig_types=>gc_provider_unsupported
+            ).
+
+      cs_contract-source_item_id =
+        ls_candidate-source_item_id.
+
+      cs_contract-provider_kind =
+        ls_candidate-provider_kind.
+
+      cs_contract-provider_status =
+        ls_candidate-provider_status.
+
+      cs_contract-source_object_name =
+        ls_candidate-object_name.
+
+      cs_contract-source_interface_summary =
+        ls_candidate-interface_summary.
+
+      cs_contract-manual_review =
+        abap_true.
+
+      cs_contract-decision_reason =
+        ls_candidate-decision_reason.
+
+      RETURN.
+
+    ENDLOOP.
+
+
+    "==========================================================
     " Không tìm thấy business object callable nào
     "==========================================================
     cs_contract-provider_kind =
@@ -683,6 +761,33 @@ CLASS zcl_mig_provider_contract IMPLEMENTATION.
 
     cs_contract-decision_reason =
       'No reusable function module or class method was identified.'.
+
+  ENDMETHOD.
+
+
+  METHOD is_read_bapi_name.
+
+    DATA(lv_name) =
+      to_upper( iv_name ).
+
+    CONDENSE lv_name NO-GAPS.
+
+
+    rv_read_only =
+      xsdbool(
+        lv_name CP 'BAPI_GET_*'
+        OR lv_name CP 'BAPI_READ_*'
+        OR lv_name CP 'BAPI_DISPLAY_*'
+        OR lv_name CP 'BAPI_SEARCH_*'
+        OR lv_name CP 'BAPI_EXISTENCE_*'
+        OR lv_name CP 'BAPI_EXIST_*'
+        OR lv_name CP 'BAPI_*_GET*'
+        OR lv_name CP 'BAPI_*_READ*'
+        OR lv_name CP 'BAPI_*_DISPLAY*'
+        OR lv_name CP 'BAPI_*_SEARCH*'
+        OR lv_name CP 'BAPI_*_EXISTENCE*'
+        OR lv_name CP 'BAPI_*_EXIST*'
+      ).
 
   ENDMETHOD.
 
@@ -724,3 +829,4 @@ CLASS zcl_mig_provider_contract IMPLEMENTATION.
   ENDMETHOD.
 
 ENDCLASS.
+

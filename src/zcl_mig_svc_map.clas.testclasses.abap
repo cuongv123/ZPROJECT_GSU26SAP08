@@ -39,6 +39,14 @@ CLASS ltc_svc_map DEFINITION
         FOR TESTING
         RAISING zcx_mig_analysis,
 
+      map_bapi_range_field
+        FOR TESTING
+        RAISING zcx_mig_analysis,
+
+      map_bapi_plural_ranges
+        FOR TESTING
+        RAISING zcx_mig_analysis,
+
       reject_req_input
         FOR TESTING
         RAISING zcx_mig_analysis,
@@ -133,6 +141,133 @@ CLASS ltc_svc_map IMPLEMENTATION.
       is_table =
         abap_true
     ) TO rs_sig-output_params.
+
+  ENDMETHOD.
+
+
+  METHOD map_bapi_range_field.
+
+    DATA(ls_bp) =
+      make_bp( ).
+
+    APPEND VALUE #(
+      source_item_id    = gc_item_id
+      parameter_name    = 'S_PRODID'
+      source_field_name = 'PRODUCT_ID'
+      source_kind       = 'SELECT_OPTIONS'
+      odata_kind        = 'RANGE'
+      edm_type          = 'Edm.String'
+      multiple_selection = abap_true
+      range_supported   = abap_true
+    ) TO ls_bp-parameters.
+
+    DATA(ls_sig) =
+      make_sig( ).
+
+    APPEND VALUE #(
+      par_name   = 'SELPARAMPRODUCTID'
+      direction  = zif_mig_types=>gc_sig_tab
+      type_name  = 'BAPI_EPM_PRODUCT_ID_RANGE'
+      edm_type   = 'Edm.String'
+      odata_role = zif_mig_types=>gc_sig_in
+      optional   = abap_true
+      is_table   = abap_true
+    ) TO ls_sig-input_params.
+
+    DATA(ls_map) =
+      NEW zcl_mig_svc_map(
+        )->zif_mig_svc_map~build(
+          is_bp  = ls_bp
+          is_sig = ls_sig
+        ).
+
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = zif_mig_types=>gc_smap_ready
+      act = ls_map-status
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'SELPARAMPRODUCTID'
+      act = ls_map-input_maps[ 1 ]-prv_name
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'PRODUCT_ID'
+      act = ls_map-input_maps[ 1 ]-svc_name
+    ).
+
+  ENDMETHOD.
+
+
+  METHOD map_bapi_plural_ranges.
+
+    DATA(ls_bp) =
+      make_bp( ).
+
+    APPEND VALUE #(
+      source_item_id    = gc_item_id
+      parameter_name    = 'S_SUPPL'
+      source_field_name = 'SUPPLIER_NAME'
+      source_kind       = 'SELECT_OPTIONS'
+      odata_kind        = 'RANGE'
+      edm_type          = 'Edm.String'
+    ) TO ls_bp-parameters.
+
+    APPEND VALUE #(
+      source_item_id    = gc_item_id
+      parameter_name    = 'S_CAT'
+      source_field_name = 'CATEGORY'
+      source_kind       = 'SELECT_OPTIONS'
+      odata_kind        = 'RANGE'
+      edm_type          = 'Edm.String'
+    ) TO ls_bp-parameters.
+
+    DATA(ls_sig) =
+      make_sig( ).
+
+    APPEND VALUE #(
+      par_name   = 'SELPARAMSUPPLIERNAMES'
+      direction  = zif_mig_types=>gc_sig_tab
+      type_name  = 'BAPI_EPM_SUPPLIER_NAME_RANGE'
+      edm_type   = 'Edm.String'
+      odata_role = zif_mig_types=>gc_sig_in
+      optional   = abap_true
+      is_table   = abap_true
+    ) TO ls_sig-input_params.
+
+    APPEND VALUE #(
+      par_name   = 'SELPARAMCATEGORIES'
+      direction  = zif_mig_types=>gc_sig_tab
+      type_name  = 'BAPI_EPM_PRODUCT_CAT_RANGE'
+      edm_type   = 'Edm.String'
+      odata_role = zif_mig_types=>gc_sig_in
+      optional   = abap_true
+      is_table   = abap_true
+    ) TO ls_sig-input_params.
+
+    DATA(ls_map) =
+      NEW zcl_mig_svc_map(
+        )->zif_mig_svc_map~build(
+          is_bp  = ls_bp
+          is_sig = ls_sig
+        ).
+
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = zif_mig_types=>gc_smap_ready
+      act = ls_map-status
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'SELPARAMSUPPLIERNAMES'
+      act = ls_map-input_maps[ svc_name = 'SUPPLIER_NAME' ]-prv_name
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'SELPARAMCATEGORIES'
+      act = ls_map-input_maps[ svc_name = 'CATEGORY' ]-prv_name
+    ).
 
   ENDMETHOD.
 
@@ -316,8 +451,11 @@ CLASS ltc_svc_map IMPLEMENTATION.
       direction =
         zif_mig_types=>gc_sig_imp
 
+      type_name =
+        'ZTT_BUKRS_RANGE'
+
       edm_type =
-        'Collection'
+        'Edm.String'
 
       odata_role =
         zif_mig_types=>gc_sig_in
@@ -393,6 +531,20 @@ CLASS ltc_svc_map IMPLEMENTATION.
     cl_abap_unit_assert=>assert_equals(
       exp = zif_mig_types=>gc_smap_missing
       act = ls_map-input_maps[ 1 ]-map_state
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = abap_true
+      act = xsdbool( ls_map-decision_reason CS 'IV_LANG' )
+      msg = 'Dry-run must identify the missing mandatory provider input'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = abap_true
+      act = xsdbool(
+        ls_map-decision_reason CS 'Mandatory provider input has no service parameter.'
+      )
+      msg = 'Dry-run must preserve the actionable mapping reason'
     ).
 
   ENDMETHOD.

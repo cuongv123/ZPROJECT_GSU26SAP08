@@ -3,11 +3,17 @@ REPORT zrmig_odata_generate.
 PARAMETERS:
   p_anlid TYPE zif_mig_types=>ty_analysis_id OBLIGATORY,
   p_pack  TYPE devclass OBLIGATORY,
+  p_prvpk TYPE devclass,
+  p_std   AS CHECKBOX DEFAULT abap_false,
   p_req   TYPE trkorr,
   p_exec  AS CHECKBOX DEFAULT abap_false.
 
 
 AT SELECTION-SCREEN.
+
+  IF p_std = abap_true AND p_prvpk IS INITIAL.
+    MESSAGE 'Enter the Standard ABAP provider package in P_PRVPK.' TYPE 'E'.
+  ENDIF.
 
   IF p_exec = abap_true
      AND p_req IS INITIAL.
@@ -22,12 +28,23 @@ START-OF-SELECTION.
 
   TRY.
 
+      "Classic composition root; orchestration only knows the interface.
+      DATA lo_provider_gen TYPE REF TO zif_mig_prv_clas_gen.
+      DATA(lv_provider_language) = zif_mig_prv_clas_gen=>gc_cloud.
+      IF p_std = abap_true.
+        lo_provider_gen = NEW zcl_mig_prv_std_gen( ).
+        lv_provider_language = zif_mig_prv_clas_gen=>gc_standard.
+      ENDIF.
+
       DATA(ls_result) =
         NEW zcl_mig_odata_gen_svc(
+            io_provider_gen = lo_provider_gen
           )->zif_mig_odata_gen_svc~generate(
             is_request = VALUE #(
               analysis_id = p_anlid
               package     = p_pack
+              provider_package = p_prvpk
+              provider_language = lv_provider_language
               transport   = p_req
               execute     = p_exec
             )
@@ -44,6 +61,8 @@ START-OF-SELECTION.
         / 'Artifacts to create:', ls_result-create_count,
         / 'Blocked artifacts  :', ls_result-block_count,
         / 'Query provider     :', ls_result-query_provider_class,
+        / 'Provider package   :', ls_result-provider_package,
+        / 'Provider language  :', ls_result-provider_language,
         / 'Custom entity      :', ls_result-entity_name,
         / 'Service definition :', ls_result-service_name,
         / 'Shared binding     :', ls_result-service_binding,

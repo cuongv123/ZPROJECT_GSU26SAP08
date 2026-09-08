@@ -17,16 +17,21 @@ CLASS lcl_mig_odata_pipeline_fake DEFINITION
     METHODS constructor
       IMPORTING
         iv_block_blueprint      TYPE abap_bool DEFAULT abap_false
-        iv_unsupported_boundary TYPE abap_bool DEFAULT abap_false.
+        iv_unsupported_boundary TYPE abap_bool DEFAULT abap_false
+        iv_bapi_provider        TYPE abap_bool DEFAULT abap_false.
 
     DATA provider_called TYPE abap_bool READ-ONLY.
     DATA binding_exists TYPE abap_bool.
     DATA binding_package TYPE devclass.
+    DATA preflight_manifest TYPE zif_mig_types=>ty_art_mfst.
+    DATA provider_exists TYPE abap_bool.
+    DATA provider_current_package TYPE devclass.
 
   PRIVATE SECTION.
 
     DATA mv_block_blueprint TYPE abap_bool.
     DATA mv_unsupported_boundary TYPE abap_bool.
+    DATA mv_bapi_provider TYPE abap_bool.
 
 ENDCLASS.
 
@@ -41,6 +46,8 @@ CLASS lcl_mig_xco_executor_fake DEFINITION
     DATA called TYPE abap_bool READ-ONLY.
     DATA transport TYPE trkorr READ-ONLY.
     DATA service_name TYPE zif_mig_types=>ty_art_name READ-ONLY.
+    DATA manifest TYPE zif_mig_types=>ty_art_mfst READ-ONLY.
+    DATA provider_generator TYPE REF TO zif_mig_prv_clas_gen READ-ONLY.
 
 ENDCLASS.
 
@@ -48,6 +55,9 @@ ENDCLASS.
 CLASS lcl_mig_xco_executor_fake IMPLEMENTATION.
 
   METHOD zif_mig_xco_executor~execute_query.
+
+    manifest = is_mfst.
+    provider_generator = io_provider_gen.
 
     called =
       abap_true.
@@ -80,6 +90,7 @@ CLASS lcl_mig_odata_pipeline_fake IMPLEMENTATION.
 
     mv_block_blueprint = iv_block_blueprint.
     mv_unsupported_boundary = iv_unsupported_boundary.
+    mv_bapi_provider = iv_bapi_provider.
 
   ENDMETHOD.
 
@@ -149,14 +160,23 @@ CLASS lcl_mig_odata_pipeline_fake IMPLEMENTATION.
       zif_mig_types=>gc_svc_query.
 
     rs_result-contract-provider_kind =
-      zif_mig_types=>gc_provider_function.
+      COND #(
+        WHEN mv_bapi_provider = abap_true
+        THEN zif_mig_types=>gc_provider_bapi
+        ELSE zif_mig_types=>gc_provider_function
+      ).
 
     "A function module can require signature resolution before it
     "becomes safe for generation.
     rs_result-contract-provider_status =
       zif_mig_types=>gc_provider_signature.
 
-    rs_result-contract-source_object_name = 'Z_READ_LEGACY_DATA'.
+    rs_result-contract-source_object_name =
+      COND #(
+        WHEN mv_bapi_provider = abap_true
+        THEN 'BAPI_EPM_PRODUCT_GET_LIST'
+        ELSE 'Z_READ_LEGACY_DATA'
+      ).
     rs_result-contract-manual_review = abap_false.
 
   ENDMETHOD.
@@ -261,6 +281,8 @@ CLASS lcl_mig_odata_pipeline_fake IMPLEMENTATION.
 
   METHOD zif_mig_art_pref~apply.
 
+    preflight_manifest = is_mfst.
+
     rs_mfst = is_mfst.
     rs_mfst-status = zif_mig_types=>gc_art_ready.
     rs_mfst-manual_review = abap_false.
@@ -298,7 +320,10 @@ CLASS lcl_mig_odata_pipeline_fake IMPLEMENTATION.
         art_type    = ls_item-art_type
         object_name = ls_item-object_name
         read_ok     = abap_true
-        exists      = abap_false
+        exists      = COND #( WHEN ls_item-art_type = zif_mig_types=>gc_art_clas
+                              THEN provider_exists ELSE abap_false )
+        package     = COND #( WHEN ls_item-art_type = zif_mig_types=>gc_art_clas
+                              THEN provider_current_package )
       ) TO rt_info.
 
     ENDLOOP.
@@ -460,6 +485,32 @@ CLASS lcl_mig_odata_repo_fake IMPLEMENTATION.
 ENDCLASS.
 
 
+CLASS lcl_mig_std_generator_fake DEFINITION FINAL.
+  PUBLIC SECTION.
+    INTERFACES zif_mig_prv_clas_gen.
+    DATA checked_package TYPE devclass.
+    DATA generate_called TYPE abap_bool.
+    DATA throw_error TYPE abap_bool.
+    DATA check_result TYPE zif_mig_prv_clas_gen=>ty_check.
+    METHODS constructor.
+ENDCLASS.
+
+CLASS lcl_mig_std_generator_fake IMPLEMENTATION.
+  METHOD constructor.
+    check_result = VALUE #( allowed = abap_true language_code = space ).
+  ENDMETHOD.
+  METHOD zif_mig_prv_clas_gen~check_target.
+    checked_package = iv_package.
+    IF throw_error = abap_true.
+      RAISE EXCEPTION TYPE cx_sy_conversion_no_number.
+    ENDIF.
+    rs_check = check_result.
+  ENDMETHOD.
+  METHOD zif_mig_prv_clas_gen~generate.
+    generate_called = abap_true.
+  ENDMETHOD.
+ENDCLASS.
+
 CLASS ltc_mig_odata_gen_svc DEFINITION
   FINAL
   FOR TESTING
@@ -472,6 +523,12 @@ CLASS ltc_mig_odata_gen_svc DEFINITION
       VALUE '000000000000000000000000000000A1'.
 
     METHODS dry_run_is_ready
+      FOR TESTING
+      RAISING
+        zcx_mig_analysis
+        cx_xco_gen_put_exception.
+
+    METHODS bapi_dry_run_is_ready
       FOR TESTING
       RAISING
         zcx_mig_analysis
@@ -510,10 +567,187 @@ CLASS ltc_mig_odata_gen_svc DEFINITION
         zcx_mig_analysis
         cx_xco_gen_put_exception.
 
+    METHODS standard_dry_run FOR TESTING RAISING cx_static_check.
+    METHODS standard_execute FOR TESTING RAISING cx_static_check.
+    METHODS standard_missing_package FOR TESTING RAISING cx_static_check.
+    METHODS standard_missing_executor FOR TESTING RAISING cx_static_check.
+    METHODS standard_wrong_language FOR TESTING RAISING cx_static_check.
+    METHODS standard_check_error FOR TESTING RAISING cx_static_check.
+    METHODS standard_existing_class FOR TESTING RAISING cx_static_check.
+    METHODS standard_package_conflict FOR TESTING RAISING cx_static_check.
+    METHODS reject_unknown_language FOR TESTING RAISING cx_static_check.
+
+    METHODS standard_service
+      IMPORTING
+        io_pipeline TYPE REF TO lcl_mig_odata_pipeline_fake
+        io_executor TYPE REF TO lcl_mig_xco_executor_fake
+        io_standard TYPE REF TO zif_mig_prv_clas_gen OPTIONAL
+        io_preflight TYPE REF TO zif_mig_art_pref OPTIONAL
+      RETURNING VALUE(ro_service) TYPE REF TO zif_mig_odata_gen_svc.
+
 ENDCLASS.
 
 
 CLASS ltc_mig_odata_gen_svc IMPLEMENTATION.
+
+  METHOD standard_service.
+    DATA lo_preflight TYPE REF TO zif_mig_art_pref.
+    lo_preflight = io_preflight.
+    IF lo_preflight IS NOT BOUND.
+      lo_preflight = io_pipeline.
+    ENDIF.
+    ro_service = NEW zcl_mig_odata_gen_svc(
+      io_reader = io_pipeline io_blueprint = io_pipeline
+      io_provider = io_pipeline io_signature = io_pipeline
+      io_service_map = io_pipeline io_row_resolver = io_pipeline
+      io_manifest = io_pipeline io_preflight = lo_preflight
+      io_art_repo = io_pipeline io_executor = io_executor
+      io_provider_gen = io_standard ).
+  ENDMETHOD.
+
+  METHOD standard_dry_run.
+    DATA(lo_pipeline) = NEW lcl_mig_odata_pipeline_fake( iv_bapi_provider = abap_true ).
+    DATA(lo_executor) = NEW lcl_mig_xco_executor_fake( ).
+    DATA(lo_standard) = NEW lcl_mig_std_generator_fake( ).
+    DATA(lo_service) = standard_service(
+      io_pipeline = lo_pipeline io_executor = lo_executor io_standard = lo_standard ).
+    DATA(ls_result) = lo_service->generate( VALUE #(
+      analysis_id = gc_analysis_id package = 'ZMIG_TEST'
+      provider_package = 'ZLEGACY_GEN' provider_language = 'STANDARD' ) ).
+    cl_abap_unit_assert=>assert_equals( exp = 'READY' act = ls_result-status ).
+    cl_abap_unit_assert=>assert_equals( exp = 'STANDARD' act = ls_result-provider_language ).
+    cl_abap_unit_assert=>assert_equals( exp = 'ZLEGACY_GEN' act = lo_standard->checked_package ).
+    LOOP AT lo_pipeline->preflight_manifest-items INTO DATA(ls_item).
+      DATA(lv_expected) = COND devclass(
+        WHEN ls_item-art_role = zif_mig_types=>gc_art_query_prv
+        THEN 'ZLEGACY_GEN' ELSE 'ZMIG_TEST' ).
+      cl_abap_unit_assert=>assert_equals( exp = lv_expected act = ls_item-package ).
+    ENDLOOP.
+    cl_abap_unit_assert=>assert_equals( exp = abap_false act = lo_executor->called ).
+    cl_abap_unit_assert=>assert_equals( exp = abap_false act = lo_standard->generate_called ).
+  ENDMETHOD.
+
+  METHOD standard_execute.
+    "Use the ordinary FM fixture: STANDARD must not depend on a BAPI name.
+    DATA(lo_pipeline) = NEW lcl_mig_odata_pipeline_fake( ).
+    DATA(lo_executor) = NEW lcl_mig_xco_executor_fake( ).
+    DATA(lo_standard) = NEW lcl_mig_std_generator_fake( ).
+    DATA(lo_service) = standard_service(
+      io_pipeline = lo_pipeline io_executor = lo_executor io_standard = lo_standard ).
+    DATA(ls_result) = lo_service->generate( VALUE #(
+      analysis_id = gc_analysis_id package = 'ZMIG_TEST'
+      provider_package = 'ZLEGACY_GEN' provider_language = 'STANDARD'
+      transport = 'DEVK900001' execute = abap_true ) ).
+    cl_abap_unit_assert=>assert_equals( exp = 'GENERATED' act = ls_result-status ).
+    cl_abap_unit_assert=>assert_equals( exp = abap_true act = lo_executor->called ).
+    cl_abap_unit_assert=>assert_equals( exp = 'STANDARD' act = lo_executor->manifest-provider_language ).
+    cl_abap_unit_assert=>assert_equals( exp = 'ZLEGACY_GEN' act = lo_executor->manifest-provider_package ).
+    cl_abap_unit_assert=>assert_equals( exp = lo_standard act = lo_executor->provider_generator ).
+  ENDMETHOD.
+
+  METHOD standard_missing_package.
+    DATA(lo_pipeline) = NEW lcl_mig_odata_pipeline_fake( ).
+    DATA(lo_executor) = NEW lcl_mig_xco_executor_fake( ).
+    DATA(lo_standard) = NEW lcl_mig_std_generator_fake( ).
+    DATA(lo_service) = standard_service(
+      io_pipeline = lo_pipeline io_executor = lo_executor io_standard = lo_standard ).
+    DATA(ls_result) = lo_service->generate( VALUE #(
+      analysis_id = gc_analysis_id package = 'ZMIG_TEST' provider_language = 'STANDARD' ) ).
+    cl_abap_unit_assert=>assert_equals( exp = 'BLOCKED' act = ls_result-status ).
+    cl_abap_unit_assert=>assert_char_cp( exp = '*explicit provider package*' act = ls_result-message ).
+    cl_abap_unit_assert=>assert_initial( act = lo_standard->checked_package ).
+    cl_abap_unit_assert=>assert_initial( act = lo_pipeline->preflight_manifest-items ).
+    cl_abap_unit_assert=>assert_equals( exp = abap_false act = lo_executor->called ).
+  ENDMETHOD.
+
+  METHOD standard_missing_executor.
+    DATA(lo_pipeline) = NEW lcl_mig_odata_pipeline_fake( ).
+    DATA(lo_executor) = NEW lcl_mig_xco_executor_fake( ).
+    DATA(lo_service) = standard_service( io_pipeline = lo_pipeline io_executor = lo_executor ).
+    DATA(ls_result) = lo_service->generate( VALUE #(
+      analysis_id = gc_analysis_id package = 'ZMIG_TEST'
+      provider_package = 'ZLEGACY_GEN' provider_language = 'STANDARD' ) ).
+    cl_abap_unit_assert=>assert_equals( exp = 'BLOCKED' act = ls_result-status ).
+    cl_abap_unit_assert=>assert_char_cp( exp = '*executor is not configured*' act = ls_result-message ).
+    cl_abap_unit_assert=>assert_equals( exp = abap_false act = lo_executor->called ).
+  ENDMETHOD.
+
+  METHOD standard_wrong_language.
+    DATA(lo_pipeline) = NEW lcl_mig_odata_pipeline_fake( ).
+    DATA(lo_executor) = NEW lcl_mig_xco_executor_fake( ).
+    DATA(lo_standard) = NEW lcl_mig_std_generator_fake( ).
+    lo_standard->check_result = VALUE #( allowed = abap_true language_code = '5' ).
+    DATA(lo_service) = standard_service(
+      io_pipeline = lo_pipeline io_executor = lo_executor io_standard = lo_standard ).
+    DATA(ls_result) = lo_service->generate( VALUE #(
+      analysis_id = gc_analysis_id package = 'ZMIG_TEST'
+      provider_package = 'ZCLOUD_GEN' provider_language = 'STANDARD' ) ).
+    cl_abap_unit_assert=>assert_equals( exp = 'BLOCKED' act = ls_result-status ).
+    cl_abap_unit_assert=>assert_not_initial( act = ls_result-message ).
+    cl_abap_unit_assert=>assert_initial( act = lo_pipeline->preflight_manifest-items ).
+    cl_abap_unit_assert=>assert_equals( exp = abap_false act = lo_executor->called ).
+  ENDMETHOD.
+
+  METHOD standard_check_error.
+    DATA(lo_pipeline) = NEW lcl_mig_odata_pipeline_fake( ).
+    DATA(lo_executor) = NEW lcl_mig_xco_executor_fake( ).
+    DATA(lo_standard) = NEW lcl_mig_std_generator_fake( ).
+    lo_standard->throw_error = abap_true.
+    DATA(lo_service) = standard_service(
+      io_pipeline = lo_pipeline io_executor = lo_executor io_standard = lo_standard ).
+    DATA(ls_result) = lo_service->generate( VALUE #(
+      analysis_id = gc_analysis_id package = 'ZMIG_TEST'
+      provider_package = 'ZLEGACY_GEN' provider_language = 'STANDARD' ) ).
+    cl_abap_unit_assert=>assert_equals( exp = 'BLOCKED' act = ls_result-status ).
+    cl_abap_unit_assert=>assert_char_cp( exp = '*executor check failed*' act = ls_result-message ).
+    cl_abap_unit_assert=>assert_equals( exp = abap_false act = lo_executor->called ).
+  ENDMETHOD.
+
+  METHOD standard_existing_class.
+    DATA(lo_pipeline) = NEW lcl_mig_odata_pipeline_fake( ).
+    lo_pipeline->provider_exists = abap_true.
+    lo_pipeline->provider_current_package = 'ZLEGACY_GEN'.
+    DATA(lo_executor) = NEW lcl_mig_xco_executor_fake( ).
+    DATA(lo_standard) = NEW lcl_mig_std_generator_fake( ).
+    DATA(lo_service) = standard_service(
+      io_pipeline = lo_pipeline io_executor = lo_executor io_standard = lo_standard
+      io_preflight = NEW zcl_mig_art_pref( io_repo = lo_pipeline ) ).
+    DATA(ls_result) = lo_service->generate( VALUE #(
+      analysis_id = gc_analysis_id package = 'ZMIG_TEST'
+      provider_package = 'ZLEGACY_GEN' provider_language = 'STANDARD'
+      transport = 'DEVK900001' execute = abap_true ) ).
+    cl_abap_unit_assert=>assert_equals( exp = 'BLOCKED' act = ls_result-status ).
+    cl_abap_unit_assert=>assert_char_cp( exp = '*already exists*' act = ls_result-message ).
+    cl_abap_unit_assert=>assert_equals( exp = abap_false act = lo_executor->called ).
+  ENDMETHOD.
+
+  METHOD standard_package_conflict.
+    DATA(lo_pipeline) = NEW lcl_mig_odata_pipeline_fake( ).
+    lo_pipeline->provider_exists = abap_true.
+    lo_pipeline->provider_current_package = 'ZOTHER'.
+    DATA(lo_executor) = NEW lcl_mig_xco_executor_fake( ).
+    DATA(lo_standard) = NEW lcl_mig_std_generator_fake( ).
+    DATA(lo_service) = standard_service(
+      io_pipeline = lo_pipeline io_executor = lo_executor io_standard = lo_standard
+      io_preflight = NEW zcl_mig_art_pref( io_repo = lo_pipeline ) ).
+    DATA(ls_result) = lo_service->generate( VALUE #(
+      analysis_id = gc_analysis_id package = 'ZMIG_TEST'
+      provider_package = 'ZLEGACY_GEN' provider_language = 'STANDARD' ) ).
+    cl_abap_unit_assert=>assert_equals( exp = 'BLOCKED' act = ls_result-status ).
+    cl_abap_unit_assert=>assert_char_cp( exp = '*another package*' act = ls_result-message ).
+    cl_abap_unit_assert=>assert_equals( exp = abap_false act = lo_executor->called ).
+  ENDMETHOD.
+
+  METHOD reject_unknown_language.
+    DATA(lo_pipeline) = NEW lcl_mig_odata_pipeline_fake( ).
+    DATA(lo_executor) = NEW lcl_mig_xco_executor_fake( ).
+    DATA(lo_service) = standard_service( io_pipeline = lo_pipeline io_executor = lo_executor ).
+    DATA(ls_result) = lo_service->generate( VALUE #(
+      analysis_id = gc_analysis_id package = 'ZMIG_TEST' provider_language = 'AUTO' ) ).
+    cl_abap_unit_assert=>assert_equals( exp = 'BLOCKED' act = ls_result-status ).
+    cl_abap_unit_assert=>assert_char_cp( exp = '*Unsupported provider language*' act = ls_result-message ).
+    cl_abap_unit_assert=>assert_equals( exp = abap_false act = lo_executor->called ).
+  ENDMETHOD.
 
   METHOD dry_run_is_ready.
 
@@ -582,6 +816,46 @@ CLASS ltc_mig_odata_gen_svc IMPLEMENTATION.
       exp = abap_false
       act = lo_executor->called
       msg = 'Dry-run must not call the repository executor'
+    ).
+
+  ENDMETHOD.
+
+
+  METHOD bapi_dry_run_is_ready.
+
+    DATA(lo_fake) =
+      NEW lcl_mig_odata_pipeline_fake(
+        iv_bapi_provider = abap_true
+      ).
+
+    DATA(ls_result) =
+      NEW zcl_mig_odata_gen_svc(
+        io_reader       = lo_fake
+        io_blueprint    = lo_fake
+        io_provider     = lo_fake
+        io_signature    = lo_fake
+        io_service_map  = lo_fake
+        io_row_resolver = lo_fake
+        io_manifest     = lo_fake
+        io_preflight    = lo_fake
+        io_art_repo     = lo_fake
+      )->zif_mig_odata_gen_svc~generate(
+        is_request = VALUE #(
+          analysis_id = gc_analysis_id
+          package     = 'ZMIG_TEST'
+          execute     = abap_false
+        )
+      ).
+
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = zif_mig_odata_gen_svc=>gc_status_ready
+      act = ls_result-status
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = zif_mig_types=>gc_provider_bapi
+      act = ls_result-provider_kind
     ).
 
   ENDMETHOD.

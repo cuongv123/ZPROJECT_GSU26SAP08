@@ -57,6 +57,9 @@ CLASS zcl_mig_xco_gen DEFINITION
           TYPE abap_bool
           DEFAULT abap_false
 
+        io_provider_gen
+          TYPE REF TO zif_mig_prv_clas_gen OPTIONAL
+
       RAISING
         zcx_mig_analysis
         cx_xco_gen_put_exception.
@@ -246,6 +249,14 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
       xsdbool(
         is_prv-provider_kind =
           zif_mig_types=>gc_provider_function
+        OR is_prv-provider_kind =
+          zif_mig_types=>gc_provider_bapi
+      ).
+
+    DATA(lv_is_bapi_provider) =
+      xsdbool(
+        is_prv-provider_kind =
+          zif_mig_types=>gc_provider_bapi
       ).
 
 
@@ -369,23 +380,31 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
 
 
     LOOP AT is_sig-input_params
-      TRANSPORTING NO FIELDS
-      WHERE direction <> zif_mig_types=>gc_sig_imp
-         OR is_ref = abap_true
-         OR is_deep = abap_true.
+      INTO DATA(ls_input_param).
 
-      RAISE EXCEPTION NEW zcx_mig_analysis(
-        textid      = zcx_mig_analysis=>analysis_failed
-        program_name = lv_program
-      ).
+      IF ls_input_param-is_ref = abap_true
+         OR ls_input_param-is_deep = abap_true
+         OR (
+              ls_input_param-direction <> zif_mig_types=>gc_sig_imp
+              AND NOT (
+                    lv_is_bapi_provider = abap_true
+                    AND ls_input_param-direction = zif_mig_types=>gc_sig_tab
+                  )
+            ).
+
+        RAISE EXCEPTION NEW zcx_mig_analysis(
+          textid      = zcx_mig_analysis=>analysis_failed
+          program_name = lv_program
+        ).
+
+      ENDIF.
 
     ENDLOOP.
 
 
     LOOP AT is_sig-all_params
       TRANSPORTING NO FIELDS
-      WHERE direction = zif_mig_types=>gc_sig_chg
-         OR direction = zif_mig_types=>gc_sig_tab.
+      WHERE direction = zif_mig_types=>gc_sig_chg.
 
       RAISE EXCEPTION NEW zcx_mig_analysis(
         textid      = zcx_mig_analysis=>analysis_failed
@@ -393,6 +412,22 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
       ).
 
     ENDLOOP.
+
+
+    IF lv_is_bapi_provider = abap_false.
+
+      LOOP AT is_sig-all_params
+        TRANSPORTING NO FIELDS
+        WHERE direction = zif_mig_types=>gc_sig_tab.
+
+        RAISE EXCEPTION NEW zcx_mig_analysis(
+          textid      = zcx_mig_analysis=>analysis_failed
+          program_name = lv_program
+        ).
+
+      ENDLOOP.
+
+    ENDIF.
 
 
     DATA lv_output_table_count TYPE i.
@@ -408,6 +443,11 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
 
       ELSEIF lv_is_fm_provider = abap_true
          AND ls_output_param-direction = zif_mig_types=>gc_sig_exp.
+
+        lv_output_table_count += 1.
+
+      ELSEIF lv_is_bapi_provider = abap_true
+         AND ls_output_param-direction = zif_mig_types=>gc_sig_tab.
 
         lv_output_table_count += 1.
 
@@ -428,7 +468,13 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
           )
        OR (
             lv_is_fm_provider = abap_true
+            AND lv_is_bapi_provider = abap_false
             AND is_smap-selected_out-direction <> zif_mig_types=>gc_sig_exp
+          )
+       OR (
+            lv_is_bapi_provider = abap_true
+            AND is_smap-selected_out-direction <> zif_mig_types=>gc_sig_exp
+            AND is_smap-selected_out-direction <> zif_mig_types=>gc_sig_tab
           ).
 
       RAISE EXCEPTION NEW zcx_mig_analysis(
@@ -572,6 +618,25 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
 
     ENDIF.
 
+    DATA(lv_standard) = xsdbool(
+      is_mfst-provider_language = zif_mig_prv_clas_gen=>gc_standard ).
+    DATA lt_standard_source TYPE string_table.
+    IF lv_standard = abap_true.
+      IF io_provider_gen IS NOT BOUND.
+        RAISE EXCEPTION NEW zcx_mig_generation(
+          iv_detail = 'Standard provider executor is not configured.' ).
+      ENDIF.
+      DATA(ls_target_check) = io_provider_gen->check_target( ls_clas-package ).
+      IF ls_target_check-allowed <> abap_true OR ls_target_check-language_code <> space.
+        RAISE EXCEPTION NEW zcx_mig_generation(
+          iv_detail = |Standard provider target rejected: { ls_target_check-message }| ).
+      ENDIF.
+      lt_standard_source = build_select_src(
+        it_fields = is_bp-fields is_prv = is_prv is_sig = is_sig
+        is_smap = is_smap is_row = is_row ).
+    ENDIF.
+
+    TEST-SEAM prepare_odata.
     DATA(lo_env) =
       xco_cp_generation=>environment->dev_system(
           iv_request
@@ -584,31 +649,17 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
     DATA(lo_srvb_put) =
       lo_env->create_put_operation( ).
 
-    add_clas(
-      io_put =
-        lo_put
-
-      is_item =
-        ls_clas
-
-      iv_package =
-        is_mfst-package
-
-      it_fields =
-        is_bp-fields
-
-      is_prv =
-        is_prv
-
-      is_sig =
-        is_sig
-
-      is_smap =
-        is_smap
-
-      is_row =
-        is_row
-    ).
+    IF lv_standard = abap_false.
+      add_clas(
+        io_put = lo_put
+        is_item = ls_clas
+        iv_package = ls_clas-package
+        it_fields = is_bp-fields
+        is_prv = is_prv
+        is_sig = is_sig
+        is_smap = is_smap
+        is_row = is_row ).
+    ENDIF.
 
     add_ddls(
       io_put =
@@ -658,14 +709,46 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
       iv_service_name     = ls_srvd-object_name
       iv_srvd_name        = ls_srvd-object_name
     ).
+    END-TEST-SEAM.
 
     IF iv_execute = abap_true.
 
-      "Tạo và activate CLAS, DDLS, SRVD trước
-      lo_put->execute( ).
+      DATA(lv_stage) = VALUE string( ).
+      DATA(lv_completed) = `No completed PUT has been confirmed.`.
+      TRY.
+          IF lv_standard = abap_true.
+            lv_stage = |Standard CLAS { ls_clas-object_name } in { ls_clas-package }|.
+            io_provider_gen->generate(
+              iv_class_name = ls_clas-object_name
+              iv_package = ls_clas-package
+              iv_transport = iv_request
+              it_select_source = lt_standard_source ).
+            lv_completed = |Activated CLAS { ls_clas-object_name } in { ls_clas-package }.|.
+          ENDIF.
 
-      "Sau khi SRVD đã active mới tạo SRVB
-      lo_srvb_put->execute( ).
+          lv_stage = |OData PUT for { ls_ddls-object_name }, { ls_srvd-object_name }|.
+          TEST-SEAM execute_odata_put.
+            lo_put->execute( ).
+          END-TEST-SEAM.
+          lv_completed = |Activated CLAS { ls_clas-object_name }, DDLS { ls_ddls-object_name }, SRVD { ls_srvd-object_name }.|.
+
+          lv_stage = |Shared binding { zcl_mig_svc_registry=>gc_shared_binding }|.
+          TEST-SEAM execute_binding_put.
+            lo_srvb_put->execute( ).
+          END-TEST-SEAM.
+        CATCH cx_xco_gen_put_exception INTO DATA(lx_put).
+          DATA(lv_detail) = |{ lv_stage } failed. { lv_completed } { lx_put->get_text( ) }|.
+          LOOP AT lx_put->if_xco_news~get_messages( ) INTO DATA(lo_message).
+            lv_detail = lv_detail && cl_abap_char_utilities=>newline && lo_message->get_text( ).
+          ENDLOOP.
+          RAISE EXCEPTION NEW zcx_mig_generation(
+            iv_detail = lv_detail && ` Review active/inactive objects before retrying; generation is create-only.`
+            previous = lx_put ).
+        CATCH cx_root INTO DATA(lx_stage).
+          RAISE EXCEPTION NEW zcx_mig_generation(
+            iv_detail = |{ lv_stage } failed. { lv_completed } { lx_stage->get_text( ) } Review active/inactive objects before retrying; generation is create-only.|
+            previous = lx_stage ).
+      ENDTRY.
 
     ENDIF.
 
@@ -673,6 +756,29 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
 
 
   METHOD validate.
+
+    IF is_mfst-provider_language IS NOT INITIAL
+       AND is_mfst-provider_language <> zif_mig_prv_clas_gen=>gc_cloud
+       AND is_mfst-provider_language <> zif_mig_prv_clas_gen=>gc_standard.
+      RAISE EXCEPTION NEW zcx_mig_generation(
+        iv_detail = |Unsupported provider language: { is_mfst-provider_language }.| ).
+    ENDIF.
+    IF is_mfst-provider_language = zif_mig_prv_clas_gen=>gc_standard
+       AND is_mfst-provider_package IS INITIAL.
+      RAISE EXCEPTION NEW zcx_mig_generation(
+        iv_detail = 'STANDARD requires an explicit provider package in the manifest.' ).
+    ENDIF.
+
+    LOOP AT is_mfst-items INTO DATA(ls_target_item)
+      WHERE art_type = zif_mig_types=>gc_art_clas
+        AND art_role = zif_mig_types=>gc_art_query_prv.
+      IF ls_target_item-package IS INITIAL
+         OR ( is_mfst-provider_package IS NOT INITIAL
+              AND ls_target_item-package <> is_mfst-provider_package ).
+        RAISE EXCEPTION NEW zcx_mig_generation(
+          iv_detail = 'Query provider package does not match the manifest target.' ).
+      ENDIF.
+    ENDLOOP.
 
     IF is_mfst-status <>
          zif_mig_types=>gc_art_ready.
@@ -1341,6 +1447,14 @@ METHOD build_select_src.
     xsdbool(
       is_prv-provider_kind =
         zif_mig_types=>gc_provider_function
+      OR is_prv-provider_kind =
+        zif_mig_types=>gc_provider_bapi
+    ).
+
+  DATA(lv_is_bapi_provider) =
+    xsdbool(
+      is_prv-provider_kind =
+        zif_mig_types=>gc_provider_bapi
     ).
 
 
@@ -1684,6 +1798,81 @@ METHOD build_select_src.
 
 
   "============================================================
+  " Optional BAPI RETURN/BAPIRET message parameter
+  "============================================================
+  DATA:
+    lv_bapi_message_count TYPE i,
+    ls_bapi_message       TYPE zif_mig_types=>ty_sig_par,
+    lv_bapi_message_name  TYPE string,
+    lv_bapi_message_type  TYPE string.
+
+
+  IF lv_is_bapi_provider = abap_true.
+
+    LOOP AT is_sig-all_params
+      INTO DATA(ls_technical_param)
+      WHERE odata_role = zif_mig_types=>gc_sig_tech.
+
+      lv_bapi_message_count += 1.
+      ls_bapi_message = ls_technical_param.
+
+    ENDLOOP.
+
+
+    IF lv_bapi_message_count > 1
+       OR (
+            lv_bapi_message_count = 1
+            AND ls_bapi_message-direction <> zif_mig_types=>gc_sig_tab
+            AND ls_bapi_message-direction <> zif_mig_types=>gc_sig_exp
+          ).
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid = zcx_mig_analysis=>analysis_failed
+      ).
+
+    ENDIF.
+
+
+    IF lv_bapi_message_count = 1.
+
+      lv_bapi_message_name =
+        to_upper(
+          CONV string( ls_bapi_message-par_name )
+        ).
+
+      lv_bapi_message_type =
+        CONV string( ls_bapi_message-type_name ).
+
+      CONDENSE lv_bapi_message_name NO-GAPS.
+      CONDENSE lv_bapi_message_type NO-GAPS.
+
+
+      IF lv_bapi_message_type CP '\TYPE=*'.
+
+        REPLACE FIRST OCCURRENCE OF '\TYPE='
+          IN lv_bapi_message_type
+          WITH ''.
+
+      ENDIF.
+
+
+      IF lv_bapi_message_name IS INITIAL
+         OR lv_bapi_message_type IS INITIAL
+         OR lv_bapi_message_type CS '\'
+         OR lv_bapi_message_type CP '%_*'.
+
+        RAISE EXCEPTION NEW zcx_mig_analysis(
+          textid = zcx_mig_analysis=>analysis_failed
+        ).
+
+      ENDIF.
+
+    ENDIF.
+
+  ENDIF.
+
+
+  "============================================================
   " Sinh local result type
   "============================================================
   APPEND
@@ -1918,9 +2107,20 @@ METHOD build_select_src.
       ENDIF.
 
 
-      APPEND
-        |DATA { lv_filter_var } TYPE { lv_prv_type }.|
-        TO rt_source.
+      IF lv_is_bapi_provider = abap_true
+         AND ls_sig_input-direction = zif_mig_types=>gc_sig_tab.
+
+        APPEND
+          |DATA { lv_filter_var } TYPE STANDARD TABLE OF { lv_prv_type } WITH DEFAULT KEY.|
+          TO rt_source.
+
+      ELSE.
+
+        APPEND
+          |DATA { lv_filter_var } TYPE { lv_prv_type }.|
+          TO rt_source.
+
+      ENDIF.
 
 
     ELSE.
@@ -2693,9 +2893,39 @@ ENDIF.
   " - class method dùng ABAP_PARMBIND_TAB
   " - function module dùng ABAP_FUNC_PARMBIND_TAB
   "============================================================
-  APPEND
-    |DATA lt_provider TYPE { lv_output_type }.|
-    TO rt_source.
+  IF lv_is_bapi_provider = abap_true
+     AND is_smap-selected_out-direction = zif_mig_types=>gc_sig_tab.
+
+    APPEND
+      |DATA lt_provider TYPE STANDARD TABLE OF { lv_output_type } WITH DEFAULT KEY.|
+      TO rt_source.
+
+  ELSE.
+
+    APPEND
+      |DATA lt_provider TYPE { lv_output_type }.|
+      TO rt_source.
+
+  ENDIF.
+
+
+  IF lv_bapi_message_count = 1.
+
+    IF ls_bapi_message-direction = zif_mig_types=>gc_sig_tab.
+
+      APPEND
+        |DATA lt_bapi_return TYPE STANDARD TABLE OF { lv_bapi_message_type } WITH DEFAULT KEY.|
+        TO rt_source.
+
+    ELSE.
+
+      APPEND
+        |DATA ls_bapi_return TYPE { lv_bapi_message_type }.|
+        TO rt_source.
+
+    ENDIF.
+
+  ENDIF.
 
 
   IF lv_is_fm_provider = abap_true.
@@ -2759,6 +2989,19 @@ ENDIF.
     CONDENSE lv_prv_param NO-GAPS.
 
 
+    READ TABLE is_sig-input_params
+      WITH KEY par_name = lv_prv_param
+      INTO DATA(ls_bind_input).
+
+    IF sy-subrc <> 0.
+
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid = zcx_mig_analysis=>analysis_failed
+      ).
+
+    ENDIF.
+
+
     APPEND
       |IF { lv_filter_set } = abap_true.|
       TO rt_source.
@@ -2774,7 +3017,14 @@ ENDIF.
       TO rt_source.
 
 
-    IF lv_is_fm_provider = abap_true.
+    IF lv_is_bapi_provider = abap_true
+       AND ls_bind_input-direction = zif_mig_types=>gc_sig_tab.
+
+      APPEND
+        |    kind = abap_func_tables|
+        TO rt_source.
+
+    ELSEIF lv_is_fm_provider = abap_true.
 
       APPEND
         |    kind = abap_func_exporting|
@@ -2816,7 +3066,14 @@ ENDIF.
     TO rt_source.
 
 
-  IF lv_is_fm_provider = abap_true.
+  IF lv_is_bapi_provider = abap_true
+     AND is_smap-selected_out-direction = zif_mig_types=>gc_sig_tab.
+
+    APPEND
+      |  kind = abap_func_tables|
+      TO rt_source.
+
+  ELSEIF lv_is_fm_provider = abap_true.
 
     APPEND
       |  kind = abap_func_importing|
@@ -2839,6 +3096,47 @@ ENDIF.
   APPEND
     |) INTO TABLE lt_bind.|
     TO rt_source.
+
+
+  IF lv_bapi_message_count = 1.
+
+    APPEND
+      |INSERT VALUE #(|
+      TO rt_source.
+
+    APPEND
+      |  name = '{ lv_bapi_message_name }'|
+      TO rt_source.
+
+
+    IF ls_bapi_message-direction = zif_mig_types=>gc_sig_tab.
+
+      APPEND
+        |  kind = abap_func_tables|
+        TO rt_source.
+
+      APPEND
+        |  value = REF #( lt_bapi_return )|
+        TO rt_source.
+
+    ELSE.
+
+      APPEND
+        |  kind = abap_func_importing|
+        TO rt_source.
+
+      APPEND
+        |  value = REF #( ls_bapi_return )|
+        TO rt_source.
+
+    ENDIF.
+
+
+    APPEND
+      |) INTO TABLE lt_bind.|
+      TO rt_source.
+
+  ENDIF.
 
 
   IF lv_is_fm_provider = abap_true.
@@ -2941,6 +3239,57 @@ ENDIF.
     APPEND
       |ENDIF.|
       TO rt_source.
+
+
+    IF lv_bapi_message_count = 1.
+
+      IF ls_bapi_message-direction = zif_mig_types=>gc_sig_tab.
+
+        APPEND
+          |LOOP AT lt_bapi_return ASSIGNING FIELD-SYMBOL(<bapi_return>).|
+          TO rt_source.
+
+        APPEND
+          |  IF <bapi_return>-type CA 'AEX'.|
+          TO rt_source.
+
+        APPEND
+          |    RAISE EXCEPTION TYPE zcx_mig_query_error|
+          TO rt_source.
+
+        APPEND
+          |      EXPORTING iv_message = CONV string( <bapi_return>-message ).|
+          TO rt_source.
+
+        APPEND
+          |  ENDIF.|
+          TO rt_source.
+
+        APPEND
+          |ENDLOOP.|
+          TO rt_source.
+
+      ELSE.
+
+        APPEND
+          |IF ls_bapi_return-type CA 'AEX'.|
+          TO rt_source.
+
+        APPEND
+          |  RAISE EXCEPTION TYPE zcx_mig_query_error|
+          TO rt_source.
+
+        APPEND
+          |    EXPORTING iv_message = CONV string( ls_bapi_return-message ).|
+          TO rt_source.
+
+        APPEND
+          |ENDIF.|
+          TO rt_source.
+
+      ENDIF.
+
+    ENDIF.
 
 
   ELSE.

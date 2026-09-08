@@ -12,6 +12,8 @@ define view entity ZC_MIG_CHAT_MSG
 
       @UI.lineItem: [{ position: 20 }]
       Content,
+      
+      
 
       AnalysisIdUsed,
       AiProvider,

@@ -163,6 +163,9 @@ CLASS zcl_mig_service_blueprint IMPLEMENTATION.
       source_kind =
         ls_filter-field_kind
 
+      source_field_name =
+        ls_filter-reference_field
+
       odata_kind =
         lv_odata_kind
 

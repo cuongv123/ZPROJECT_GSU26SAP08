@@ -32,6 +32,7 @@ CLASS zcl_mig_xco_executor IMPLEMENTATION.
       it_shared_services = lt_shared_services
       iv_request        = iv_transport
       iv_execute        = abap_true
+      io_provider_gen   = io_provider_gen
     ).
 
 
@@ -52,11 +53,17 @@ CLASS zcl_mig_xco_executor IMPLEMENTATION.
     ENDIF.
 
 
-    lo_registry->upsert(
-      iv_service_name = ls_srvd-object_name
-      iv_srvd_name    = ls_srvd-object_name
-      iv_version      = 1
-    ).
+    TRY.
+        lo_registry->upsert(
+          iv_service_name = ls_srvd-object_name
+          iv_srvd_name    = ls_srvd-object_name
+          iv_version      = 1
+        ).
+      CATCH zcx_mig_analysis INTO DATA(lx_registry).
+        RAISE EXCEPTION NEW zcx_mig_generation(
+          iv_detail = |Artifacts and binding for { ls_srvd-object_name } were generated, but registry update failed: { lx_registry->get_text( ) }. Review the objects before retrying.|
+          previous = lx_registry ).
+    ENDTRY.
 
   ENDMETHOD.
 

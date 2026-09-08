@@ -19,6 +19,7 @@ etag master LocalLastChangedAt
     create;
     field ProgramName;
   }
+    determination initializeSession on modify { create; }
 
   field ( numbering : managed, readonly ) SessionId;
   field ( readonly ) CreatedBy, CreatedAt, LocalLastChangedBy, LocalLastChangedAt, LastChangedAt;
@@ -44,7 +45,7 @@ authorization dependent by _Session
 {
   association _Session;
 
-  field ( readonly ) SessionId, Role, Content, AnalysisIdUsed, AiProvider, IsOutdated, CreatedBy, CreatedAt;
+  field ( readonly ) SessionId,  Role, Content, AnalysisIdUsed, AiProvider, IsOutdated, CreatedBy, CreatedAt;
   field ( numbering : managed, readonly ) MessageId;
 
   mapping for zmig_chat_msg

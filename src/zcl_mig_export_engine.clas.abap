@@ -59,7 +59,17 @@ CLASS zcl_mig_export_engine DEFINITION
     TYPES: BEGIN OF ty_pdf_layout,
              header_text TYPE string,
              footer_text TYPE string,
+             paper_size  TYPE char10,   " 'A4' hoặc 'LETTER' (rỗng = mặc định LETTER)
+             orientation TYPE char1,    " 'P' portrait / 'L' landscape (rỗng = mặc định L)
+             font_size   TYPE i,        " cỡ chữ thân bảng, mặc định 7 khi = 0/rỗng
+             fit_to_page TYPE abap_bool,
            END OF ty_pdf_layout.
+    " --- Type mới cho kích thước trang, thêm ngay gần ty_pdf_layout ---
+    TYPES: BEGIN OF ty_page_dim,
+             width  TYPE i,
+             height TYPE i,
+           END OF ty_page_dim.
+
     METHODS render_section_pages
       IMPORTING
         iv_title        TYPE string
@@ -68,6 +78,12 @@ CLASS zcl_mig_export_engine DEFINITION
         is_pdf_layout   TYPE ty_pdf_layout OPTIONAL
       RETURNING
         VALUE(rt_pages) TYPE string_table.
+    METHODS get_page_dimensions
+      IMPORTING
+        iv_paper_size  TYPE char10 OPTIONAL
+        iv_orientation TYPE char1  OPTIONAL
+      RETURNING
+        VALUE(rs_dim)  TYPE ty_page_dim.
   PRIVATE SECTION.
     CONSTANTS:
       gc_format_excel TYPE zmig_e_file_format VALUE 'X',
@@ -174,10 +190,11 @@ CLASS zcl_mig_export_engine DEFINITION
     " hoàn chỉnh (xref/trailer) - dùng chung cho cả trường hợp 1 section
     " và nhiều section gộp lại.
     METHODS assemble_pdf_binary
-      IMPORTING
-        it_pages          TYPE string_table
-      RETURNING
-        VALUE(rv_content) TYPE xstring.
+    IMPORTING
+      it_pages         TYPE string_table
+      is_pdf_layout     TYPE ty_pdf_layout OPTIONAL
+    RETURNING
+      VALUE(rv_content) TYPE xstring.
 
 
     METHODS export_excel
@@ -630,27 +647,17 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
             lv_col = lv_col + 1.
           ENDLOOP.
 
-          " --- Data rows + gom tổng cho cột số (1 lượt duyệt dữ liệu) ---
-          DATA lt_is_numeric TYPE STANDARD TABLE OF abap_bool WITH EMPTY KEY.
-          DATA lt_totals     TYPE STANDARD TABLE OF decfloat34 WITH EMPTY KEY.
-          DATA lt_max_len    TYPE STANDARD TABLE OF i WITH EMPTY KEY.
-          DATA(lt_struct_components) = lo_struct->get_components( ).
+          " --- Độ rộng cột: khởi tạo tối thiểu theo độ dài tiêu đề
+          " (+2 ký tự đệm cho chữ đậm), sẽ cập nhật thêm theo dữ liệu
+          " thực tế bên dưới. Reset về rỗng mỗi section (tránh lệch dữ
+          " liệu cũ từ section trước). ---
+          DATA lt_max_len TYPE STANDARD TABLE OF i WITH EMPTY KEY.
+          CLEAR lt_max_len.
           LOOP AT lt_columns INTO ls_col.
-            DATA(lv_is_num) = abap_false.
-            READ TABLE lt_struct_components INTO DATA(ls_struct_comp)
-              WITH KEY name = CONV abap_compname( ls_col-fieldname ).
-            IF sy-subrc = 0 AND ls_struct_comp-type IS BOUND
-               AND ls_struct_comp-type->kind = cl_abap_typedescr=>kind_elem.
-              DATA(lv_type_kind) = CAST cl_abap_elemdescr( ls_struct_comp-type )->type_kind.
-              IF lv_type_kind CA 'ibsI8PaFe'.  " int/packed/float/decfloat kinds
-                lv_is_num = abap_true.
-              ENDIF.
-            ENDIF.
-            APPEND lv_is_num TO lt_is_numeric.
-            APPEND 0 TO lt_totals.
             APPEND strlen( CONV string( ls_col-column_title ) ) + 2 TO lt_max_len.
           ENDLOOP.
 
+          " --- Data rows ---
           DATA(lv_row) = 2.
           LOOP AT <lt_data> ASSIGNING FIELD-SYMBOL(<ls_row>).
             lv_col = 1.
@@ -658,41 +665,24 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
               ASSIGN COMPONENT ls_col-fieldname OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_val>).
               IF sy-subrc = 0.
                 lo_sheet->set_cell( ip_column = lv_col ip_row = lv_row ip_value = <lv_val> ).
-                IF lt_is_numeric[ lv_col ] = abap_true.
-                  TRY.
-                      lt_totals[ lv_col ] = lt_totals[ lv_col ] + CONV decfloat34( <lv_val> ).
-                    CATCH cx_root.
-                  ENDTRY.
-                ENDIF.
                 DATA(lv_cell_len) = strlen( CONV string( <lv_val> ) ).
                 IF lv_cell_len > lt_max_len[ lv_col ].
                   lt_max_len[ lv_col ] = lv_cell_len.
                 ENDIF.
-
               ENDIF.
               lv_col = lv_col + 1.
             ENDLOOP.
             lv_row = lv_row + 1.
           ENDLOOP.
 
-          " --- Total row: chỉ điền cho cột numeric, cột đầu ghi nhãn ---
+          " --- Total: đúng 1 dòng, chỉ đếm số dòng dữ liệu ---
           DATA(lv_total_row) = lv_row + 1.
-          lo_sheet->set_cell( ip_column = 1 ip_row = lv_total_row ip_value = 'TOTAL' ).
+          lo_sheet->set_cell( ip_column = 1 ip_row = lv_total_row
+            ip_value = |TOTAL: { lines( <lt_data> ) } rows| ).
           lo_sheet->set_cell_style( ip_column = 1 ip_row = lv_total_row
             ip_style = lo_style_total->get_guid( ) ).
 
-          DO lines( lt_columns ) TIMES.
-            DATA(lv_c) = sy-index.
-            IF lt_is_numeric[ lv_c ] = abap_true.
-              lo_sheet->set_cell( ip_column = lv_c ip_row = lv_total_row ip_value = lt_totals[ lv_c ] ).
-              lo_sheet->set_cell_style( ip_column = lv_c ip_row = lv_total_row
-                ip_style = lo_style_total->get_guid( ) ).
-            ENDIF.
-          ENDDO.
-
-          lo_sheet->set_cell( ip_column = 1 ip_row = lv_total_row + 1
-            ip_value = |Rows: { lines( <lt_data> ) }| ).
-
+          " --- Ép độ rộng cột theo nội dung thực tế đã tính ở trên ---
           DO lines( lt_columns ) TIMES.
             DATA(lv_wcol) = sy-index.
             lo_sheet->set_column_width(
@@ -929,7 +919,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
 
       DATA(lv_total_cols) = lines( lt_columns ).
 
-      IF lv_total_cols <= lc_max_cols_per_block.
+       IF lv_total_cols <= lc_max_cols_per_block OR is_pdf_layout-fit_to_page = abap_true.
         " So cot binh thuong - 1 khoi duy nhat, hanh vi giu nguyen nhu cu.
         TRY.
             DATA(lt_section_pages) = render_section_pages(
@@ -1008,7 +998,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       RETURN.
     ENDIF.
 
-    rs_result-content     = assemble_pdf_binary( it_pages = lt_all_pages ).
+     rs_result-content     = assemble_pdf_binary( it_pages = lt_all_pages is_pdf_layout = is_pdf_layout ).
     rs_result-success     = abap_true.
     rs_result-file_name   = resolve_export_filename(
                                iv_analysis_id    = lv_analysis_id
@@ -1026,18 +1016,49 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
 
 
 
+METHOD get_page_dimensions.
+    " Kich thuoc goc theo huong PORTRAIT (point), tu dao truc khi Landscape.
+    " Mac dinh (paper_size/orientation rong) = LETTER Landscape 792x612,
+    " dung y het hang vi cu truoc khi co tham so nay - khong breaking change.
+    DATA(lv_size)   = to_upper( condense( CONV string( iv_paper_size ) ) ).
+    DATA(lv_orient) = to_upper( condense( CONV string( iv_orientation ) ) ).
+
+    DATA lv_w TYPE i.
+    DATA lv_h TYPE i.
+    CASE lv_size.
+      WHEN 'A4'.
+        lv_w = 595.
+        lv_h = 842.
+      WHEN OTHERS.  " 'LETTER' hoac rong/gia tri la -> mac dinh LETTER
+        lv_w = 612.
+        lv_h = 792.
+    ENDCASE.
+
+    IF lv_orient = 'P'.
+      rs_dim-width  = lv_w.
+      rs_dim-height = lv_h.
+    ELSE.  " 'L' hoac rong -> Landscape (mac dinh, giu hanh vi cu)
+      rs_dim-width  = lv_h.
+      rs_dim-height = lv_w.
+    ENDIF.
+  ENDMETHOD.
 
 
   METHOD render_section_pages.
     " it_lines[1] = header text-only, từ dòng 2 trở đi mới là data row thật.
     CONSTANTS: lc_lines_per_page TYPE i VALUE 20,
-               lc_page_width     TYPE i VALUE 792,
-               lc_page_height    TYPE i VALUE 612,
                lc_min_col_chars  TYPE i VALUE 6,
                lc_max_col_chars  TYPE i VALUE 30.
 
+    DATA(ls_dim) = get_page_dimensions(
+      iv_paper_size  = is_pdf_layout-paper_size
+      iv_orientation = is_pdf_layout-orientation ).
+    DATA(lv_page_width)  = ls_dim-width.
+    DATA(lv_page_height) = ls_dim-height.
+    DATA(lv_font_size)   = COND i( WHEN is_pdf_layout-font_size > 0 THEN is_pdf_layout-font_size ELSE 7 ).
+
     DATA(lv_left_margin)  = 20.
-    DATA(lv_table_width)  = 752.
+    DATA(lv_table_width)  = lv_page_width - ( 2 * lv_left_margin ).
     DATA(lv_num_cols)     = lines( it_header_cols ).
     IF lv_num_cols = 0.
       lv_num_cols = 1.
@@ -1053,8 +1074,6 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     ENDLOOP.
 
     " --- Tinh be rong rieng cho tung cot, theo do dai noi dung thuc te ---
-    " (thay vi chia deu nhu truoc) - cot ngan tu dong hep lai, cot dai tu dong
-    " rong ra, co san toi thieu va tran toi da de khong cot nao "nuot" het cho.
     DATA lt_col_weight TYPE STANDARD TABLE OF i WITH EMPTY KEY.
     CLEAR lt_col_weight.
     DO lv_num_cols TIMES.
@@ -1113,10 +1132,10 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       DATA(lv_from) = lv_idx + 1.
       DATA(lv_to)   = nmin( val1 = lv_total_data_lines val2 = lv_idx + lc_lines_per_page ).
 
-      DATA(lv_page_content) = |BT\n/F1 12 Tf\n1 0 0 1 { lv_left_margin } { lc_page_height - 25 } Tm\n|
+      DATA(lv_page_content) = |BT\n/F1 { lv_font_size + 5 } Tf\n1 0 0 1 { lv_left_margin } { lv_page_height - 25 } Tm\n|
         && |({ escape_pdf_text( lv_header_text ) }) Tj\nET\n|.
 
-      DATA(lv_y) = lc_page_height - 50.
+      DATA(lv_y) = lv_page_height - 50.
       DATA(lv_row_height) = 18.
 
       lv_page_content = lv_page_content && |0.90 0.92 0.95 rg\n|
@@ -1127,12 +1146,12 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
         DATA(lv_hidx) = sy-tabix.
         DATA(lv_this_width) = COND i( WHEN lv_hidx <= lines( lt_col_widths ) THEN lt_col_widths[ lv_hidx ] ELSE lv_table_width / lv_num_cols ).
         DATA(lv_header_txt) = condense( lv_hcell ).
-        DATA(lv_max_char_hdr) = CONV i( lv_this_width / 5 ) - 1.
+        DATA(lv_max_char_hdr) = CONV i( lv_this_width * 10 / ( lv_font_size * 7 ) ) - 1.
         IF lv_max_char_hdr > 0 AND strlen( lv_header_txt ) > lv_max_char_hdr.
           lv_header_txt = lv_header_txt(lv_max_char_hdr) && '..'.
         ENDIF.
         lv_page_content = lv_page_content
-          && |BT\n/F1 8 Tf\n1 0 0 1 { lv_x + 4 } { lv_y + 2 } Tm\n({ escape_pdf_text( lv_header_txt ) }) Tj\nET\n|.
+          && |BT\n/F1 { lv_font_size + 1 } Tf\n1 0 0 1 { lv_x + 4 } { lv_y + 2 } Tm\n({ escape_pdf_text( lv_header_txt ) }) Tj\nET\n|.
         lv_x = lv_x + lv_this_width.
       ENDLOOP.
       lv_y = lv_y - lv_row_height.
@@ -1150,13 +1169,13 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
             DATA(lv_cidx) = sy-tabix.
             DATA(lv_this_width2) = COND i( WHEN lv_cidx <= lines( lt_col_widths ) THEN lt_col_widths[ lv_cidx ] ELSE lv_table_width / lv_num_cols ).
             DATA(lv_cell_txt) = condense( lv_cell ).
-            DATA(lv_max_char) = CONV i( lv_this_width2 / 5 ) - 1.
+            DATA(lv_max_char) = CONV i( lv_this_width2 * 10 / ( lv_font_size * 7 ) ) - 1.
             IF lv_max_char > 0 AND strlen( lv_cell_txt ) > lv_max_char.
               lv_cell_txt = lv_cell_txt(lv_max_char) && '..'.
             ENDIF.
 
             lv_page_content = lv_page_content
-              && |BT\n/F1 7 Tf\n1 0 0 1 { lv_x + 4 } { lv_y + 3 } Tm\n({ escape_pdf_text( lv_cell_txt ) }) Tj\nET\n|.
+              && |BT\n/F1 { lv_font_size } Tf\n1 0 0 1 { lv_x + 4 } { lv_y + 3 } Tm\n({ escape_pdf_text( lv_cell_txt ) }) Tj\nET\n|.
             lv_x = lv_x + lv_this_width2.
           ENDLOOP.
 
@@ -1166,8 +1185,8 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       ENDIF.
 
       lv_page_content = lv_page_content
-   && |BT\n/F1 7 Tf\n1 0 0 1 { lv_left_margin } 15 Tm\n({ escape_pdf_text( lv_footer_left_text ) }) Tj\nET\n|
-   && |BT\n/F1 7 Tf\n1 0 0 1 { lc_page_width - 80 } 15 Tm\n({ escape_pdf_text( |{ iv_title } - Page { lv_page_num } / { lv_total_pages }| ) }) Tj\nET\n|.
+   && |BT\n/F1 { lv_font_size } Tf\n1 0 0 1 { lv_left_margin } 15 Tm\n({ escape_pdf_text( lv_footer_left_text ) }) Tj\nET\n|
+   && |BT\n/F1 { lv_font_size } Tf\n1 0 0 1 { lv_page_width - 80 } 15 Tm\n({ escape_pdf_text( |{ iv_title } - Page { lv_page_num } / { lv_total_pages }| ) }) Tj\nET\n|.
       APPEND lv_page_content TO rt_pages.
       lv_idx = lv_idx + lc_lines_per_page.
       lv_page_num = lv_page_num + 1.
@@ -1175,8 +1194,11 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD assemble_pdf_binary.
-    CONSTANTS: lc_page_width  TYPE i VALUE 792,
-               lc_page_height TYPE i VALUE 612.
+    DATA(ls_dim) = get_page_dimensions(
+      iv_paper_size  = is_pdf_layout-paper_size
+      iv_orientation = is_pdf_layout-orientation ).
+    DATA(lv_page_width)  = ls_dim-width.
+    DATA(lv_page_height) = ls_dim-height.
 
     DATA lv_pdf TYPE string.
     DATA lt_offsets TYPE STANDARD TABLE OF i.
@@ -1209,7 +1231,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       APPEND xstrlen( lv_pdf_xstring ) TO lt_offsets.
       lv_pdf = lv_pdf && |{ lv_this_page_obj } 0 obj\n|
         && |<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 3 0 R >> >> |
-        && |/MediaBox [0 0 { lc_page_width } { lc_page_height }] /Contents { lv_this_cont_obj } 0 R >>\nendobj\n|.
+        && |/MediaBox [0 0 { lv_page_width } { lv_page_height }] /Contents { lv_this_cont_obj } 0 R >>\nendobj\n|.
 
       DATA(lv_page_xstr) = cl_abap_codepage=>convert_to( source = lv_page_text codepage = 'UTF-8' ).
       DATA(lv_stream_len) = xstrlen( lv_page_xstr ).

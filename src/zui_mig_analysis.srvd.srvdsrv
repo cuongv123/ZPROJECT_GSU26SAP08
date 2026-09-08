@@ -1,5 +1,7 @@
 @EndUserText.label: 'Migration Analysis Service'
 define service ZUI_MIG_ANALYSIS {
+  expose ZC_MIG_CHAT_SESSION as ChatSessions;
+  expose ZC_MIG_CHAT_MSG as ChatMessages;
   expose ZC_MIG_ANALYSIS as Analyses;
   expose ZC_MIG_ANL_SRC as SourceObjects;
   expose ZC_MIG_ANL_CODE as SourceLines;

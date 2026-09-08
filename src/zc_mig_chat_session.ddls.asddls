@@ -8,10 +8,23 @@ define root view entity ZC_MIG_CHAT_SESSION
   provider contract transactional_query
   as projection on ZI_MIG_CHAT_SESSION
 {
+@UI.facet: [{
+  id: 'Messages',
+  type: #LINEITEM_REFERENCE,
+  label: 'Hội thoại',
+  targetElement: '_Messages'
+}]
   key SessionId,
 
       @UI.lineItem: [{ position: 10 }]
-      @UI.identification: [{ position: 10 }]
+@UI.identification: [
+  { position: 10 },
+  {
+    type: #FOR_ACTION,
+    dataAction: 'ask',
+    label: 'Hỏi AI'
+  }
+]
       ProgramName,
 
       @UI.lineItem: [{ position: 20 }]

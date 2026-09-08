@@ -221,16 +221,6 @@ CLASS zcl_mig_sig_rslv IMPLEMENTATION.
     LOOP AT is_sig-params
       INTO DATA(ls_par).
 
-      IF ls_par-edm_type IS INITIAL.
-
-        ls_par-edm_type =
-          map_edm(
-            iv_abap  = ls_par-abap_type
-            iv_table = ls_par-is_table
-          ).
-
-      ENDIF.
-
 
       CASE ls_par-direction.
 
@@ -255,8 +245,58 @@ CLASS zcl_mig_sig_rslv IMPLEMENTATION.
 
         WHEN zif_mig_types=>gc_sig_tab.
 
-          IF is_prv-service_strategy =
-               zif_mig_types=>gc_svc_query.
+          IF is_prv-provider_kind =
+               zif_mig_types=>gc_provider_bapi
+             AND is_prv-service_strategy =
+                   zif_mig_types=>gc_svc_query.
+
+            DATA(lv_table_name) =
+              to_upper(
+                CONV string( ls_par-par_name )
+              ).
+
+            DATA(lv_table_type) =
+              to_upper(
+                CONV string( ls_par-type_name )
+              ).
+
+            CONDENSE lv_table_name NO-GAPS.
+            CONDENSE lv_table_type NO-GAPS.
+
+
+            IF lv_table_name = 'RETURN'
+               OR lv_table_name CP 'RETURN*'
+               OR lv_table_name CP '*MESSAGE*'
+               OR lv_table_type CP 'BAPIRET*'.
+
+              ls_par-odata_role =
+                zif_mig_types=>gc_sig_tech.
+
+
+            ELSEIF lv_table_name CP 'SELPARAM*'
+               OR lv_table_name CP 'SELECTION*'
+               OR lv_table_name CP 'FILTER*'
+               OR lv_table_name CP 'RANGE*'.
+
+              ls_par-odata_role =
+                zif_mig_types=>gc_sig_in.
+
+              "Selection tables are filters, not mandatory business
+              "inputs. An empty table means that no filter was supplied.
+              ls_par-optional =
+                abap_true.
+
+
+            ELSE.
+
+              ls_par-odata_role =
+                zif_mig_types=>gc_sig_out.
+
+            ENDIF.
+
+
+          ELSEIF is_prv-service_strategy =
+                   zif_mig_types=>gc_svc_query.
 
             ls_par-odata_role =
               zif_mig_types=>gc_sig_out.
@@ -274,6 +314,68 @@ CLASS zcl_mig_sig_rslv IMPLEMENTATION.
           CONTINUE.
 
       ENDCASE.
+
+
+      "BAPI messages are technical call results. They must not be
+      "exposed as the business entity, regardless of whether the
+      "Function Builder interface declares RETURN under EXPORTING
+      "or TABLES.
+      IF is_prv-provider_kind = zif_mig_types=>gc_provider_bapi
+         AND is_prv-service_strategy = zif_mig_types=>gc_svc_query
+         AND (
+               ls_par-direction = zif_mig_types=>gc_sig_exp
+               OR ls_par-direction = zif_mig_types=>gc_sig_tab
+             ).
+
+        DATA(lv_result_name) =
+          to_upper(
+            CONV string( ls_par-par_name )
+          ).
+
+        DATA(lv_result_type) =
+          to_upper(
+            CONV string( ls_par-type_name )
+          ).
+
+        CONDENSE lv_result_name NO-GAPS.
+        CONDENSE lv_result_type NO-GAPS.
+
+
+        IF lv_result_name = 'RETURN'
+           OR lv_result_name CP 'RETURN*'
+           OR lv_result_type CP 'BAPIRET*'.
+
+          ls_par-odata_role =
+            zif_mig_types=>gc_sig_tech.
+
+        ENDIF.
+
+      ENDIF.
+
+
+      IF ls_par-edm_type IS INITIAL.
+
+        DATA(lv_map_as_table) =
+          ls_par-is_table.
+
+        "For a BAPI selection table the public OData type is the
+        "element type of LOW, not Collection.
+        IF ls_par-direction = zif_mig_types=>gc_sig_tab
+           AND ls_par-odata_role = zif_mig_types=>gc_sig_in.
+
+          lv_map_as_table =
+            abap_false.
+
+        ENDIF.
+
+
+        ls_par-edm_type =
+          map_edm(
+            iv_abap  = ls_par-abap_type
+            iv_table = lv_map_as_table
+          ).
+
+      ENDIF.
 
 
       APPEND ls_par

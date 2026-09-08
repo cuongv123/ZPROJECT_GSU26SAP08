@@ -23,6 +23,9 @@ INTERFACE zif_mig_xco_executor PUBLIC.
       iv_transport
         TYPE trkorr
 
+      io_provider_gen
+        TYPE REF TO zif_mig_prv_clas_gen OPTIONAL
+
     RAISING
       zcx_mig_analysis
       cx_xco_gen_put_exception.

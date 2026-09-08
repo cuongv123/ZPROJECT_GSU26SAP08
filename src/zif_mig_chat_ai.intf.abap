@@ -57,6 +57,13 @@ INTERFACE zif_mig_chat_ai
   "==========================================================
   CONSTANTS:
     max_history_messages TYPE i VALUE 6,   " số message gần nhất đưa vào prompt
-    max_history_pairs    TYPE i VALUE 3.   " = 3 cặp USER/AI
+    max_history_pairs    TYPE i VALUE 3,   " = 3 cặp USER/AI
+    max_question_chars   TYPE i VALUE 4000,
+    max_message_chars    TYPE i VALUE 4000,
+    max_doc_chars        TYPE i VALUE 24000,
+    max_focused_chars    TYPE i VALUE 20000,
+    max_source_chars     TYPE i VALUE 32000,
+    max_unresolved_chars TYPE i VALUE 4000,
+    max_context_chars    TYPE i VALUE 60000.
 
 ENDINTERFACE.

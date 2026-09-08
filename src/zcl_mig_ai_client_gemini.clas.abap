@@ -11,25 +11,29 @@ CLASS zcl_mig_ai_client_gemini DEFINITION
 
 
     METHODS constructor
-      IMPORTING
-        iv_destination
-          TYPE rfcdest
-          DEFAULT 'ZGEMINI_API'
+  IMPORTING
+    iv_destination
+      TYPE rfcdest
+      DEFAULT 'ZGEMINI_API'
 
-        iv_api_key
-          TYPE string
+    iv_api_key
+      TYPE string
 
-        iv_model
-          TYPE string
-          DEFAULT 'gemini-3.5-flash-lite'
+    iv_model
+      TYPE string
+      DEFAULT 'gemini-3.5-flash-lite'
 
-        iv_timeout
-          TYPE i
-          DEFAULT 120
+    iv_timeout
+      TYPE i
+      DEFAULT 120
 
-        iv_max_output_tokens
-          TYPE i
-          DEFAULT 8192.
+    iv_max_output_tokens
+      TYPE i
+      DEFAULT 8192
+
+    iv_chat_mode
+      TYPE abap_bool
+      DEFAULT abap_false.
 
 
   PRIVATE SECTION.
@@ -100,6 +104,7 @@ CLASS zcl_mig_ai_client_gemini DEFINITION
       END OF ty_response.
 
 
+
     DATA mv_destination
       TYPE rfcdest.
 
@@ -119,6 +124,8 @@ CLASS zcl_mig_ai_client_gemini DEFINITION
     DATA mv_max_output_tokens
       TYPE i.
 
+   DATA mv_chat_mode
+     TYPE abap_bool.
 
     METHODS build_response_schema
       RETURNING
@@ -157,6 +164,8 @@ CLASS zcl_mig_ai_client_gemini IMPLEMENTATION.
 
 
   METHOD constructor.
+
+    mv_chat_mode = iv_chat_mode.
 
     mv_destination =
       iv_destination.
@@ -521,6 +530,23 @@ CLASS zcl_mig_ai_client_gemini IMPLEMENTATION.
         compress =
           abap_true
       ).
+       IF mv_chat_mode = abap_true.
+
+    rv_json =
+      `{"model":` &&
+      lv_model_json &&
+      `,"system_instruction":` &&
+      lv_system_json &&
+      `,"input":` &&
+      lv_user_json &&
+      `,"store":false` &&
+      `,"generation_config":{"max_output_tokens":` &&
+      |{ mv_max_output_tokens }| &&
+      `}}`.
+
+    RETURN.
+
+  ENDIF.
 
 
     DATA(lv_schema) =

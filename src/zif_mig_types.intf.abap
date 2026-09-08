@@ -629,6 +629,7 @@ INTERFACE zif_mig_types
         BEGIN OF ty_service_parameter,
           source_item_id     TYPE ty_item_id,
           parameter_name     TYPE c LENGTH 40,
+          source_field_name  TYPE c LENGTH 40,
           source_kind        TYPE c LENGTH 20,
           odata_kind         TYPE c LENGTH 20,
           edm_type           TYPE c LENGTH 30,
@@ -847,7 +848,10 @@ INTERFACE zif_mig_types
           VALUE 'OUTPUT',
 
         gc_sig_both TYPE ty_sig_role
-          VALUE 'BOTH'.
+          VALUE 'BOTH',
+
+        gc_sig_tech TYPE ty_sig_role
+          VALUE 'TECHNICAL'.
 
 
       CONSTANTS:
@@ -1303,6 +1307,8 @@ INTERFACE zif_mig_types
           strategy        TYPE ty_service_strategy,
           source_program  TYPE ty_program_name,
           package         TYPE devclass,
+          provider_package TYPE devclass,
+          provider_language TYPE c LENGTH 10,
           base_name       TYPE c LENGTH 40,
 
           status          TYPE ty_art_status,

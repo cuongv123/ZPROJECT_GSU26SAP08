@@ -13,8 +13,9 @@ INTERFACE zif_mig_chat_context_builder
 
   METHODS build
     IMPORTING
-      iv_program_name   TYPE progname
-      iv_question       TYPE string
+      iv_program_name TYPE progname
+      iv_question     TYPE string
+      iv_analysis_id  TYPE sysuuid_x16 OPTIONAL
     RETURNING
       VALUE(rs_context) TYPE ty_context
     RAISING
@@ -22,7 +23,7 @@ INTERFACE zif_mig_chat_context_builder
 
   METHODS classify_intent
     IMPORTING
-      iv_question      TYPE string
+      iv_question TYPE string
     RETURNING
       VALUE(rv_intent) TYPE string.
 

@@ -37,7 +37,10 @@ CLASS zcl_mig_odata_gen_svc DEFINITION
           TYPE REF TO zif_mig_art_repo OPTIONAL
 
         io_executor
-          TYPE REF TO zif_mig_xco_executor OPTIONAL.
+          TYPE REF TO zif_mig_xco_executor OPTIONAL
+
+        io_provider_gen
+          TYPE REF TO zif_mig_prv_clas_gen OPTIONAL.
 
   PRIVATE SECTION.
 
@@ -52,6 +55,8 @@ CLASS zcl_mig_odata_gen_svc DEFINITION
       mo_preflight    TYPE REF TO zif_mig_art_pref,
       mo_art_repo     TYPE REF TO zif_mig_art_repo,
       mo_executor     TYPE REF TO zif_mig_xco_executor.
+
+    DATA mo_provider_gen TYPE REF TO zif_mig_prv_clas_gen.
 
 
     METHODS block_result
@@ -80,6 +85,8 @@ ENDCLASS.
 CLASS zcl_mig_odata_gen_svc IMPLEMENTATION.
 
   METHOD constructor.
+
+    mo_provider_gen = io_provider_gen.
 
     IF io_reader IS BOUND.
       mo_reader = io_reader.
@@ -263,7 +270,9 @@ CLASS zcl_mig_odata_gen_svc IMPLEMENTATION.
     IF ( ls_prv-provider_kind <>
            zif_mig_types=>gc_provider_class_method
          AND ls_prv-provider_kind <>
-           zif_mig_types=>gc_provider_function )
+           zif_mig_types=>gc_provider_function
+         AND ls_prv-provider_kind <>
+           zif_mig_types=>gc_provider_bapi )
        OR
        ( ls_prv-provider_status <>
            zif_mig_types=>gc_provider_ready
@@ -425,6 +434,58 @@ CLASS zcl_mig_odata_gen_svc IMPLEMENTATION.
         is_row      = ls_row
       ).
 
+    "Choose the class target explicitly, independently of provider kind.
+    ls_mfst-provider_language = is_request-provider_language.
+    IF ls_mfst-provider_language IS INITIAL.
+      ls_mfst-provider_language = zif_mig_prv_clas_gen=>gc_cloud.
+    ENDIF.
+    ls_mfst-provider_package = is_request-provider_package.
+    IF ls_mfst-provider_package IS INITIAL
+       AND ls_mfst-provider_language = zif_mig_prv_clas_gen=>gc_cloud.
+      ls_mfst-provider_package = is_request-package.
+    ENDIF.
+
+    rs_result-provider_package = ls_mfst-provider_package.
+    rs_result-provider_language = ls_mfst-provider_language.
+
+    DATA(lv_target_error) = VALUE string( ).
+    CASE ls_mfst-provider_language.
+      WHEN zif_mig_prv_clas_gen=>gc_cloud.
+        "Existing CP path. Cloud API release checks still occur at activation.
+      WHEN zif_mig_prv_clas_gen=>gc_standard.
+        IF ls_mfst-provider_package IS INITIAL.
+          lv_target_error = 'STANDARD requires an explicit provider package.'.
+        ELSEIF mo_provider_gen IS NOT BOUND.
+          lv_target_error = 'Standard provider executor is not configured. Inject ZIF_MIG_PRV_CLAS_GEN from the composition root.'.
+        ELSE.
+          TRY.
+              DATA(ls_target) = mo_provider_gen->check_target( ls_mfst-provider_package ).
+              IF ls_target-allowed <> abap_true OR ls_target-language_code <> space.
+                lv_target_error = ls_target-message.
+                IF lv_target_error IS INITIAL.
+                  lv_target_error = 'Provider package did not pass the Standard ABAP check.'.
+                ENDIF.
+              ENDIF.
+            CATCH cx_root INTO DATA(lx_target).
+              lv_target_error = |Standard provider executor check failed: { lx_target->get_text( ) }|.
+          ENDTRY.
+        ENDIF.
+      WHEN OTHERS.
+        lv_target_error = |Unsupported provider language: { ls_mfst-provider_language }. Use CLOUD or STANDARD.|.
+    ENDCASE.
+
+    IF lv_target_error IS NOT INITIAL.
+      rs_result-block_count += 1.
+      block_result( EXPORTING iv_message = lv_target_error CHANGING cs_result = rs_result ).
+      RETURN.
+    ENDIF.
+
+    LOOP AT ls_mfst-items ASSIGNING FIELD-SYMBOL(<provider_item>)
+      WHERE art_type = zif_mig_types=>gc_art_clas
+        AND art_role = zif_mig_types=>gc_art_query_prv.
+      <provider_item>-package = ls_mfst-provider_package.
+    ENDLOOP.
+
 
     IF ls_mfst-status <> zif_mig_types=>gc_art_ready.
 
@@ -564,6 +625,7 @@ CLASS zcl_mig_odata_gen_svc IMPLEMENTATION.
       is_smap      = ls_smap
       is_row       = ls_row
       iv_transport = is_request-transport
+      io_provider_gen = mo_provider_gen
     ).
 
 
