@@ -453,3 +453,211 @@ CLASS ltc_export_column_block IMPLEMENTATION.
   ENDMETHOD.
 
 ENDCLASS.
+**********************************************************************
+* Test moi cho split_row_for_excel (Buoc 3 - Split multi-value Excel).
+* Dan vao CUOI file testclasses.abap hien co cua ZCL_MIG_EXPORT_ENGINE
+* (ngay sau class ltc_export_column_block), roi activate lai class chinh.
+**********************************************************************
+
+CLASS ltc_export_excel_split DEFINITION FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+
+  PRIVATE SECTION.
+    TYPES: BEGIN OF ty_test_row,
+             objectname     TYPE string,
+             selectedfields TYPE string,
+             joinedobjects  TYPE string,
+           END OF ty_test_row.
+
+    METHODS split_disabled_keeps_1_row FOR TESTING RAISING cx_static_check.
+    METHODS non_flagged_column_not_split FOR TESTING RAISING cx_static_check.
+    METHODS space_separator_splits FOR TESTING RAISING cx_static_check.
+    METHODS comma_sep_survives_padding FOR TESTING RAISING cx_static_check.
+    METHODS mismatched_counts_pad_blank FOR TESTING RAISING cx_static_check.
+ENDCLASS.
+
+CLASS ltc_export_excel_split IMPLEMENTATION.
+
+  METHOD split_disabled_keeps_1_row.
+    " Ngay ca khi cot duoc danh dau IS_MULTI_VALUE va gia tri co dau
+    " phan tach, neu iv_split_enabled = FALSE thi PHAI giu nguyen 1
+    " dong duy nhat - dung y nghia "mac dinh khong doi hanh vi cu".
+    DATA(lo_cut) = NEW zcl_mig_export_engine( ).
+
+    DATA(lt_columns) = VALUE zcl_mig_export_engine=>tt_col(
+      ( fieldname = 'OBJECTNAME'     column_title = 'Object' is_multi_value = abap_false )
+      ( fieldname = 'SELECTEDFIELDS' column_title = 'Fields'  is_multi_value = abap_true value_separator = ' ' ) ).
+
+    DATA(ls_row) = VALUE ty_test_row(
+      objectname     = 'ZTB_ORDER'
+      selectedfields = 'MATNR WERKS MENGE' ).
+
+    DATA(lt_out) = lo_cut->split_row_for_excel(
+      it_columns       = lt_columns
+      is_row           = ls_row
+      iv_split_enabled = abap_false ).
+
+    cl_abap_unit_assert=>assert_equals(
+      msg = 'Khi tat split, phai giu dung 1 dong bat ke co multi-value hay khong'
+      exp = 1
+      act = lines( lt_out ) ).
+  ENDMETHOD.
+
+  METHOD non_flagged_column_not_split.
+    " Cot khong duoc danh dau IS_MULTI_VALUE thi du gia tri co chua ky
+    " tu giong dau phan tach cung khong bi tach - moi cot tu quyet
+    " dinh rieng, khong anh huong lan nhau.
+    DATA(lo_cut) = NEW zcl_mig_export_engine( ).
+
+    DATA(lt_columns) = VALUE zcl_mig_export_engine=>tt_col(
+      ( fieldname = 'OBJECTNAME' column_title = 'Object' is_multi_value = abap_false ) ).
+
+    DATA(ls_row) = VALUE ty_test_row( objectname = 'A, B, C' ).
+
+    DATA(lt_out) = lo_cut->split_row_for_excel(
+      it_columns       = lt_columns
+      is_row           = ls_row
+      iv_split_enabled = abap_true ).
+
+    cl_abap_unit_assert=>assert_equals(
+      msg = 'Cot khong danh dau IS_MULTI_VALUE thi khong duoc tach, du bat split_enabled'
+      exp = 1
+      act = lines( lt_out ) ).
+  ENDMETHOD.
+
+  METHOD space_separator_splits.
+    " Mo phong dung SELECTED_FIELDS: value_separator = ' ' (CHAR3, toan
+    " khoang trang) - phai tach dung theo dau cach.
+    DATA(lo_cut) = NEW zcl_mig_export_engine( ).
+
+    DATA(lt_columns) = VALUE zcl_mig_export_engine=>tt_col(
+      ( fieldname = 'OBJECTNAME'     column_title = 'Object' is_multi_value = abap_false )
+      ( fieldname = 'SELECTEDFIELDS' column_title = 'Fields'  is_multi_value = abap_true value_separator = ' ' ) ).
+
+    DATA(ls_row) = VALUE ty_test_row(
+      objectname     = 'ZTB_ORDER'
+      selectedfields = 'MATNR WERKS MENGE' ).
+
+    DATA(lt_out) = lo_cut->split_row_for_excel(
+      it_columns       = lt_columns
+      is_row           = ls_row
+      iv_split_enabled = abap_true ).
+
+    cl_abap_unit_assert=>assert_equals(
+      msg = '3 gia tri cach nhau boi dau cach phai sinh dung 3 dong'
+      exp = 3
+      act = lines( lt_out ) ).
+
+    DATA(lt_row1) = lt_out[ 1 ].
+    DATA(lt_row2) = lt_out[ 2 ].
+    DATA(lt_row3) = lt_out[ 3 ].
+
+    cl_abap_unit_assert=>assert_equals( msg = 'Dong 1 - cot 1 (khong tach)' exp = 'ZTB_ORDER' act = lt_row1[ 1 ] ).
+    cl_abap_unit_assert=>assert_equals( msg = 'Dong 1 - cot 2 (phan tu 1)'  exp = 'MATNR'     act = lt_row1[ 2 ] ).
+    cl_abap_unit_assert=>assert_equals( msg = 'Dong 2 - cot 1 (lap lai)'    exp = 'ZTB_ORDER' act = lt_row2[ 1 ] ).
+    cl_abap_unit_assert=>assert_equals( msg = 'Dong 2 - cot 2 (phan tu 2)'  exp = 'WERKS'     act = lt_row2[ 2 ] ).
+    cl_abap_unit_assert=>assert_equals( msg = 'Dong 3 - cot 1 (lap lai)'    exp = 'ZTB_ORDER' act = lt_row3[ 1 ] ).
+    cl_abap_unit_assert=>assert_equals( msg = 'Dong 3 - cot 2 (phan tu 3)'  exp = 'MENGE'     act = lt_row3[ 2 ] ).
+  ENDMETHOD.
+
+  METHOD comma_sep_survives_padding.
+    " Mo phong dung JOINED_OBJECTS: value_separator = ', ' luu vao
+    " CHAR3 se bi dem them 1 khoang trang o cuoi (thanh ',  ' - 2 dau
+    " cach thay vi 1). Neu dung nguyen gia tri padded de tim trong
+    " chuoi goc (chi co 1 dau cach) se KHONG khop - day chinh la bug
+    " da ne duoc trong split_row_for_excel. Test nay khoa lai hanh vi
+    " dung (khong bi regress ve sau).
+    DATA(lo_cut) = NEW zcl_mig_export_engine( ).
+
+    DATA(lt_columns) = VALUE zcl_mig_export_engine=>tt_col(
+      ( fieldname = 'JOINEDOBJECTS' column_title = 'Objects' is_multi_value = abap_true value_separator = ', ' ) ).
+
+    DATA(ls_row) = VALUE ty_test_row( joinedobjects = 'MARA, MARC' ).
+
+    DATA(lt_out) = lo_cut->split_row_for_excel(
+      it_columns       = lt_columns
+      is_row           = ls_row
+      iv_split_enabled = abap_true ).
+
+    cl_abap_unit_assert=>assert_equals(
+      msg = 'value_separator CHAR3 bi dem khoang trang khong duoc lam hong viec tach - van phai ra dung 2 dong'
+      exp = 2
+      act = lines( lt_out ) ).
+
+    DATA(lt_row1) = lt_out[ 1 ].
+    DATA(lt_row2) = lt_out[ 2 ].
+    cl_abap_unit_assert=>assert_equals( exp = 'MARA' act = lt_row1[ 1 ] ).
+    cl_abap_unit_assert=>assert_equals( exp = 'MARC' act = lt_row2[ 1 ] ).
+  ENDMETHOD.
+
+  METHOD mismatched_counts_pad_blank.
+    " 2 cot multi-value cung dong nhung so phan tu khac nhau (3 vs 2)
+    " -> so dong sinh ra = max(3,2) = 3, cot it phan tu hon de trong o
+    " dong du.
+    DATA(lo_cut) = NEW zcl_mig_export_engine( ).
+
+    DATA(lt_columns) = VALUE zcl_mig_export_engine=>tt_col(
+      ( fieldname = 'SELECTEDFIELDS' column_title = 'Fields'  is_multi_value = abap_true value_separator = ' ' )
+      ( fieldname = 'JOINEDOBJECTS'  column_title = 'Objects' is_multi_value = abap_true value_separator = ', ' ) ).
+
+    DATA(ls_row) = VALUE ty_test_row(
+      selectedfields = 'MATNR WERKS MENGE'
+      joinedobjects  = 'MARA, MARC' ).
+
+    DATA(lt_out) = lo_cut->split_row_for_excel(
+      it_columns       = lt_columns
+      is_row           = ls_row
+      iv_split_enabled = abap_true ).
+
+    cl_abap_unit_assert=>assert_equals(
+      msg = 'So dong phai bang cot nhieu phan tu nhat (3), khong phai it nhat (2)'
+      exp = 3
+      act = lines( lt_out ) ).
+
+    DATA(lt_row3) = lt_out[ 3 ].
+    cl_abap_unit_assert=>assert_equals( msg = 'Dong 3 - SELECTEDFIELDS phan tu thu 3' exp = 'MENGE' act = lt_row3[ 1 ] ).
+    cl_abap_unit_assert=>assert_equals( msg = 'Dong 3 - JOINEDOBJECTS chi co 2 phan tu, phai de trong' exp = '' act = lt_row3[ 2 ] ).
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS ltc_export_split_wiring DEFINITION FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+
+  PRIVATE SECTION.
+    CONSTANTS gc_analysis_id TYPE sysuuid_x16 VALUE '8B95F36A4F271FD1A4E59A1A58522272'.
+    CONSTANTS gc_job_id      TYPE sysuuid_x16 VALUE 'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF'.
+
+    METHODS generate_accepts_split_flag FOR TESTING RAISING cx_static_check.
+ENDCLASS.
+
+CLASS ltc_export_split_wiring IMPLEMENTATION.
+
+  METHOD generate_accepts_split_flag.
+    " Chi xac nhan viec truyen iv_split_multi_value qua generate()
+    " khong lam vo export binh thuong (van thanh cong, van co noi
+    " dung) - KHONG test lai logic tach dong, vi 5 test rieng cho
+    " split_row_for_excel o Buoc 3 da khoa hanh vi do roi.
+    DATA(lo_cut) = NEW zcl_mig_export_engine( ).
+
+    DATA(ls_result) = lo_cut->zif_mig_export_provider~generate(
+      iv_job_id             = gc_job_id
+      iv_analysis_id        = gc_analysis_id
+      iv_report_type        = ''
+      iv_file_format         = 'X'
+      iv_export_section     = 'UI_FILTER'
+      iv_selected_fields    = ''
+      iv_split_multi_value  = abap_true ).
+
+    cl_abap_unit_assert=>assert_true(
+      msg = 'generate() phai chap nhan iv_split_multi_value va van xuat Excel thanh cong'
+      act = ls_result-success ).
+
+    cl_abap_unit_assert=>assert_true(
+      msg = 'File Excel sinh ra van phai co noi dung, khong duoc rong'
+      act = xsdbool( xstrlen( ls_result-content ) > 0 ) ).
+  ENDMETHOD.
+
+ENDCLASS.

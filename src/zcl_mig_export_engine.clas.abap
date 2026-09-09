@@ -25,10 +25,12 @@ CLASS zcl_mig_export_engine DEFINITION
 
 
     TYPES: BEGIN OF ty_col,
-             seq_no         TYPE ztb_exp_col-seq_no,
-             fieldname      TYPE ztb_exp_col-fieldname,
-             column_title   TYPE ztb_exp_col-column_title,
-             odata_property TYPE ztb_exp_col-odata_property,
+             seq_no          TYPE ztb_exp_col-seq_no,
+             fieldname       TYPE ztb_exp_col-fieldname,
+             column_title    TYPE ztb_exp_col-column_title,
+             odata_property  TYPE ztb_exp_col-odata_property,
+             is_multi_value  TYPE ztb_exp_col-is_multi_value,
+             value_separator TYPE ztb_exp_col-value_separator,
            END OF ty_col,
            tt_col TYPE STANDARD TABLE OF ty_col WITH EMPTY KEY.
     TYPES tt_row_cells TYPE STANDARD TABLE OF string_table WITH EMPTY KEY.
@@ -48,6 +50,7 @@ CLASS zcl_mig_export_engine DEFINITION
              sections TYPE tt_section_registry,
              fields   TYPE tt_section_fields,
            END OF ty_export_plan.
+
     METHODS resolve_export_plan
       IMPORTING
         iv_export_section  TYPE zif_mig_export_provider=>ty_export_section
@@ -56,6 +59,13 @@ CLASS zcl_mig_export_engine DEFINITION
         VALUE(rs_plan)     TYPE ty_export_plan
       RAISING
         zcx_mig_export_error.
+    METHODS split_row_for_excel
+      IMPORTING
+        it_columns       TYPE tt_col
+        is_row           TYPE any
+        iv_split_enabled TYPE abap_bool
+      RETURNING
+        VALUE(rt_rows)   TYPE tt_row_cells.
     TYPES: BEGIN OF ty_pdf_layout,
              header_text TYPE string,
              footer_text TYPE string,
@@ -190,22 +200,23 @@ CLASS zcl_mig_export_engine DEFINITION
     " hoàn chỉnh (xref/trailer) - dùng chung cho cả trường hợp 1 section
     " và nhiều section gộp lại.
     METHODS assemble_pdf_binary
-    IMPORTING
-      it_pages         TYPE string_table
-      is_pdf_layout     TYPE ty_pdf_layout OPTIONAL
-    RETURNING
-      VALUE(rv_content) TYPE xstring.
+      IMPORTING
+        it_pages          TYPE string_table
+        is_pdf_layout     TYPE ty_pdf_layout OPTIONAL
+      RETURNING
+        VALUE(rv_content) TYPE xstring.
 
 
     METHODS export_excel
       IMPORTING
-        iv_job_id          TYPE sysuuid_x16
-        iv_analysis_id     TYPE sysuuid_x16
-        iv_report_type     TYPE zmig_mail_job-report_type
-        iv_export_section  TYPE zif_mig_export_provider=>ty_export_section
-        iv_selected_fields TYPE string
+        iv_job_id            TYPE sysuuid_x16
+        iv_analysis_id       TYPE sysuuid_x16
+        iv_report_type       TYPE zmig_mail_job-report_type
+        iv_export_section    TYPE zif_mig_export_provider=>ty_export_section
+        iv_selected_fields   TYPE string
+        iv_split_multi_value TYPE abap_bool OPTIONAL
       RETURNING
-        VALUE(rs_result)   TYPE zif_mig_export_provider=>ty_export_result
+        VALUE(rs_result)     TYPE zif_mig_export_provider=>ty_export_result
       RAISING
         zcx_excel.
 
@@ -233,6 +244,82 @@ CLASS zcl_mig_export_engine DEFINITION
 ENDCLASS.
 
 CLASS zcl_mig_export_engine IMPLEMENTATION.
+  METHOD split_row_for_excel.
+    " Voi tung cot: neu duoc bat tach (iv_split_enabled = X) VA duoc
+    " danh dau IS_MULTI_VALUE = X trong ZTB_EXP_COL, tach gia tri gom
+    " thanh danh sach cac phan tu; cot khac (hoac khi tat tinh nang)
+    " giu nguyen 1 gia tri - dam bao mac dinh (iv_split_enabled = ' ')
+    " hanh vi y het hien tai, khong breaking change.
+    "
+    " LUU Y QUAN TRONG: VALUE_SEPARATOR la CHAR(3), ABAP tu dong dem
+    " them khoang trang cho du 3 ky tu khi luu (vd ', ' se thanh
+    " ',  ' - 2 dau cach o cuoi thay vi 1). Neu dung NGUYEN gia tri
+    " nay de SPLIT thi se KHONG khop voi chuoi goc (chuoi goc chi co
+    " dung 1 dau cach sau dau phay) -> tach that bai am tham. Vi vay
+    " chi lay DUNG 1 KY TU "cot loi" cua separator (bo het khoang
+    " trang bang CONDENSE NO-GAPS), roi condense() lai tung phan tu
+    " sau khi tach - vua tranh duoc van de dem cua CHAR co do dai co
+    " dinh, vua khong phu thuoc du lieu goc co 1 hay nhieu dau cach.
+    DATA lt_col_parts TYPE STANDARD TABLE OF string_table WITH EMPTY KEY.
+    DATA(lv_max_parts) = 1.
+
+    LOOP AT it_columns INTO DATA(ls_col).
+      ASSIGN COMPONENT ls_col-fieldname OF STRUCTURE is_row TO FIELD-SYMBOL(<lv_val>).
+      DATA(lv_raw) = COND string( WHEN sy-subrc = 0 THEN CONV string( <lv_val> ) ELSE '' ).
+
+      DATA lt_parts TYPE string_table.
+      CLEAR lt_parts.
+
+      IF iv_split_enabled = abap_true
+         AND ls_col-is_multi_value = abap_true
+         AND lv_raw IS NOT INITIAL.
+        DATA(lv_sep_char) = CONV string( ls_col-value_separator ).
+        CONDENSE lv_sep_char NO-GAPS.
+        IF lv_sep_char IS INITIAL.
+          " Separator toan khoang trang (vd SELECTED_FIELDS = ' ') ->
+          " CONDENSE NO-GAPS xoa het, fallback ve dung 1 dau cach.
+          lv_sep_char = ` `.
+        ENDIF.
+
+        SPLIT lv_raw AT lv_sep_char INTO TABLE lt_parts.
+        LOOP AT lt_parts ASSIGNING FIELD-SYMBOL(<lv_part>).
+          <lv_part> = condense( <lv_part> ).
+        ENDLOOP.
+        DELETE lt_parts WHERE table_line IS INITIAL.
+        IF lt_parts IS INITIAL.
+          " Truong hop hiem: sau khi loc rong het (vd gia tri goc chi
+          " toan dau phan tach) -> giu lai nguyen gia tri goc, tranh
+          " mat du lieu.
+          APPEND lv_raw TO lt_parts.
+        ENDIF.
+      ELSE.
+        APPEND lv_raw TO lt_parts.
+      ENDIF.
+
+      APPEND lt_parts TO lt_col_parts.
+      IF lines( lt_parts ) > lv_max_parts.
+        lv_max_parts = lines( lt_parts ).
+      ENDIF.
+    ENDLOOP.
+
+    " Sinh lv_max_parts dong xuat, moi dong lay dung 1 phan tu tuong
+    " ung tung cot (rong neu cot do it phan tu hon dong dang xet).
+    DO lv_max_parts TIMES.
+      DATA(lv_part_idx) = sy-index.
+      DATA lt_out_row TYPE string_table.
+      CLEAR lt_out_row.
+      LOOP AT lt_col_parts INTO DATA(lt_this_col_parts).
+        DATA(lv_out) = COND string(
+          WHEN lines( lt_this_col_parts ) <= 1
+            THEN lt_this_col_parts[ 1 ]
+          WHEN lv_part_idx <= lines( lt_this_col_parts )
+            THEN lt_this_col_parts[ lv_part_idx ]
+          ELSE '' ).
+        APPEND lv_out TO lt_out_row.
+      ENDLOOP.
+      APPEND lt_out_row TO rt_rows.
+    ENDDO.
+  ENDMETHOD.
 
   METHOD zif_mig_export_provider~generate.
 
@@ -248,11 +335,12 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
         CASE lv_format.
           WHEN gc_format_excel OR 'EXCEL' OR 'E' OR 'XLSX'.
             rs_result = export_excel(
-              iv_job_id          = iv_job_id
-              iv_analysis_id     = iv_analysis_id
-              iv_report_type     = iv_report_type
-              iv_export_section  = lv_section
-              iv_selected_fields = iv_selected_fields ).
+              iv_job_id             = iv_job_id
+              iv_analysis_id        = iv_analysis_id
+              iv_report_type        = iv_report_type
+              iv_export_section     = lv_section
+              iv_selected_fields    = iv_selected_fields
+              iv_split_multi_value  = iv_split_multi_value ).
 
           WHEN gc_format_csv OR 'CSV'.
             rs_result = export_csv(
@@ -269,8 +357,13 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
               iv_report_type     = iv_report_type
               iv_export_section  = lv_section
               iv_selected_fields = iv_selected_fields
-              is_pdf_layout      = VALUE ty_pdf_layout( header_text = iv_pdf_header
-                                                         footer_text = iv_pdf_footer ) ).
+              is_pdf_layout      = VALUE ty_pdf_layout(
+                                     header_text = iv_pdf_header
+                                     footer_text = iv_pdf_footer
+                                     paper_size  = iv_paper_size
+                                     orientation = iv_orientation
+                                     font_size   = iv_font_size
+                                     fit_to_page = iv_fit_to_page ) ).
 
           WHEN OTHERS.
             rs_result-success = abap_false.
@@ -462,7 +555,8 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
 
   METHOD get_columns_for_section.
     " 1 SELECT duy nhất trên toàn bộ cột của section.
-    SELECT seq_no, fieldname, column_title, odata_property
+    SELECT seq_no, fieldname, column_title, odata_property,
+           is_multi_value, value_separator
       FROM ztb_exp_col
       WHERE section_code = @iv_section_code
       ORDER BY seq_no ASCENDING
@@ -471,6 +565,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     IF lt_all_cols IS INITIAL AND io_struct IS BOUND.
       " Fallback: chưa maintain ZTB_EXP_COL cho section này -> lấy hết
       " component của structure làm cột mặc định (không SELECT thêm).
+      " is_multi_value/value_separator để trống (mặc định = khong tach).
       LOOP AT io_struct->get_components( ) INTO DATA(ls_comp).
         APPEND VALUE #( fieldname      = ls_comp-name
                          column_title   = ls_comp-name
@@ -494,7 +589,6 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       ENDIF.
     ENDLOOP.
   ENDMETHOD.
-
 
   METHOD read_section_data.
     DATA(lo_struct) = CAST cl_abap_structdescr(
@@ -657,28 +751,38 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
             APPEND strlen( CONV string( ls_col-column_title ) ) + 2 TO lt_max_len.
           ENDLOOP.
 
-          " --- Data rows ---
+          " --- Data rows (co the "no dong" cho tung record neu bat
+          " Split multi-value cho cot nao do trong record) ---
           DATA(lv_row) = 2.
+          DATA(lv_written_rows) = 0.
           LOOP AT <lt_data> ASSIGNING FIELD-SYMBOL(<ls_row>).
-            lv_col = 1.
-            LOOP AT lt_columns INTO ls_col.
-              ASSIGN COMPONENT ls_col-fieldname OF STRUCTURE <ls_row> TO FIELD-SYMBOL(<lv_val>).
-              IF sy-subrc = 0.
-                lo_sheet->set_cell( ip_column = lv_col ip_row = lv_row ip_value = <lv_val> ).
-                DATA(lv_cell_len) = strlen( CONV string( <lv_val> ) ).
+            DATA(lt_exploded) = split_row_for_excel(
+              it_columns       = lt_columns
+              is_row           = <ls_row>
+              iv_split_enabled = iv_split_multi_value ).
+
+            LOOP AT lt_exploded INTO DATA(lt_out_row).
+              lv_col = 1.
+              LOOP AT lt_out_row INTO DATA(lv_cell_val).
+                lo_sheet->set_cell( ip_column = lv_col ip_row = lv_row ip_value = lv_cell_val ).
+                DATA(lv_cell_len) = strlen( lv_cell_val ).
                 IF lv_cell_len > lt_max_len[ lv_col ].
                   lt_max_len[ lv_col ] = lv_cell_len.
                 ENDIF.
-              ENDIF.
-              lv_col = lv_col + 1.
+                lv_col = lv_col + 1.
+              ENDLOOP.
+              lv_row = lv_row + 1.
+              lv_written_rows = lv_written_rows + 1.
             ENDLOOP.
-            lv_row = lv_row + 1.
           ENDLOOP.
 
-          " --- Total: đúng 1 dòng, chỉ đếm số dòng dữ liệu ---
+          " --- Total: dem dung so dong DA GHI THUC TE len sheet (sau
+          " khi tach, neu co bat split) - KHONG dung lines( <lt_data> )
+          " nua, vi so dong tren sheet co the nhieu hon so record goc
+          " khi 1 record no ra nhieu dong. ---
           DATA(lv_total_row) = lv_row + 1.
           lo_sheet->set_cell( ip_column = 1 ip_row = lv_total_row
-            ip_value = |TOTAL: { lines( <lt_data> ) } rows| ).
+            ip_value = |TOTAL: { lv_written_rows } rows| ).
           lo_sheet->set_cell_style( ip_column = 1 ip_row = lv_total_row
             ip_style = lo_style_total->get_guid( ) ).
 
@@ -919,7 +1023,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
 
       DATA(lv_total_cols) = lines( lt_columns ).
 
-       IF lv_total_cols <= lc_max_cols_per_block OR is_pdf_layout-fit_to_page = abap_true.
+      IF lv_total_cols <= lc_max_cols_per_block OR is_pdf_layout-fit_to_page = abap_true.
         " So cot binh thuong - 1 khoi duy nhat, hanh vi giu nguyen nhu cu.
         TRY.
             DATA(lt_section_pages) = render_section_pages(
@@ -998,7 +1102,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       RETURN.
     ENDIF.
 
-     rs_result-content     = assemble_pdf_binary( it_pages = lt_all_pages is_pdf_layout = is_pdf_layout ).
+    rs_result-content     = assemble_pdf_binary( it_pages = lt_all_pages is_pdf_layout = is_pdf_layout ).
     rs_result-success     = abap_true.
     rs_result-file_name   = resolve_export_filename(
                                iv_analysis_id    = lv_analysis_id
@@ -1016,7 +1120,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
 
 
 
-METHOD get_page_dimensions.
+  METHOD get_page_dimensions.
     " Kich thuoc goc theo huong PORTRAIT (point), tu dao truc khi Landscape.
     " Mac dinh (paper_size/orientation rong) = LETTER Landscape 792x612,
     " dung y het hang vi cu truoc khi co tham so nay - khong breaking change.
