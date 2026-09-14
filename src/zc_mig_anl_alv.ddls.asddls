@@ -14,7 +14,7 @@ define view entity ZC_MIG_ANL_ALV
       OutputName,
       OutputKind,
       Framework,
-
+      ContainingRoutine,
       ControlObject,
       OutputTable,
       RowType,

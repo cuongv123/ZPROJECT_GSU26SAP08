@@ -57,6 +57,67 @@ CLASS lcl_mig_analysis_buffer IMPLEMENTATION.
 
 ENDCLASS.
 
+CLASS lcl_mig_analysis_delete_buffer DEFINITION
+  FINAL
+  CREATE PRIVATE.
+
+  PUBLIC SECTION.
+
+    TYPES tt_analysis_id
+      TYPE SORTED TABLE OF
+        zif_mig_types=>ty_analysis_id
+      WITH UNIQUE KEY table_line.
+
+    CLASS-METHODS add
+      IMPORTING
+        iv_analysis_id
+          TYPE zif_mig_types=>ty_analysis_id.
+
+    CLASS-METHODS get_all
+      RETURNING
+        VALUE(rt_analysis_ids)
+          TYPE tt_analysis_id.
+
+    CLASS-METHODS clear.
+
+  PRIVATE SECTION.
+
+    CLASS-DATA gt_analysis_ids
+      TYPE tt_analysis_id.
+
+ENDCLASS.
+
+
+CLASS lcl_mig_analysis_delete_buffer IMPLEMENTATION.
+
+  METHOD add.
+
+    IF iv_analysis_id IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    INSERT iv_analysis_id
+      INTO TABLE gt_analysis_ids.
+
+  ENDMETHOD.
+
+
+  METHOD get_all.
+
+    rt_analysis_ids =
+      gt_analysis_ids.
+
+  ENDMETHOD.
+
+
+  METHOD clear.
+
+    CLEAR gt_analysis_ids.
+
+  ENDMETHOD.
+
+ENDCLASS.
+
 CLASS lhc_Analysis DEFINITION INHERITING FROM cl_abap_behavior_handler.
   PRIVATE SECTION.
 
@@ -68,6 +129,9 @@ CLASS lhc_Analysis DEFINITION INHERITING FROM cl_abap_behavior_handler.
 
     METHODS lock FOR LOCK
       IMPORTING keys FOR LOCK Analysis.
+
+    METHODS delete FOR MODIFY
+       IMPORTING keys FOR DELETE Analysis.
 
     METHODS rba_Alvoutputs FOR READ
       IMPORTING keys_rba FOR READ Analysis\_Alvoutputs FULL result_requested RESULT result LINK association_links.
@@ -95,6 +159,15 @@ CLASS lhc_Analysis DEFINITION INHERITING FROM cl_abap_behavior_handler.
     METHODS Analyze FOR MODIFY
       IMPORTING keys FOR ACTION Analysis~Analyze RESULT result.
 
+    METHODS preparefioriui FOR MODIFY
+      IMPORTING keys FOR ACTION Analysis~PrepareFioriUi RESULT result.
+
+    METHODS generatetechnicaldocument FOR MODIFY
+      IMPORTING keys FOR ACTION Analysis~GenerateTechnicalDocument RESULT result.
+
+    METHODS generateaiassessment FOR MODIFY
+      IMPORTING keys FOR ACTION Analysis~GenerateAIAssessment RESULT result.
+
     METHODS prepareselectedexport FOR MODIFY
       IMPORTING keys FOR ACTION Analysis~PrepareSelectedExport RESULT result.
 
@@ -106,19 +179,32 @@ CLASS lhc_Analysis DEFINITION INHERITING FROM cl_abap_behavior_handler.
         et_invalid_fields   TYPE string_table
       RETURNING
         VALUE(rv_all_valid) TYPE abap_bool.
+
+
 ENDCLASS.
 
 CLASS lhc_Analysis IMPLEMENTATION.
 
   METHOD get_global_authorizations.
 
-    result-%action-Analyze =
-      if_abap_behv=>auth-allowed.
-
-    result-%action-PrepareSelectedExport =
+  result-%delete =
     if_abap_behv=>auth-allowed.
 
-  ENDMETHOD.
+  result-%action-Analyze =
+    if_abap_behv=>auth-allowed.
+
+  result-%action-GenerateTechnicalDocument =
+    if_abap_behv=>auth-allowed.
+
+  result-%action-GenerateAIAssessment =
+    if_abap_behv=>auth-allowed.
+
+  result-%action-PrepareFioriUi = if_abap_behv=>auth-allowed.
+
+  result-%action-PrepareSelectedExport =
+    if_abap_behv=>auth-allowed.
+
+ENDMETHOD.
 
   METHOD read.
 
@@ -227,6 +313,80 @@ CLASS lhc_Analysis IMPLEMENTATION.
     ENDLOOP.
 
   ENDMETHOD.
+
+  METHOD delete.
+
+  IF keys IS INITIAL.
+    RETURN.
+  ENDIF.
+
+
+  DATA(lo_store) =
+    NEW zcl_mig_analysis_store( ).
+
+
+  LOOP AT keys
+    ASSIGNING FIELD-SYMBOL(<key>).
+
+    DATA(lv_analysis_id) =
+      <key>-AnalysisId.
+
+
+    IF lv_analysis_id IS INITIAL.
+
+      APPEND VALUE #(
+        %tky = <key>-%tky
+      ) TO failed-Analysis.
+
+      APPEND VALUE #(
+        %tky = <key>-%tky
+
+        %msg = new_message_with_text(
+          severity =
+            if_abap_behv_message=>severity-error
+
+          text =
+            'Analysis ID is required.'
+        )
+      ) TO reported-Analysis.
+
+      CONTINUE.
+
+    ENDIF.
+
+
+    IF lo_store->zif_mig_analysis_store~exists(
+         iv_analysis_id = lv_analysis_id
+       ) = abap_false.
+
+      APPEND VALUE #(
+        %tky = <key>-%tky
+      ) TO failed-Analysis.
+
+      APPEND VALUE #(
+        %tky = <key>-%tky
+
+        %msg = new_message_with_text(
+          severity =
+            if_abap_behv_message=>severity-error
+
+          text =
+            'Analysis does not exist or was already deleted.'
+        )
+      ) TO reported-Analysis.
+
+      CONTINUE.
+
+    ENDIF.
+
+
+    lcl_mig_analysis_delete_buffer=>add(
+      iv_analysis_id = lv_analysis_id
+    ).
+
+  ENDLOOP.
+
+ENDMETHOD.
 
   METHOD rba_Businesslogic.
 
@@ -720,6 +880,562 @@ CLASS lhc_Analysis IMPLEMENTATION.
     ENDLOOP.
 
   ENDMETHOD.
+
+  METHOD preparefioriui.
+    LOOP AT keys ASSIGNING FIELD-SYMBOL(<key>).
+      TRY.
+          DATA(ls_config) = NEW zcl_mig_ui_service( )->prepare(
+            iv_analysis_id = <key>-AnalysisId
+            iv_package = CONV #( <key>-%param-TargetPackage )
+            iv_service_root_url = <key>-%param-ServiceRootUrl ).
+          APPEND VALUE #( %tky = <key>-%tky %param = VALUE #(
+            AnalysisId = <key>-AnalysisId Status = ls_config-status
+            RuntimeCheck = ls_config-runtime_check IssueCount = lines( ls_config-issues )
+            ConfigJson = zcl_mig_ui_service=>to_json( ls_config ) ) ) TO result.
+        CATCH cx_root INTO DATA(lx_ui).
+          APPEND VALUE #( %tky = <key>-%tky ) TO failed-Analysis.
+          APPEND VALUE #( %tky = <key>-%tky %msg = new_message_with_text(
+            severity = if_abap_behv_message=>severity-error text = lx_ui->get_text( ) ) ) TO reported-Analysis.
+      ENDTRY.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD generatetechnicaldocument.
+
+  IF keys IS INITIAL.
+    RETURN.
+  ENDIF.
+
+
+  DATA(lo_doc_service) =
+    NEW zcl_mig_tech_doc_service( ).
+
+
+  LOOP AT keys
+    ASSIGNING FIELD-SYMBOL(<key>).
+
+
+    DATA(lv_analysis_id) =
+      <key>-AnalysisId.
+
+
+    "==========================================================
+    " Validate AnalysisId
+    "==========================================================
+    IF lv_analysis_id IS INITIAL.
+
+      APPEND VALUE #(
+        %tky = <key>-%tky
+      ) TO failed-Analysis.
+
+      APPEND VALUE #(
+        %tky = <key>-%tky
+
+        %msg = new_message_with_text(
+          severity =
+            if_abap_behv_message=>severity-error
+
+          text =
+            'Analysis ID is required.'
+        )
+      ) TO reported-Analysis.
+
+      CONTINUE.
+
+    ENDIF.
+
+
+    TRY.
+
+        "======================================================
+        " 1. Build Technical Markdown from persisted analysis
+        "======================================================
+        DATA(ls_doc) =
+          lo_doc_service->zif_mig_tech_doc_service~generate(
+            iv_analysis_id =
+              lv_analysis_id
+          ).
+
+
+        IF ls_doc-markdown IS INITIAL.
+
+          APPEND VALUE #(
+            %tky = <key>-%tky
+          ) TO failed-Analysis.
+
+          APPEND VALUE #(
+            %tky = <key>-%tky
+
+            %msg = new_message_with_text(
+              severity =
+                if_abap_behv_message=>severity-error
+
+              text =
+                'Technical document is empty.'
+            )
+          ) TO reported-Analysis.
+
+          CONTINUE.
+
+        ENDIF.
+
+
+        "======================================================
+        " 2. Markdown STRING → UTF-8 XSTRING
+        "======================================================
+        DATA(lv_content) =
+          cl_abap_codepage=>convert_to(
+            source   = ls_doc-markdown
+            codepage = 'UTF-8'
+          ).
+
+
+        "======================================================
+        " 3. Export Job identity
+        "======================================================
+        DATA(lv_export_id) =
+          cl_system_uuid=>create_uuid_x16_static( ).
+
+
+        DATA(lv_created_at) =
+          cl_abap_tstmp=>utclong2tstmp(
+            utclong_current( )
+          ).
+
+
+        DATA(lv_expires_at) =
+          cl_abap_tstmp=>add(
+            tstmp = lv_created_at
+            secs  = 24 * 60 * 60
+          ).
+
+
+        "======================================================
+        " 4. Store generated Markdown as downloadable LOB
+        "======================================================
+        INSERT zmig_exp_job FROM @( VALUE #(
+
+          client          = sy-mandt
+
+          export_id       = lv_export_id
+          analysis_id     = lv_analysis_id
+
+          file_format     = 'M'
+          export_section  = 'ALL'
+
+          selected_fields = ''
+
+          status          = 'READY'
+
+          file_name       = ls_doc-file_name
+          mime_type       = ls_doc-mime_type
+
+          content         = lv_content
+
+          message         =
+            'Technical Markdown document'
+
+          created_by      = sy-uname
+          created_at      = lv_created_at
+          expires_at      = lv_expires_at
+
+        ) ).
+
+
+        IF sy-subrc <> 0.
+
+          APPEND VALUE #(
+            %tky = <key>-%tky
+          ) TO failed-Analysis.
+
+          APPEND VALUE #(
+            %tky = <key>-%tky
+
+            %msg = new_message_with_text(
+              severity =
+                if_abap_behv_message=>severity-error
+
+              text =
+                'Technical document could not be stored.'
+            )
+          ) TO reported-Analysis.
+
+          CONTINUE.
+
+        ENDIF.
+
+
+        "======================================================
+        " 5. UUID X16 → OData GUID string
+        "======================================================
+        DATA(lv_guid_hex) =
+          |{ lv_export_id }|.
+
+
+        DATA(lv_guid_str) =
+          to_lower(
+            |{ lv_guid_hex(8) }-| &&
+            |{ lv_guid_hex+8(4) }-| &&
+            |{ lv_guid_hex+12(4) }-| &&
+            |{ lv_guid_hex+16(4) }-| &&
+            |{ lv_guid_hex+20(12) }|
+          ).
+
+
+        "======================================================
+        " 6. Return download metadata
+        "======================================================
+        APPEND VALUE #(
+
+          %tky =
+            <key>-%tky
+
+          %param = VALUE #(
+
+            ExportId =
+              lv_export_id
+
+            Status =
+              'READY'
+
+            FileName =
+              ls_doc-file_name
+
+            MimeType =
+              ls_doc-mime_type
+
+            DownloadUrl =
+              |/ExportJobs({ lv_guid_str })/Content|
+
+          )
+
+        ) TO result.
+
+
+      CATCH zcx_mig_analysis INTO DATA(lx_analysis).
+
+        APPEND VALUE #(
+          %tky = <key>-%tky
+        ) TO failed-Analysis.
+
+        APPEND VALUE #(
+          %tky = <key>-%tky
+
+          %msg = new_message_with_text(
+            severity =
+              if_abap_behv_message=>severity-error
+
+            text =
+              lx_analysis->get_text( )
+          )
+        ) TO reported-Analysis.
+
+
+      CATCH cx_uuid_error INTO DATA(lx_uuid).
+
+        APPEND VALUE #(
+          %tky = <key>-%tky
+        ) TO failed-Analysis.
+
+        APPEND VALUE #(
+          %tky = <key>-%tky
+
+          %msg = new_message_with_text(
+            severity =
+              if_abap_behv_message=>severity-error
+
+            text =
+              lx_uuid->get_text( )
+          )
+        ) TO reported-Analysis.
+
+    ENDTRY.
+
+  ENDLOOP.
+
+ENDMETHOD.
+
+    METHOD generateaiassessment.
+
+
+    IF keys IS INITIAL.
+  RETURN.
+ENDIF.
+
+
+DATA lo_ai_support
+  TYPE REF TO zif_mig_ai_support_service.
+
+
+"==============================================================
+" Create REAL AI composition once for the whole RAP action
+"==============================================================
+TRY.
+
+    lo_ai_support =
+      zcl_mig_ai_factory=>create_gemini_support_service( ).
+
+
+  CATCH zcx_mig_analysis INTO DATA(lx_factory).
+
+    "==========================================================
+    " Configuration / factory failure affects all requested keys
+    "==========================================================
+    LOOP AT keys
+      ASSIGNING FIELD-SYMBOL(<factory_key>).
+
+      APPEND VALUE #(
+        %tky = <factory_key>-%tky
+      ) TO failed-Analysis.
+
+
+      APPEND VALUE #(
+        %tky = <factory_key>-%tky
+
+        %msg =
+          new_message_with_text(
+            severity =
+              if_abap_behv_message=>severity-error
+
+            text =
+              lx_factory->get_text( )
+          )
+      ) TO reported-Analysis.
+
+    ENDLOOP.
+
+    RETURN.
+
+ENDTRY.
+
+
+LOOP AT keys
+  ASSIGNING FIELD-SYMBOL(<key>).
+
+
+      DATA(lv_analysis_id) =
+        <key>-AnalysisId.
+
+
+      "========================================================
+      " Validate AnalysisId
+      "========================================================
+      IF lv_analysis_id IS INITIAL.
+
+        APPEND VALUE #(
+          %tky =
+            <key>-%tky
+        ) TO failed-Analysis.
+
+
+        APPEND VALUE #(
+          %tky =
+            <key>-%tky
+
+          %msg =
+            new_message_with_text(
+              severity =
+                if_abap_behv_message=>severity-error
+
+              text =
+                'Analysis ID is required.'
+            )
+        ) TO reported-Analysis.
+
+
+        CONTINUE.
+
+      ENDIF.
+
+
+      TRY.
+
+          "====================================================
+          " 1. Technical Document
+          "    -> Prompt
+          "    -> Fake AI
+          "    -> Parser
+          "    -> Assessment
+          "====================================================
+          DATA(ls_assessment) =
+            lo_ai_support->analyze(
+              iv_analysis_id =
+                lv_analysis_id
+            ).
+
+
+          "====================================================
+          " 2. Serialize collection results for RAP transport
+          "====================================================
+          DATA(lv_risks_json) =
+            /ui2/cl_json=>serialize(
+              data =
+                ls_assessment-risks
+
+              compress =
+                abap_true
+
+              pretty_name =
+                /ui2/cl_json=>pretty_mode-camel_case
+            ).
+
+
+          DATA(lv_plan_json) =
+            /ui2/cl_json=>serialize(
+              data =
+                ls_assessment-modernization_plan
+
+              compress =
+                abap_true
+
+              pretty_name =
+                /ui2/cl_json=>pretty_mode-camel_case
+            ).
+
+
+          DATA(lv_architecture_json) =
+            /ui2/cl_json=>serialize(
+              data =
+                ls_assessment-target_architecture
+
+              compress =
+                abap_true
+
+              pretty_name =
+                /ui2/cl_json=>pretty_mode-camel_case
+            ).
+
+
+          DATA(lv_code_json) =
+            /ui2/cl_json=>serialize(
+              data =
+                ls_assessment-code_suggestions
+
+              compress =
+                abap_true
+
+              pretty_name =
+                /ui2/cl_json=>pretty_mode-camel_case
+            ).
+
+
+          DATA(lv_manual_review_json) =
+            /ui2/cl_json=>serialize(
+              data =
+                ls_assessment-manual_review
+
+              compress =
+                abap_true
+
+              pretty_name =
+                /ui2/cl_json=>pretty_mode-camel_case
+            ).
+
+
+          "====================================================
+          " 3. Return AI Assessment to RAP caller
+          "====================================================
+          APPEND VALUE #(
+
+            %tky =
+              <key>-%tky
+
+            %param = VALUE #(
+
+              AnalysisId =
+                ls_assessment-analysis_id
+
+              ProgramName =
+                ls_assessment-program_name
+
+              ApplicationSummary =
+                ls_assessment-application_summary
+
+              BusinessPurpose =
+                ls_assessment-business_purpose-text
+
+              BusinessPurposeConfidence =
+                ls_assessment-business_purpose-confidence
+
+              BusinessPurposeReasoning =
+                ls_assessment-business_purpose-reasoning
+
+              LegacyFlowExplanation =
+                ls_assessment-legacy_flow_explanation
+
+              RisksJson =
+                lv_risks_json
+
+              ModernizationPlanJson =
+                lv_plan_json
+
+              TargetArchitectureJson =
+                lv_architecture_json
+
+              CodeSuggestionsJson =
+                lv_code_json
+
+              ManualReviewJson =
+                lv_manual_review_json
+
+            )
+
+          ) TO result.
+
+
+        CATCH zcx_mig_analysis INTO DATA(lx_analysis).
+
+          APPEND VALUE #(
+            %tky =
+              <key>-%tky
+          ) TO failed-Analysis.
+
+
+          APPEND VALUE #(
+            %tky =
+              <key>-%tky
+
+            %msg =
+              new_message_with_text(
+                severity =
+                  if_abap_behv_message=>severity-error
+
+                text =
+                  lx_analysis->get_text( )
+              )
+          ) TO reported-Analysis.
+
+
+        CATCH cx_root INTO DATA(lx_unexpected).
+
+          APPEND VALUE #(
+            %tky =
+              <key>-%tky
+          ) TO failed-Analysis.
+
+
+          APPEND VALUE #(
+            %tky =
+              <key>-%tky
+
+            %msg =
+              new_message_with_text(
+                severity =
+                  if_abap_behv_message=>severity-error
+
+                text =
+                  lx_unexpected->get_text( )
+              )
+          ) TO reported-Analysis.
+
+      ENDTRY.
+
+
+    ENDLOOP.
+
+
+  ENDMETHOD.
+
   METHOD prepareselectedexport.
 
     LOOP AT keys ASSIGNING FIELD-SYMBOL(<key>).
@@ -753,14 +1469,21 @@ CLASS lhc_Analysis IMPLEMENTATION.
         CONTINUE.
       ENDIF.
 
-      DATA(lo_engine) = NEW zcl_mig_export_engine( ).
+                  DATA(lo_engine) = NEW zcl_mig_export_engine( ).
       DATA(ls_export_result) = CAST zif_mig_export_provider( lo_engine )->generate(
-        iv_job_id          = VALUE #( )
-        iv_analysis_id     = lv_analysis_id
-        iv_report_type     = VALUE #( )
-        iv_file_format     = ls_param-FileFormat
-        iv_export_section  = lv_section
-        iv_selected_fields = lv_fields ).
+        iv_job_id             = VALUE #( )
+        iv_analysis_id        = lv_analysis_id
+        iv_report_type        = VALUE #( )
+        iv_file_format        = ls_param-FileFormat
+        iv_export_section     = lv_section
+        iv_selected_fields    = lv_fields
+        iv_pdf_header         = ls_param-PdfHeaderText
+        iv_pdf_footer         = ls_param-PdfFooterText
+        iv_paper_size         = ls_param-PaperSize
+        iv_orientation        = ls_param-Orientation
+        iv_font_size          = ls_param-FontSize
+        iv_fit_to_page        = ls_param-FitToPage
+        iv_split_multi_value  = ls_param-SplitMultiValue ).
 
       IF ls_export_result-success = abap_false.
         APPEND VALUE #( %tky = <key>-%tky ) TO failed-Analysis.
@@ -2698,6 +3421,13 @@ CLASS lhc_SourceObject DEFINITION
       RESULT    result
                   LINK association_links.
 
+    METHODS rba_SourceLines FOR READ
+      IMPORTING
+                keys_rba FOR READ SourceObject\_SourceLines
+                  FULL result_requested
+      RESULT    result
+                  LINK association_links.
+
 ENDCLASS.
 
 CLASS lhc_SourceObject IMPLEMENTATION.
@@ -2740,6 +3470,91 @@ CLASS lhc_SourceObject IMPLEMENTATION.
         source_object~source_hash   AS SourceHash
 
       INTO CORRESPONDING FIELDS OF TABLE @result.
+
+  ENDMETHOD.
+
+  METHOD rba_SourceLines.
+
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    TYPES:
+      BEGIN OF ty_requested_key,
+        analysis_id   TYPE zmig_anl_code-analysis_id,
+        source_item_id TYPE zmig_anl_code-source_item_id,
+      END OF ty_requested_key,
+
+      tt_requested_key TYPE SORTED TABLE OF ty_requested_key
+        WITH UNIQUE KEY analysis_id source_item_id.
+
+    DATA lt_source_keys    LIKE keys_rba.
+    DATA lt_requested_keys TYPE tt_requested_key.
+    DATA lt_rows           LIKE result.
+
+    lt_source_keys =
+      keys_rba.
+
+    SORT lt_source_keys
+      BY AnalysisId
+         ItemId.
+
+    DELETE ADJACENT DUPLICATES FROM lt_source_keys
+      COMPARING
+        AnalysisId
+        ItemId.
+
+    lt_requested_keys = VALUE #(
+      FOR ls_key IN lt_source_keys
+      (
+        analysis_id    = ls_key-AnalysisId
+        source_item_id = ls_key-ItemId
+      )
+    ).
+
+    SELECT FROM zi_mig_anl_code AS source_line
+      INNER JOIN @lt_requested_keys AS requested
+        ON  source_line~AnalysisId = requested~analysis_id
+        AND source_line~SourceItemId = requested~source_item_id
+      FIELDS source_line~*
+      INTO CORRESPONDING FIELDS OF TABLE @lt_rows.
+
+    SORT lt_rows
+      BY AnalysisId
+         SourceItemId
+         LineNumber.
+
+    LOOP AT lt_rows
+      ASSIGNING FIELD-SYMBOL(<source_line>).
+
+      READ TABLE lt_source_keys
+        ASSIGNING FIELD-SYMBOL(<source_key>)
+        WITH KEY
+          AnalysisId = <source_line>-AnalysisId
+          ItemId     = <source_line>-SourceItemId
+        BINARY SEARCH.
+
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+
+      APPEND VALUE #(
+        source-%tky =
+          <source_key>-%tky
+
+        target-%tky = VALUE #(
+          AnalysisId  = <source_line>-AnalysisId
+          SourceItemId = <source_line>-SourceItemId
+          LineNumber  = <source_line>-LineNumber
+        )
+      ) TO association_links.
+
+    ENDLOOP.
+
+    IF result_requested = abap_true.
+      result =
+        lt_rows.
+    ENDIF.
 
   ENDMETHOD.
 
@@ -2788,6 +3603,173 @@ CLASS lhc_SourceObject IMPLEMENTATION.
 
 ENDCLASS.
 
+CLASS lhc_SourceLine DEFINITION
+  INHERITING FROM cl_abap_behavior_handler.
+
+  PRIVATE SECTION.
+
+    METHODS read FOR READ
+      IMPORTING
+                keys FOR READ SourceLine
+      RESULT    result.
+
+    METHODS rba_SourceObject FOR READ
+      IMPORTING
+                keys_rba FOR READ SourceLine\_SourceObject
+                  FULL result_requested
+      RESULT    result
+                  LINK association_links.
+
+    METHODS rba_Analysis FOR READ
+      IMPORTING
+                keys_rba FOR READ SourceLine\_Analysis
+                  FULL result_requested
+      RESULT    result
+                  LINK association_links.
+
+ENDCLASS.
+
+CLASS lhc_SourceLine IMPLEMENTATION.
+
+  METHOD read.
+
+    IF keys IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    DATA lt_keys LIKE keys.
+
+    lt_keys =
+      keys.
+
+    SORT lt_keys
+      BY AnalysisId
+         SourceItemId
+         LineNumber.
+
+    DELETE ADJACENT DUPLICATES FROM lt_keys
+      COMPARING
+        AnalysisId
+        SourceItemId
+        LineNumber.
+
+    SELECT FROM zmig_anl_code AS source_line
+      INNER JOIN @lt_keys AS requested
+        ON  source_line~analysis_id = requested~AnalysisId
+        AND source_line~source_item_id = requested~SourceItemId
+        AND source_line~line_number = requested~LineNumber
+      FIELDS
+        source_line~analysis_id    AS AnalysisId,
+        source_line~source_item_id AS SourceItemId,
+        source_line~line_number    AS LineNumber,
+        source_line~source_text    AS SourceText
+      INTO CORRESPONDING FIELDS OF TABLE @result.
+
+  ENDMETHOD.
+
+  METHOD rba_SourceObject.
+
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    LOOP AT keys_rba
+      ASSIGNING FIELD-SYMBOL(<key>).
+
+      APPEND VALUE #(
+        source-%tky =
+          <key>-%tky
+
+        target-%tky = VALUE #(
+          AnalysisId = <key>-AnalysisId
+          ItemId     = <key>-SourceItemId
+        )
+      ) TO association_links.
+
+    ENDLOOP.
+
+    IF result_requested = abap_true.
+
+      READ ENTITIES OF zi_mig_analysis
+        IN LOCAL MODE
+
+        ENTITY SourceObject
+        ALL FIELDS
+
+        WITH VALUE #(
+          FOR ls_key IN keys_rba
+          (
+            AnalysisId = ls_key-AnalysisId
+            ItemId     = ls_key-SourceItemId
+          )
+        )
+
+        RESULT DATA(lt_source_objects).
+
+      result =
+        lt_source_objects.
+
+    ENDIF.
+
+  ENDMETHOD.
+
+  METHOD rba_Analysis.
+
+    IF keys_rba IS INITIAL.
+      RETURN.
+    ENDIF.
+
+
+    "==========================================================
+    " Association links:
+    " SourceLine -> Analysis (lock/authorization master)
+    "==========================================================
+    LOOP AT keys_rba
+      ASSIGNING FIELD-SYMBOL(<key>).
+
+      APPEND VALUE #(
+        source-%tky =
+          <key>-%tky
+
+        target-%tky = VALUE #(
+          AnalysisId =
+            <key>-AnalysisId
+        )
+      ) TO association_links.
+
+    ENDLOOP.
+
+
+    "==========================================================
+    " Only read parent data when the caller requests RESULT
+    "==========================================================
+    IF result_requested = abap_true.
+
+      READ ENTITIES OF zi_mig_analysis
+        IN LOCAL MODE
+
+        ENTITY Analysis
+        ALL FIELDS
+
+        WITH VALUE #(
+          FOR ls_key IN keys_rba
+          (
+            AnalysisId =
+              ls_key-AnalysisId
+          )
+        )
+
+        RESULT DATA(lt_analysis).
+
+      result =
+        lt_analysis.
+
+    ENDIF.
+
+  ENDMETHOD.
+
+ENDCLASS.
+
 CLASS lsc_ZI_MIG_ANALYSIS DEFINITION INHERITING FROM cl_abap_behavior_saver.
   PROTECTED SECTION.
 
@@ -2813,54 +3795,102 @@ CLASS lsc_ZI_MIG_ANALYSIS IMPLEMENTATION.
 
   METHOD save.
 
-    DATA(lt_results) =
-      lcl_mig_analysis_buffer=>get_all( ).
+  DATA(lt_results) =
+    lcl_mig_analysis_buffer=>get_all( ).
 
-    IF lt_results IS INITIAL.
-      RETURN.
-    ENDIF.
+  DATA(lt_delete_ids) =
+    lcl_mig_analysis_delete_buffer=>get_all( ).
 
-    DATA(lo_store) =
-      NEW zcl_mig_analysis_store( ).
 
-    LOOP AT lt_results
-      ASSIGNING FIELD-SYMBOL(<analysis_result>).
+  IF lt_results IS INITIAL
+     AND lt_delete_ids IS INITIAL.
 
-      TRY.
+    RETURN.
 
-          lo_store->zif_mig_analysis_store~save(
-            is_result = <analysis_result>
-          ).
+  ENDIF.
 
-        CATCH zcx_mig_analysis INTO DATA(lx_save).
 
-          "Lỗi trong SAVE là lỗi kỹ thuật vì interaction phase
-          "đã hoàn thành và CHECK_BEFORE_SAVE đã được chạy.
-          RAISE SHORTDUMP NEW zcx_mig_analysis( textid       =
-                                                               zcx_mig_analysis=>analysis_failed
-                                                previous     =
-                                                               lx_save
-                                                program_name =
-                                                               <analysis_result>-overview-program_name
-                                                ).
+  DATA(lo_store) =
+    NEW zcl_mig_analysis_store( ).
 
-      ENDTRY.
 
-    ENDLOOP.
+  "==========================================================
+  " DELETE persisted analyses
+  "==========================================================
+  LOOP AT lt_delete_ids
+    INTO DATA(lv_delete_analysis_id).
 
-  ENDMETHOD.
+    TRY.
+
+        lo_store->zif_mig_analysis_store~delete(
+          iv_analysis_id =
+            lv_delete_analysis_id
+        ).
+
+      CATCH zcx_mig_analysis
+        INTO DATA(lx_delete).
+
+        RAISE SHORTDUMP NEW zcx_mig_analysis(
+          textid =
+            zcx_mig_analysis=>analysis_failed
+
+          previous =
+            lx_delete
+        ).
+
+    ENDTRY.
+
+  ENDLOOP.
+
+
+  "==========================================================
+  " SAVE newly analyzed results
+  "==========================================================
+  LOOP AT lt_results
+    ASSIGNING FIELD-SYMBOL(<analysis_result>).
+
+    TRY.
+
+        lo_store->zif_mig_analysis_store~save(
+          is_result =
+            <analysis_result>
+        ).
+
+      CATCH zcx_mig_analysis
+        INTO DATA(lx_save).
+
+        RAISE SHORTDUMP NEW zcx_mig_analysis(
+          textid =
+            zcx_mig_analysis=>analysis_failed
+
+          previous =
+            lx_save
+
+          program_name =
+            <analysis_result>-overview-program_name
+        ).
+
+    ENDTRY.
+
+  ENDLOOP.
+
+ENDMETHOD.
 
   METHOD cleanup.
 
-    lcl_mig_analysis_buffer=>clear( ).
+  lcl_mig_analysis_buffer=>clear( ).
 
-  ENDMETHOD.
+  lcl_mig_analysis_delete_buffer=>clear( ).
+
+ENDMETHOD.
 
 
   METHOD cleanup_finalize.
 
-    lcl_mig_analysis_buffer=>clear( ).
+  lcl_mig_analysis_buffer=>clear( ).
 
-  ENDMETHOD.
+  lcl_mig_analysis_delete_buffer=>clear( ).
+
+ENDMETHOD.
 
 ENDCLASS.

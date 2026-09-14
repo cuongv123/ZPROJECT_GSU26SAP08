@@ -60,7 +60,7 @@ CLASS zcl_mig_mail_template IMPLEMENTATION.
       |</h2>| &&
 
       |<p style="font-size:14px;color:#32363a;line-height:1.6;">| &&
-      |Your scheduled migration report has been generated successfully.| &&
+      |Your migration report has been generated successfully.| &&
       |</p>| &&
 
       |<table cellpadding="7" cellspacing="0" width="100%" | &&

@@ -17,6 +17,7 @@ define root view entity ZI_MIG_MAIL_JOB
       report_type           as ReportType,
       file_format           as FileFormat,
       frequency             as Frequency,
+      time_zone             as JobTimeZone,
       start_date            as StartDate,
       start_time            as StartTime,
       day_of_week           as DayOfWeek,

@@ -25,7 +25,7 @@ define view entity ZI_MIG_ANL_ALV
       output_name         as OutputName,
       output_kind         as OutputKind,
       framework           as Framework,
-
+      containing_routine  as ContainingRoutine,
       control_object      as ControlObject,
       output_table        as OutputTable,
       row_type            as RowType,

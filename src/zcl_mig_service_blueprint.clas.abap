@@ -163,6 +163,9 @@ CLASS zcl_mig_service_blueprint IMPLEMENTATION.
       source_kind =
         ls_filter-field_kind
 
+      source_field_name =
+        ls_filter-reference_field
+
       odata_kind =
         lv_odata_kind
 
@@ -216,6 +219,24 @@ ENDMETHOD.
             iv_data_type = ls_column-data_type
             iv_checkbox  = ls_column-checkbox
           )
+
+        source_data_type =
+          ls_column-data_type
+
+        source_data_element =
+          ls_column-data_element
+
+        length =
+          ls_column-length
+
+        decimals =
+          ls_column-decimals
+
+        currency_field =
+          ls_column-currency_field
+
+        unit_field =
+          ls_column-unit_field
 
         position =
           ls_column-position
@@ -537,3 +558,4 @@ ENDMETHOD.
   ENDMETHOD.
 
 ENDCLASS.
+

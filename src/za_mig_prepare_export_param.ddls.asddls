@@ -1,7 +1,14 @@
 @EndUserText.label: 'Prepare Selected Export Parameters'
 define abstract entity ZA_MIG_PREPARE_EXPORT_PARAM
 {
-  FileFormat     : zmig_e_file_format;
-  ExportSection  : zmig_e_report_section;
-  SelectedFields : abap.string(0);
+  FileFormat      : zmig_e_file_format;
+  ExportSection   : zmig_e_report_section;
+  SelectedFields  : abap.string(0);
+  PdfHeaderText   : abap.string(0);
+  PdfFooterText   : abap.string(0);
+  PaperSize       : abap.char(10);
+  Orientation     : abap.char(1);
+  FontSize        : abap.int4;
+  FitToPage       : abap_boolean;
+  SplitMultiValue : abap_boolean;
 }

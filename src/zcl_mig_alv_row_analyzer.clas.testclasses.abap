@@ -7,11 +7,16 @@ CLASS ltc_mig_alv_row_analyzer DEFINITION
   PRIVATE SECTION.
 
     METHODS get_result
-      EXPORTING
-        et_outputs TYPE zif_mig_types=>tt_alv_output
-        es_result  TYPE zif_mig_types=>ty_alv_fcat_result
-      RAISING
-        zcx_mig_analysis.
+  EXPORTING
+
+    et_outputs
+      TYPE zif_mig_types=>tt_alv_output
+
+    es_result
+      TYPE zif_mig_types=>ty_alv_row_result
+
+  RAISING
+    zcx_mig_analysis.
 
     METHODS infer_salv_columns
       FOR TESTING
@@ -27,6 +32,10 @@ CLASS ltc_mig_alv_row_analyzer DEFINITION
       FOR TESTING
       RAISING
         zcx_mig_analysis.
+
+    METHODS preserve_row_type
+      FOR TESTING
+      RAISING zcx_mig_analysis.
 
 ENDCLASS.
 
@@ -108,7 +117,7 @@ CLASS ltc_mig_alv_row_analyzer IMPLEMENTATION.
 
 
     es_result =
-      lo_row_analyzer->zif_mig_alv_fcat_analyzer~analyze(
+      lo_row_analyzer->zif_mig_alv_row_analyzer~analyze(
         it_source_units =
           lt_source_units
 
@@ -122,8 +131,8 @@ CLASS ltc_mig_alv_row_analyzer IMPLEMENTATION.
   METHOD infer_salv_columns.
 
     DATA:
-      lt_outputs TYPE zif_mig_types=>tt_alv_output,
-      ls_result  TYPE zif_mig_types=>ty_alv_fcat_result.
+  lt_outputs TYPE zif_mig_types=>tt_alv_output,
+  ls_result  TYPE zif_mig_types=>ty_alv_row_result.
 
 
     get_result(
@@ -181,8 +190,8 @@ CLASS ltc_mig_alv_row_analyzer IMPLEMENTATION.
   METHOD link_columns_to_salv.
 
     DATA:
-      lt_outputs TYPE zif_mig_types=>tt_alv_output,
-      ls_result  TYPE zif_mig_types=>ty_alv_fcat_result.
+  lt_outputs TYPE zif_mig_types=>tt_alv_output,
+  ls_result  TYPE zif_mig_types=>ty_alv_row_result.
 
 
     get_result(
@@ -228,8 +237,8 @@ CLASS ltc_mig_alv_row_analyzer IMPLEMENTATION.
   METHOD preserve_ddic_metadata.
 
     DATA:
-      lt_outputs TYPE zif_mig_types=>tt_alv_output,
-      ls_result  TYPE zif_mig_types=>ty_alv_fcat_result.
+  lt_outputs TYPE zif_mig_types=>tt_alv_output,
+  ls_result  TYPE zif_mig_types=>ty_alv_row_result.
 
 
     get_result(
@@ -268,5 +277,41 @@ CLASS ltc_mig_alv_row_analyzer IMPLEMENTATION.
     ).
 
   ENDMETHOD.
+
+  METHOD preserve_row_type.
+
+  DATA:
+    lt_outputs TYPE zif_mig_types=>tt_alv_output,
+    ls_result  TYPE zif_mig_types=>ty_alv_row_result.
+
+
+  get_result(
+    IMPORTING
+      et_outputs = lt_outputs
+      es_result  = ls_result
+  ).
+
+
+  READ TABLE ls_result-alv_outputs
+    WITH KEY
+      framework = 'CL_SALV_TABLE'
+    INTO DATA(ls_output).
+
+
+  cl_abap_unit_assert=>assert_subrc(
+    exp = 0
+    msg = 'SALV output missing from row analyzer result'
+  ).
+
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = 'TY_RESULT'
+    act = ls_output-row_type
+    msg = 'Resolved ALV row type was not propagated to output contract'
+  ).
+
+ENDMETHOD.
+
+
 
 ENDCLASS.

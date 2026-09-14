@@ -40,6 +40,14 @@ annotate view ZC_MIG_ANL_DB with
     }
   ]
   ContainingRoutine;
+  
+  @UI.lineItem: [
+  {
+    position: 45,
+    label: 'Result Target'
+  }
+]
+ResultTarget;
 
   @UI.lineItem: [
     {

@@ -43,6 +43,10 @@ CLASS ltc_analysis_store DEFINITION
         FOR TESTING
         RAISING zcx_mig_analysis,
 
+      cleanup_source_insert_error
+        FOR TESTING
+        RAISING zcx_mig_analysis,
+
       reject_missing
         FOR TESTING
         RAISING zcx_mig_analysis,
@@ -68,6 +72,7 @@ CLASS ltc_analysis_store IMPLEMENTATION.
           ( 'ZMIG_ANL_UI'  )
           ( 'ZMIG_ANL_DB'  )
           ( 'ZMIG_ANL_LOG' )
+          ( 'ZMIG_ANL_BIND')
           ( 'ZMIG_ANL_ALV' )
           ( 'ZMIG_ANL_COL' )
           ( 'ZMIG_ANL_SRT' )
@@ -144,6 +149,9 @@ CLASS ltc_analysis_store IMPLEMENTATION.
       create_uuid( ).
 
     DATA(lv_logic_id) =
+      create_uuid( ).
+
+    DATA(lv_binding_id) =
       create_uuid( ).
 
     DATA(lv_output_id) =
@@ -298,6 +306,8 @@ APPEND VALUE #(
       join_condition     = 'VBAK~VBELN = VBAP~VBELN'
       aggregation        = 'COUNT'
       containing_routine = 'START-OF-SELECTION'
+      execution_kind ='CONDITIONAL'
+      execution_context =  'IF P_ACTIVE = ABAP_TRUE.'
       dynamic_access     = abap_false
       read_only          = abap_true
       paging_capability  = 'SUPPORTED'
@@ -317,6 +327,8 @@ APPEND VALUE #(
       object_type           = 'BAPI'
       container_name        = 'START-OF-SELECTION'
       calling_routine       = 'LOAD_DATA'
+      execution_kind = 'CONDITIONAL'
+      execution_context ='IF P_COMMIT = ABAP_TRUE.'
       interface_summary     = 'CUSTOMER_NUMBER, SALES_ORGANIZATION'
       description           = 'Read sales orders'
       side_effect           = 'READ_ONLY'
@@ -326,7 +338,23 @@ APPEND VALUE #(
       confidence            = zif_mig_types=>gc_conf_high
     ) TO rs_result-business_logic.
 
+    "========================================================
+    " Call Binding
+    "========================================================
+    APPEND VALUE #(
+      item_id           = lv_binding_id
+      analysis_id       = lv_analysis_id
+      call_item_id      = lv_logic_id
+      evidence_id       = lv_evidence_id
 
+      parameter_name    = 'USERNAME'
+      direction         = 'EXPORTING'
+      actual_expression = 'SY-UNAME'
+
+      position           = 1
+
+      confidence         = zif_mig_types=>gc_conf_high
+    ) TO rs_result-call_bindings.
     "========================================================
     " ALV Output
     "========================================================
@@ -542,6 +570,116 @@ APPEND VALUE #(
       act = ls_actual-overview-readiness_score
     ).
 
+    READ TABLE ls_actual-database_objects
+  INDEX 1
+  INTO DATA(ls_actual_db).
+
+cl_abap_unit_assert=>assert_subrc(
+  exp = 0
+).
+
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 'CONDITIONAL'
+  act = ls_actual_db-execution_kind
+  msg = 'DB execution kind phải survive persistence'
+).
+
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 'IF P_ACTIVE = ABAP_TRUE.'
+  act = ls_actual_db-execution_context
+  msg = 'DB execution context phải survive persistence'
+).
+
+READ TABLE ls_actual-business_logic
+  INDEX 1
+  INTO DATA(ls_actual_logic).
+
+cl_abap_unit_assert=>assert_subrc(
+  exp = 0
+).
+
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 'CONDITIONAL'
+  act = ls_actual_logic-execution_kind
+  msg = 'Logic execution kind phải survive persistence'
+).
+
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 'IF P_COMMIT = ABAP_TRUE.'
+  act = ls_actual_logic-execution_context
+  msg = 'Logic execution context phải survive persistence'
+).
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 1
+  act = lines(
+          ls_actual-call_bindings
+        )
+  msg = 'Call bindings không survive persistence'
+).
+
+
+READ TABLE ls_actual-call_bindings
+  INDEX 1
+  INTO DATA(ls_actual_binding).
+
+
+cl_abap_unit_assert=>assert_subrc(
+  exp = 0
+).
+
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 'USERNAME'
+  act = ls_actual_binding-parameter_name
+).
+
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 'EXPORTING'
+  act = ls_actual_binding-direction
+).
+
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 'SY-UNAME'
+  act = ls_actual_binding-actual_expression
+).
+
+
+cl_abap_unit_assert=>assert_equals(
+  exp = 1
+  act = ls_actual_binding-position
+  msg = 'BINDING_POSITION không map về POSITION'
+).
+
+
+cl_abap_unit_assert=>assert_subrc(
+  exp = 0
+  msg = 'Không đọc được Business Logic sau persistence'
+).
+
+
+cl_abap_unit_assert=>assert_equals(
+  exp = ls_actual_logic-item_id
+  act = ls_actual_binding-call_item_id
+  msg = 'Call binding mất relation với Business Logic'
+).
+
+cl_abap_unit_assert=>assert_subrc(
+  exp = 0
+).
+
+
+cl_abap_unit_assert=>assert_equals(
+  exp = ls_actual_logic-item_id
+  act = ls_actual_binding-call_item_id
+  msg = 'Call binding mất relation với Business Logic'
+).
 
   ENDMETHOD.
 
@@ -608,6 +746,95 @@ APPEND VALUE #(
         "Expected exception
 
     ENDTRY.
+
+  ENDMETHOD.
+
+    METHOD cleanup_source_insert_error.
+
+    DATA(ls_result) =
+      build_result( ).
+
+    READ TABLE ls_result-source_objects
+      INDEX 1
+      INTO DATA(ls_source_object).
+
+    cl_abap_unit_assert=>assert_subrc(
+      exp = 0
+      msg = 'Test fixture phải có ít nhất một source object'
+    ).
+
+    DATA lt_existing_source
+      TYPE STANDARD TABLE OF zmig_anl_src
+      WITH EMPTY KEY.
+
+    APPEND VALUE #(
+      analysis_id   = ls_result-analysis_id
+      item_id       = ls_source_object-item_id
+      object_name   = ls_source_object-object_name
+      object_type   = ls_source_object-object_type
+      parent_object = ls_source_object-parent_object
+      include_depth = ls_source_object-include_depth
+      line_count    = ls_source_object-line_count
+      source_hash   = ls_source_object-source_hash
+    ) TO lt_existing_source.
+
+    "Mô phỏng orphan source từ một lần ghi lỗi trước đó.
+    mo_sql_environment->insert_test_data(
+      i_data = lt_existing_source
+    ).
+
+    DATA(lo_store) =
+      NEW zcl_mig_analysis_store( ).
+
+    DATA(lv_expected_error) =
+      abap_false.
+
+    TRY.
+
+        lo_store->zif_mig_analysis_store~save(
+          is_result = ls_result
+        ).
+
+      CATCH zcx_mig_analysis.
+
+        lv_expected_error =
+          abap_true.
+
+      CATCH cx_sy_open_sql_db.
+
+        cl_abap_unit_assert=>fail(
+          msg = 'Open SQL exception không được thoát khỏi store'
+        ).
+
+    ENDTRY.
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = abap_true
+      act = lv_expected_error
+      msg = 'Source insert trùng khóa phải trả về domain exception'
+    ).
+
+    SELECT COUNT( * )
+      FROM zmig_anl_h
+      WHERE analysis_id = @ls_result-analysis_id
+      INTO @DATA(lv_header_count).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 0
+      act = lv_header_count
+      msg = 'Header chưa được dọn sau source insert lỗi'
+    ).
+
+    SELECT COUNT( * )
+      FROM zmig_anl_src
+      WHERE analysis_id = @ls_result-analysis_id
+      INTO @DATA(lv_source_count).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 0
+      act = lv_source_count
+      msg = 'Source record mồ côi chưa được dọn'
+    ).
 
   ENDMETHOD.
 

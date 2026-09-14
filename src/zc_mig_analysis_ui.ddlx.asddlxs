@@ -95,25 +95,37 @@ annotate view ZC_MIG_ANALYSIS with
     { position: 10 }
   ]
   @UI.lineItem: [
-    {
-      position:   1,
-      type:       #FOR_ACTION,
-      dataAction: 'Analyze',
-      label:      'Analyze Program'
-    },
-    {
-      position:   10,
-      importance: #HIGH,
-      label:      'Program'
-    }
-  ]
-  @UI.identification: [
-    {
-      position: 10,
-      label:    'Program'
-    }
-  ]
-  ProgramName;
+  {
+    position:   1,
+    type:       #FOR_ACTION,
+    dataAction: 'Analyze',
+    label:      'Analyze Program'
+  },
+  {
+    position:   2,
+    type:       #FOR_ACTION,
+    dataAction: 'GenerateTechnicalDocument',
+    label:      'Technical Document'
+  },
+  {
+    position:   10,
+    importance: #HIGH,
+    label:      'Program'
+  }
+]
+@UI.identification: [
+  {
+    position:   1,
+    type:       #FOR_ACTION,
+    dataAction: 'GenerateTechnicalDocument',
+    label:      'Technical Document'
+  },
+  {
+    position: 10,
+    label:    'Program'
+  }
+]
+ProgramName;
 
   @UI.lineItem: [
     {

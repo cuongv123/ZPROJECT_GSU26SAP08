@@ -10,8 +10,9 @@ CLASS zcl_mig_db_analyzer DEFINITION
   PRIVATE SECTION.
 
     TYPES:
-      ty_parse_phase TYPE c LENGTH 20,
-      ty_object_name TYPE c LENGTH 40,
+      ty_parse_phase    TYPE c LENGTH 20,
+      ty_object_name    TYPE c LENGTH 40,
+      ty_result_target  TYPE c LENGTH 80,
       ty_statement_type TYPE c LENGTH 30.
 
     TYPES:
@@ -23,6 +24,9 @@ CLASS zcl_mig_db_analyzer DEFINITION
         statement_text     TYPE string,
         containing_routine TYPE c LENGTH 120,
 
+        execution_kind     TYPE c LENGTH 20,
+        execution_context  TYPE string,
+
         operation          TYPE c LENGTH 20,
         object_name        TYPE ty_object_name,
         object_type        TYPE c LENGTH 20,
@@ -32,11 +36,11 @@ CLASS zcl_mig_db_analyzer DEFINITION
         joined_objects     TYPE string,
         join_condition     TYPE string,
         aggregation        TYPE string,
-
+        result_target TYPE ty_result_target,
         parse_phase        TYPE ty_parse_phase,
         expect_object      TYPE abap_bool,
         expect_join_object TYPE abap_bool,
-
+        expect_result_target TYPE abap_bool,
         dynamic_access     TYPE abap_bool,
         read_only          TYPE abap_bool,
         paging_capability  TYPE c LENGTH 20,
@@ -136,6 +140,17 @@ CLASS zcl_mig_db_analyzer DEFINITION
         iv_word  TYPE string
       RETURNING
         VALUE(rv_result) TYPE abap_bool.
+    METHODS normalize_result_target
+      IMPORTING
+        iv_token TYPE string
+      RETURNING
+        VALUE(rv_target) TYPE ty_result_target.
+
+    METHODS is_result_target_helper
+      IMPORTING
+        iv_token TYPE string
+      RETURNING
+        VALUE(rv_result) TYPE abap_bool.
 
 ENDCLASS.
 
@@ -232,7 +247,10 @@ CLASS zcl_mig_db_analyzer IMPLEMENTATION.
         joined_objects     = ls_state-joined_objects
         join_condition     = ls_state-join_condition
         aggregation        = ls_state-aggregation
+        result_target      = ls_state-result_target
         containing_routine = ls_state-containing_routine
+        execution_kind     = ls_state-execution_kind
+        execution_context  = ls_state-execution_context
         dynamic_access     = ls_state-dynamic_access
         read_only          = ls_state-read_only
         paging_capability  = ls_state-paging_capability
@@ -330,7 +348,8 @@ CLASS zcl_mig_db_analyzer IMPLEMENTATION.
         end_line           = <statement>-end_line
         statement_text     = <statement>-statement_text
         containing_routine = <statement>-parent_routine
-
+        execution_kind     = <statement>-execution_kind
+        execution_context  = <statement>-execution_context
         operation          = lv_operation
         object_type        = 'TABLE_OR_VIEW'
         parse_phase        = lv_phase
@@ -418,18 +437,37 @@ ENDMETHOD.
 
       WHEN 'INTO'.
 
-        IF cs_state-operation = 'INSERT'.
+      IF cs_state-operation = 'INSERT'.
 
-          cs_state-parse_phase   = 'OBJECT'.
-          cs_state-expect_object = abap_true.
+        cs_state-parse_phase   = 'OBJECT'.
+        cs_state-expect_object = abap_true.
 
-        ELSEIF cs_state-operation = 'SELECT'.
+      ELSEIF cs_state-operation = 'SELECT'.
 
-          cs_state-parse_phase = 'OTHER'.
+        cs_state-parse_phase =
+          'RESULT_TARGET'.
 
-        ENDIF.
+        cs_state-expect_result_target =
+          abap_true.
 
-        RETURN.
+      ENDIF.
+
+      RETURN.
+
+
+    WHEN 'APPENDING'.
+
+      IF cs_state-operation = 'SELECT'.
+
+        cs_state-parse_phase =
+          'RESULT_TARGET'.
+
+        cs_state-expect_result_target =
+          abap_true.
+
+      ENDIF.
+
+      RETURN.
 
       WHEN 'JOIN'
         OR 'INNER'
@@ -525,6 +563,52 @@ ENDMETHOD.
 
     ENDIF.
 
+    "==========================================================
+    " SELECT result target
+    "
+    " Supported:
+    "   INTO @wa
+    "   INTO TABLE @itab
+    "   INTO CORRESPONDING FIELDS OF TABLE @itab
+    "   INTO TABLE @DATA(lt_data)
+    "   APPENDING TABLE @itab
+    "==========================================================
+    IF cs_state-expect_result_target = abap_true.
+
+      IF is_result_target_helper(
+           iv_token = iv_upper_token
+         ) = abap_true.
+
+        RETURN.
+
+      ENDIF.
+
+
+      DATA(lv_result_target) =
+        normalize_result_target(
+          iv_token = iv_token
+        ).
+
+
+      IF lv_result_target IS INITIAL.
+
+        RETURN.
+
+      ENDIF.
+
+
+      cs_state-result_target =
+        lv_result_target.
+
+      cs_state-expect_result_target =
+        abap_false.
+
+      cs_state-parse_phase =
+        'OTHER'.
+
+      RETURN.
+
+    ENDIF.
 
     "==========================================================
     " Object chính
@@ -1012,6 +1096,93 @@ METHOD is_internal_table_operation.
       ENDIF.
 
   ENDCASE.
+
+ENDMETHOD.
+
+METHOD is_result_target_helper.
+
+  DATA(lv_token) =
+    to_upper( iv_token ).
+
+  CONDENSE lv_token NO-GAPS.
+
+
+  CASE lv_token.
+
+    WHEN 'TABLE'
+      OR 'CORRESPONDING'
+      OR 'FIELDS'
+      OR 'OF'
+      OR 'REFERENCE'
+      OR '@'
+      OR '('
+      OR ')'
+      OR 'DATA'
+      OR '@DATA'
+      OR 'FINAL'
+      OR '@FINAL'.
+
+      rv_result =
+        abap_true.
+
+    WHEN OTHERS.
+
+      rv_result =
+        abap_false.
+
+  ENDCASE.
+
+ENDMETHOD.
+
+METHOD normalize_result_target.
+
+  DATA(lv_target) =
+    to_upper( iv_token ).
+
+  CONDENSE lv_target NO-GAPS.
+
+
+  "Host variable marker
+  REPLACE ALL OCCURRENCES OF '@'
+    IN lv_target
+    WITH ''.
+
+
+  "Inline declarations
+  REPLACE ALL OCCURRENCES OF 'DATA('
+    IN lv_target
+    WITH ''.
+
+  REPLACE ALL OCCURRENCES OF 'FINAL('
+    IN lv_target
+    WITH ''.
+
+
+  "Scanner có thể tách hoặc giữ parentheses
+  REPLACE ALL OCCURRENCES OF '('
+    IN lv_target
+    WITH ''.
+
+  REPLACE ALL OCCURRENCES OF ')'
+    IN lv_target
+    WITH ''.
+
+
+  "Table body notation nếu xuất hiện
+  REPLACE ALL OCCURRENCES OF '[]'
+    IN lv_target
+    WITH ''.
+
+
+  IF lv_target IS INITIAL.
+    RETURN.
+  ENDIF.
+
+
+  rv_target =
+    CONV ty_result_target(
+      lv_target
+    ).
 
 ENDMETHOD.
 

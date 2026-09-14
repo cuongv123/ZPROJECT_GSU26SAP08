@@ -40,6 +40,10 @@ CLASS ltc_provider_contract DEFINITION
         FOR TESTING
         RAISING zcx_mig_analysis,
 
+      select_data_fm_over_alv
+        FOR TESTING
+        RAISING zcx_mig_analysis,
+
       select_bapi_for_action
         FOR TESTING
         RAISING zcx_mig_analysis,
@@ -186,6 +190,66 @@ CLASS ltc_provider_contract IMPLEMENTATION.
     cl_abap_unit_assert=>assert_equals(
       exp = zif_mig_types=>gc_provider_signature
       act = ls_result-contract-provider_status
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = abap_false
+      act = ls_result-contract-manual_review
+    ).
+
+  ENDMETHOD.
+
+
+  METHOD select_data_fm_over_alv.
+
+    DATA(ls_analysis) =
+      make_analysis( ).
+
+    APPEND VALUE #(
+      item_id           = gc_item_id_1
+      analysis_id       = gc_analysis_id
+      object_name       = 'Z_MIG_SAMPLE_FM_GET_DATA'
+      object_type       = 'FUNCTION_MODULE'
+      interface_summary = 'IV_BUKRS;ET_RESULT'
+      side_effect       = 'READ_OR_UNKNOWN'
+      reuse_feasibility = 'REUSABLE'
+    ) TO ls_analysis-business_logic.
+
+    APPEND VALUE #(
+      item_id           = gc_item_id_2
+      analysis_id       = gc_analysis_id
+      object_name       = 'REUSE_ALV_GRID_DISPLAY_LVC'
+      object_type       = 'FUNCTION_MODULE'
+      side_effect       = 'READ_OR_UNKNOWN'
+      reuse_feasibility = 'ADAPTER_REVIEW'
+    ) TO ls_analysis-business_logic.
+
+
+    DATA(ls_blueprint) =
+      make_blueprint(
+        iv_strategy =
+          zif_mig_types=>gc_svc_query
+      ).
+
+
+    DATA(ls_result) =
+      NEW zcl_mig_provider_contract(
+        )->zif_mig_provider_contract~build(
+          is_analysis  = ls_analysis
+          is_blueprint = ls_blueprint
+        ).
+
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = zif_mig_types=>gc_provider_function
+      act = ls_result-contract-provider_kind
+      msg = 'The read-only data FM must be selected as provider'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'Z_MIG_SAMPLE_FM_GET_DATA'
+      act = ls_result-contract-source_object_name
+      msg = 'The ALV display FM must not replace the data provider'
     ).
 
     cl_abap_unit_assert=>assert_equals(

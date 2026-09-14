@@ -1,0 +1,3 @@
+sap.ui.define([],function(){"use strict";var e=Object.freeze(["AnalysisId","ItemId","OutputId","RecommendationId","EvidenceId","LayoutEvidenceId","SourceItemId","ExportId","JobId","RunId","RecipientId","CmpRunId","ReportID","RuleId","StatementId","__Oper+
+ationControl","__EntityControl","__CreateByAssociationControl","SAP__Messages","Content","SourceHash"]);var t=e.reduce(function(e,t){e[t]=true;return e},{});function n(e){return t[String(e||"")]===true}return Object.freeze({list:e,isTechnical:n})});      
+//# sourceMappingURL=TechnicalFields.js.map                                                                                                                                                                                                                    

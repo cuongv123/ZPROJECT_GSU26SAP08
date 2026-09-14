@@ -7,6 +7,8 @@ authorization master ( global )
 {
   field ( readonly ) AnalysisId;
 
+  delete;
+
   static action Analyze
     parameter ZA_MIG_ANALYZE_PARAM
     result [1] $self;
@@ -15,6 +17,17 @@ authorization master ( global )
   action PrepareSelectedExport
     parameter ZA_MIG_PREPARE_EXPORT_PARAM
     result [1] ZA_MIG_PREPARE_EXPORT_RESULT;
+
+  action PrepareFioriUi
+    parameter ZA_MIG_UI_PREPARE_PARAM
+    result [1] ZA_MIG_UI_PREPARE_RESULT;
+
+  action GenerateTechnicalDocument
+     result [1] ZA_MIG_TECH_DOC_RESULT;
+
+  action GenerateAIAssessment
+    result [1] ZA_MIG_AI_ASSESSMENT_RESULT;
+
   association _SourceObjects;
   association _UiFilters;
   association _DatabaseObjects;
@@ -33,6 +46,20 @@ authorization dependent by _Analysis
     AnalysisId,
     ItemId;
 
+  association _SourceLines;
+  association _Analysis;
+}
+
+define behavior for ZI_MIG_ANL_CODE alias SourceLine
+lock dependent by _Analysis
+authorization dependent by _Analysis
+{
+  field ( readonly )
+    AnalysisId,
+    SourceItemId,
+    LineNumber;
+
+  association _SourceObject;
   association _Analysis;
 }
 
@@ -60,11 +87,26 @@ define behavior for ZI_MIG_ANL_LOGIC alias BusinessLogic
 lock dependent by _Analysis
 authorization dependent by _Analysis
 {
-  field ( readonly ) AnalysisId, ItemId;
+  field ( readonly )
+    AnalysisId,
+    ItemId;
 
   association _Analysis;
+  association _CallBindings;
 }
 
+define behavior for ZI_MIG_ANL_BIND alias CallBinding
+lock dependent by _Analysis
+authorization dependent by _Analysis
+{
+  field ( readonly )
+    AnalysisId,
+    ItemId,
+    CallItemId;
+
+  association _BusinessLogic;
+  association _Analysis;
+}
 
 define behavior for ZI_MIG_ANL_ALV alias AlvOutput
 lock dependent by _Analysis

@@ -7,6 +7,9 @@ define view entity ZI_MIG_ANL_SRC
 
   association to parent ZI_MIG_ANALYSIS as _Analysis
     on $projection.AnalysisId = _Analysis.AnalysisId
+
+  composition [0..*] of ZI_MIG_ANL_CODE
+    as _SourceLines
 {
   key analysis_id   as AnalysisId,
   key item_id       as ItemId,
@@ -18,5 +21,6 @@ define view entity ZI_MIG_ANL_SRC
       line_count    as LineCount,
       source_hash   as SourceHash,
 
+      _SourceLines,
       _Analysis
 }

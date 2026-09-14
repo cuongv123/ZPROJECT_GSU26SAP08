@@ -180,6 +180,9 @@ CLASS zcl_mig_analysis_agg IMPLEMENTATION.
     DATA(lo_logic_analyzer) =
       NEW zcl_mig_logic_analyzer( ).
 
+    DATA(lo_call_bind_analyzer) =
+      NEW zcl_mig_call_bind_analyzer( ).
+
     DATA(lo_alv_analyzer) =
       NEW zcl_mig_alv_analyzer( ).
 
@@ -234,6 +237,35 @@ CLASS zcl_mig_analysis_agg IMPLEMENTATION.
     rs_result-business_logic =
       ls_logic_result-business_logic.
 
+    "========================================================
+    " 3.1 Call Parameter Bindings
+    "
+    " Chỉ enrich các call đã được Logic Analyzer phát hiện.
+    " Không detect call lần thứ hai.
+    "
+    " Binding dùng EvidenceId của business logic call để
+    " liên kết trở lại đúng source statement.
+    "========================================================
+    DATA(ls_call_bind_result) =
+      lo_call_bind_analyzer->zif_mig_call_bind_analyzer~analyze(
+
+        iv_analysis_id =
+          lv_analysis_id
+
+        it_source_units =
+          it_source_units
+
+        it_logic =
+          ls_logic_result-business_logic
+
+        it_evidences =
+          ls_logic_result-evidences
+
+      ).
+
+    rs_result-call_bindings =
+      ls_call_bind_result-call_bindings.
+
 
     "========================================================
     " 4. ALV Invocation
@@ -267,7 +299,7 @@ CLASS zcl_mig_analysis_agg IMPLEMENTATION.
       ls_fcat_result-alv_columns.
 
         DATA(ls_row_result) =
-          lo_row_analyzer->zif_mig_alv_fcat_analyzer~analyze(
+          lo_row_analyzer->zif_mig_alv_row_analyzer~analyze(
             iv_analysis_id  = lv_analysis_id
             it_source_units = it_source_units
             it_alv_outputs  = ls_alv_result-alv_outputs
@@ -309,7 +341,7 @@ CLASS zcl_mig_analysis_agg IMPLEMENTATION.
       lo_le_analyzer->zif_mig_alv_le_analyzer~analyze(
         iv_analysis_id  = lv_analysis_id
         it_source_units = it_source_units
-        it_alv_outputs  = ls_alv_result-alv_outputs
+        it_alv_outputs = ls_row_result-alv_outputs
       ).
 
     "Phải lấy output từ LE result, không lấy lại ALV result cũ
@@ -417,6 +449,14 @@ CLASS zcl_mig_analysis_agg IMPLEMENTATION.
 
     append_messages(
       EXPORTING
+        it_source = ls_call_bind_result-messages
+
+      CHANGING
+        ct_target = rs_result-messages
+    ).
+
+    append_messages(
+      EXPORTING
         it_source = ls_alv_result-messages
       CHANGING
         ct_target = rs_result-messages
@@ -478,6 +518,11 @@ CLASS zcl_mig_analysis_agg IMPLEMENTATION.
         SORT rs_result-business_logic
           BY object_type
              object_name.
+
+        SORT rs_result-call_bindings
+          BY call_item_id
+             position
+             parameter_name.
 
         SORT rs_result-alv_outputs
           BY framework
@@ -809,6 +854,43 @@ METHOD build_quality_messages.
 
   ENDLOOP.
 
+
+  "==========================================================
+" Business Logic: dynamic function module
+"==========================================================
+LOOP AT cs_result-business_logic
+  ASSIGNING FIELD-SYMBOL(<dynamic_logic>)
+  WHERE object_type = 'DYNAMIC_FUNCTION_MODULE'.
+
+  DATA:
+    lv_dynamic_source TYPE progname,
+    lv_dynamic_line   TYPE i.
+
+
+  get_evidence_location(
+    EXPORTING
+      iv_evidence_id = <dynamic_logic>-evidence_id
+      it_evidences   = cs_result-evidences
+    IMPORTING
+      ev_source_object = lv_dynamic_source
+      ev_source_line   = lv_dynamic_line
+  ).
+
+
+  add_quality_message(
+    EXPORTING
+      iv_message_type  = gc_msg_warning
+      iv_message_code  = 'LOGIC_DYNAMIC_CALL'
+      iv_source_object = lv_dynamic_source
+      iv_source_line   = lv_dynamic_line
+      iv_message_text  =
+        |Dynamic function module target requires manual review: {
+           <dynamic_logic>-object_name }.|
+    CHANGING
+      ct_messages = cs_result-messages
+  ).
+
+ENDLOOP.
 
   "==========================================================
   " Business logic: side effect chỉ là heuristic hint

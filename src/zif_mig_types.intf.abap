@@ -1,4 +1,4 @@
-    INTERFACE zif_mig_types
+INTERFACE zif_mig_types
   PUBLIC.
 
   "============================================================
@@ -69,8 +69,8 @@
       line_count     TYPE i,
       source_hash    TYPE c LENGTH 64,
 
-      "Chỉ tồn tại trong pipeline runtime.
-      "Không persist toàn bộ source text.
+      "Pipeline giữ source lines trong runtime; Analysis Store
+      "persist snapshot để Fiori hiển thị đúng source đã phân tích.
       source_lines   TYPE tt_source_line,
     END OF ty_source_object,
 
@@ -101,14 +101,8 @@
     BEGIN OF ty_statement,
       statement_id   TYPE i,
 
-      "Native SCAN type:
-      "I = valid INCLUDE
-      "J = INCLUDE không tồn tại khi scan WITH INCLUDES
-      "K = ABAP keyword statement
-      "U = unknown statement...
       native_type    TYPE c LENGTH 1,
 
-      "Keyword chuẩn hóa, ví dụ REPORT, PARAMETERS, SELECT...
       statement_type TYPE c LENGTH 30,
 
       token_from     TYPE i,
@@ -125,7 +119,9 @@
       parent_block   TYPE c LENGTH 30,
       block_depth    TYPE i,
 
-      "Tạm thời chưa dựng đầy đủ tại Scanner Core
+      execution_kind    TYPE c LENGTH 20,
+      execution_context TYPE string,
+
       statement_text TYPE string,
     END OF ty_statement,
 
@@ -217,7 +213,10 @@
       joined_objects     TYPE string,
       join_condition     TYPE string,
       aggregation        TYPE string,
+      result_target      TYPE c LENGTH 80,
       containing_routine TYPE c LENGTH 120,
+      execution_kind     TYPE c LENGTH 20,
+      execution_context  TYPE string,
       dynamic_access     TYPE abap_bool,
       read_only          TYPE abap_bool,
       paging_capability  TYPE c LENGTH 20,
@@ -240,6 +239,8 @@
       object_type           TYPE c LENGTH 30,
       container_name        TYPE c LENGTH 120,
       calling_routine       TYPE c LENGTH 120,
+      execution_kind        TYPE c LENGTH 20,
+      execution_context     TYPE string,
       interface_summary     TYPE string,
       description           TYPE c LENGTH 120,
       side_effect           TYPE c LENGTH 20,
@@ -251,6 +252,37 @@
 
     tt_business_logic TYPE STANDARD TABLE OF ty_business_logic
       WITH EMPTY KEY.
+
+    "============================================================
+    " Call Parameter Binding facts
+    "
+    " Chỉ biểu diễn binding quan sát trực tiếp tại call site.
+    " Không biểu diễn data flow hoặc downstream usage.
+    "============================================================
+    TYPES:
+      BEGIN OF ty_call_binding,
+
+        item_id           TYPE ty_item_id,
+        analysis_id       TYPE ty_analysis_id,
+
+        "Business Logic item chứa call này
+        call_item_id      TYPE ty_item_id,
+
+        "Dùng chung evidence của call statement
+        evidence_id       TYPE ty_evidence_id,
+
+        parameter_name    TYPE c LENGTH 60,
+        direction         TYPE c LENGTH 20,
+        actual_expression TYPE string,
+
+        position          TYPE i,
+
+        confidence        TYPE ty_confidence,
+
+      END OF ty_call_binding,
+
+      tt_call_binding TYPE STANDARD TABLE OF ty_call_binding
+        WITH EMPTY KEY.
 
   "============================================================
   " ALV Output header
@@ -265,6 +297,8 @@
         output_name        TYPE c LENGTH 120,
         output_kind        TYPE c LENGTH 30,
         framework          TYPE c LENGTH 40,
+
+        containing_routine TYPE c LENGTH 120,
 
         control_object     TYPE c LENGTH 80,
         output_table       TYPE c LENGTH 80,
@@ -513,6 +547,15 @@
       END OF ty_logic_analysis_result.
 
    "============================================================
+    " Call Binding Analysis Result
+    "============================================================
+    TYPES:
+      BEGIN OF ty_call_bind_analysis_result,
+        call_bindings TYPE tt_call_binding,
+        messages      TYPE tt_message,
+      END OF ty_call_bind_analysis_result.
+
+   "============================================================
     " ALV Analysis Result
     "============================================================
     TYPES:
@@ -535,6 +578,19 @@
         evidences   TYPE tt_evidence,
         messages    TYPE tt_message,
       END OF ty_alv_fcat_result.
+
+    "============================================================
+    " ALV Row Contract Analysis Result
+    "============================================================
+    TYPES:
+      BEGIN OF ty_alv_row_result,
+
+        alv_outputs TYPE tt_alv_output,
+        alv_columns TYPE tt_alv_column,
+        evidences   TYPE tt_evidence,
+        messages    TYPE tt_message,
+
+      END OF ty_alv_row_result.
 
     "============================================================
     " ALV Sort and Filter Analysis Result
@@ -573,6 +629,7 @@
         BEGIN OF ty_service_parameter,
           source_item_id     TYPE ty_item_id,
           parameter_name     TYPE c LENGTH 40,
+          source_field_name  TYPE c LENGTH 40,
           source_kind        TYPE c LENGTH 20,
           odata_kind         TYPE c LENGTH 20,
           edm_type           TYPE c LENGTH 30,
@@ -588,18 +645,26 @@
 
 
       TYPES:
-        BEGIN OF ty_service_field,
-          source_item_id TYPE ty_item_id,
-          field_name     TYPE c LENGTH 40,
-          label          TYPE c LENGTH 120,
-          edm_type       TYPE c LENGTH 30,
-          position       TYPE i,
-          key_field      TYPE abap_bool,
-          visible        TYPE abap_bool,
-          filterable     TYPE abap_bool,
-          sortable       TYPE abap_bool,
-          source_mapping TYPE string,
-        END OF ty_service_field,
+  BEGIN OF ty_service_field,
+    source_item_id     TYPE ty_item_id,
+    field_name         TYPE c LENGTH 40,
+    label              TYPE c LENGTH 120,
+    edm_type           TYPE c LENGTH 30,
+
+    source_data_type    TYPE c LENGTH 30,
+    source_data_element TYPE c LENGTH 30,
+    length              TYPE i,
+    decimals            TYPE i,
+    currency_field      TYPE c LENGTH 40,
+    unit_field          TYPE c LENGTH 40,
+
+    position           TYPE i,
+    key_field          TYPE abap_bool,
+    visible            TYPE abap_bool,
+    filterable         TYPE abap_bool,
+    sortable           TYPE abap_bool,
+    source_mapping     TYPE string,
+  END OF ty_service_field,
 
         tt_service_field
           TYPE STANDARD TABLE OF ty_service_field
@@ -783,7 +848,10 @@
           VALUE 'OUTPUT',
 
         gc_sig_both TYPE ty_sig_role
-          VALUE 'BOTH'.
+          VALUE 'BOTH',
+
+        gc_sig_tech TYPE ty_sig_role
+          VALUE 'TECHNICAL'.
 
 
       CONSTANTS:
@@ -839,6 +907,10 @@
           analysis_id      TYPE ty_analysis_id,
           service_strategy TYPE ty_service_strategy,
           provider_kind    TYPE ty_provider_kind,
+
+          "Only static class methods are supported by the read-only
+          "query generator. Function modules leave this flag initial.
+          provider_static  TYPE abap_bool,
 
           object_name      TYPE ty_sig_name,
           container_name   TYPE ty_sig_name,
@@ -1235,6 +1307,8 @@
           strategy        TYPE ty_service_strategy,
           source_program  TYPE ty_program_name,
           package         TYPE devclass,
+          provider_package TYPE devclass,
+          provider_language TYPE c LENGTH 10,
           base_name       TYPE c LENGTH 40,
 
           status          TYPE ty_art_status,
@@ -1295,7 +1369,7 @@
         alv_sorts        TYPE tt_alv_sort,
         alv_filters      TYPE tt_alv_filter,
         alv_events       TYPE tt_alv_event,
-
+        call_bindings    TYPE tt_call_binding,
         evidences        TYPE tt_evidence,
         messages         TYPE tt_message,
 

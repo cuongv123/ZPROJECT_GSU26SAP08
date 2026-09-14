@@ -43,47 +43,56 @@ ENDCLASS.
 
 CLASS zcl_mig_mail_log_service IMPLEMENTATION.
 
-  METHOD start_run.
+ METHOD start_run.
 
-  DATA lv_started_at TYPE timestampl.
+  CONSTANTS:
+    lc_status_running    TYPE zmig_e_run_status VALUE 'R',
+    lc_log_started       TYPE zmig_mail_log-log_message
+                         VALUE 'Mail execution started',
+    lc_log_insert_failed TYPE symsgv
+                         VALUE 'INSERT ZMIG_MAIL_LOG failed'.
+
+  DATA:
+    lv_started_at TYPE timestampl,
+    lv_run_id     TYPE sysuuid_x16,
+    ls_log        TYPE zmig_mail_log.
 
   GET TIME STAMP FIELD lv_started_at.
 
   TRY.
 
-      DATA(lv_run_id) =
+      lv_run_id =
         cl_system_uuid=>create_uuid_x16_static( ).
 
-      DATA(ls_log) = VALUE zmig_mail_log(
+      ls_log = VALUE #(
         job_id          = iv_job_id
         run_id          = lv_run_id
         trigger_type    = iv_trigger_type
-        status          = 'R'
+        status          = lc_status_running
         started_at      = lv_started_at
         file_format     = iv_file_format
         recipient_count = 0
-        log_message     = 'Mail execution started'
+        log_message     = lc_log_started
         created_by      = sy-uname
         created_at      = lv_started_at
       ).
 
       INSERT zmig_mail_log FROM @ls_log.
 
-IF sy-subrc = 0.
+      IF sy-subrc = 0.
 
-  rs_result-success = abap_true.
-  rs_result-run_id  = lv_run_id.
-  CLEAR rs_result-message.
+        rs_result-success = abap_true.
+        rs_result-run_id  = lv_run_id.
+        CLEAR rs_result-message.
 
-ELSE.
+      ELSE.
 
-  rs_result-success = abap_false.
+        rs_result-success = abap_false.
 
-  MESSAGE e034(zmig_msg)
-    WITH 'INSERT ZMIG_MAIL_LOG failed'
-    INTO rs_result-message.
-
-ENDIF.
+        MESSAGE e034(zmig_analysis)
+        WITH lc_log_insert_failed
+        INTO rs_result-message.
+      ENDIF.
 
     CATCH cx_uuid_error INTO DATA(lx_uuid).
 
@@ -94,8 +103,11 @@ ENDIF.
 
 ENDMETHOD.
 
+METHOD finish_run.
 
- METHOD finish_run.
+  CONSTANTS:
+    lc_log_update_failed TYPE symsgv
+                         VALUE 'ZMIG_MAIL_LOG update failed'.
 
   DATA:
     lv_finished_at TYPE timestampl,
@@ -126,11 +138,9 @@ ENDMETHOD.
 ELSE.
 
   rs_result-success = abap_false.
-
-  MESSAGE e035(zmig_msg)
-    WITH 'ZMIG_MAIL_LOG record not found or update failed'
-    INTO rs_result-message.
-
+  MESSAGE e035(zmig_analysis)
+  WITH lc_log_update_failed
+  INTO rs_result-message.
 ENDIF.
 
 ENDMETHOD.

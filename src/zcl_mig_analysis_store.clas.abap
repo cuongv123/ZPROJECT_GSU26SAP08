@@ -89,6 +89,9 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
     DELETE FROM zmig_anl_alv
       WHERE analysis_id = @iv_analysis_id.
 
+    DELETE FROM zmig_anl_bind
+      WHERE analysis_id = @iv_analysis_id.
+
     DELETE FROM zmig_anl_log
       WHERE analysis_id = @iv_analysis_id.
 
@@ -96,6 +99,9 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
       WHERE analysis_id = @iv_analysis_id.
 
     DELETE FROM zmig_anl_ui
+      WHERE analysis_id = @iv_analysis_id.
+
+    DELETE FROM zmig_anl_code
       WHERE analysis_id = @iv_analysis_id.
 
     DELETE FROM zmig_anl_src
@@ -197,10 +203,15 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
     "========================================================
     " Source Objects
     "
-    "Không persist SOURCE_LINES vì đây là runtime data.
+    "SOURCE_LINES được persist như snapshot của lần Analyze để
+    "evidence và line number luôn khớp với source người dùng xem.
     "========================================================
     DATA lt_source_object
       TYPE STANDARD TABLE OF zmig_anl_src
+      WITH EMPTY KEY.
+
+    DATA lt_source_line
+      TYPE STANDARD TABLE OF zmig_anl_code
       WITH EMPTY KEY.
 
     LOOP AT is_result-source_objects
@@ -217,26 +228,19 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
         source_hash   = <source_object>-source_hash
       ) TO lt_source_object.
 
+      LOOP AT <source_object>-source_lines
+        ASSIGNING FIELD-SYMBOL(<source_line>).
+
+        APPEND VALUE #(
+          analysis_id    = lv_analysis_id
+          source_item_id = <source_object>-item_id
+          line_number    = <source_line>-line_number
+          source_text    = <source_line>-source_text
+        ) TO lt_source_line.
+
+      ENDLOOP.
+
     ENDLOOP.
-
-    "====================================================
-    " Source Objects
-    "====================================================
-    IF lt_source_object IS NOT INITIAL.
-
-      INSERT zmig_anl_src
-        FROM TABLE @lt_source_object.
-
-      IF sy-subrc <> 0.
-
-        raise_store_error(
-          iv_program_name =
-            is_result-overview-program_name
-        ).
-
-      ENDIF.
-
-    ENDIF.
 
     "========================================================
     " UI Filters
@@ -312,6 +316,46 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
 
     ENDLOOP.
 
+    "========================================================
+    " Call Parameter Bindings
+    "
+    " Runtime:
+    "   POSITION
+    "
+    " Persistence:
+    "   BINDING_POSITION
+    "========================================================
+    DATA lt_call_binding
+      TYPE STANDARD TABLE OF zmig_anl_bind
+      WITH EMPTY KEY.
+
+
+    LOOP AT is_result-call_bindings
+      ASSIGNING FIELD-SYMBOL(<call_binding>).
+
+      DATA ls_call_binding
+        TYPE zmig_anl_bind.
+
+      CLEAR ls_call_binding.
+
+
+      MOVE-CORRESPONDING
+        <call_binding>
+        TO ls_call_binding.
+
+
+      ls_call_binding-analysis_id =
+        lv_analysis_id.
+
+
+      ls_call_binding-binding_position =
+        <call_binding>-position.
+
+
+      APPEND ls_call_binding
+        TO lt_call_binding.
+
+    ENDLOOP.
 
 
     "========================================================
@@ -569,7 +613,7 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
 
     ENDLOOP.
 
-        TRY.
+    TRY.
 
         "====================================================
         " Header
@@ -582,6 +626,49 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
             iv_program_name =
               is_result-overview-program_name
           ).
+        ENDIF.
+
+
+        "====================================================
+        " Source Objects
+        "
+        " Header phải tồn tại trước mọi child record và toàn
+        " bộ DB write phải nằm trong cùng error boundary.
+        "====================================================
+        IF lt_source_object IS NOT INITIAL.
+
+          INSERT zmig_anl_src
+            FROM TABLE @lt_source_object.
+
+          IF sy-subrc <> 0.
+
+            raise_store_error(
+              iv_program_name =
+                is_result-overview-program_name
+            ).
+
+          ENDIF.
+
+        ENDIF.
+
+
+        "====================================================
+        " Source Code Snapshot
+        "====================================================
+        IF lt_source_line IS NOT INITIAL.
+
+          INSERT zmig_anl_code
+            FROM TABLE @lt_source_line.
+
+          IF sy-subrc <> 0.
+
+            raise_store_error(
+              iv_program_name =
+                is_result-overview-program_name
+            ).
+
+          ENDIF.
+
         ENDIF.
 
 
@@ -628,6 +715,22 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
               iv_program_name =
                 is_result-overview-program_name
             ).
+          ENDIF.
+
+        ENDIF.
+
+        IF lt_call_binding IS NOT INITIAL.
+
+          INSERT zmig_anl_bind
+            FROM TABLE @lt_call_binding.
+
+          IF sy-subrc <> 0.
+
+            raise_store_error(
+              iv_program_name =
+                is_result-overview-program_name
+            ).
+
           ENDIF.
 
         ENDIF.
@@ -856,6 +959,11 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
       INTO TABLE @DATA(lt_logic).
 
     SELECT *
+      FROM zmig_anl_bind
+      WHERE analysis_id = @iv_analysis_id
+      INTO TABLE @DATA(lt_call_binding).
+
+    SELECT *
       FROM zmig_anl_alv
       WHERE analysis_id = @iv_analysis_id
       INTO TABLE @DATA(lt_alv).
@@ -899,6 +1007,15 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
       FROM zmig_anl_src
       WHERE analysis_id = @iv_analysis_id
       INTO TABLE @DATA(lt_source_object).
+
+    DATA lt_source_line_db
+      TYPE SORTED TABLE OF zmig_anl_code
+      WITH UNIQUE KEY source_item_id line_number.
+
+    SELECT *
+      FROM zmig_anl_code
+      WHERE analysis_id = @iv_analysis_id
+      INTO TABLE @lt_source_line_db.
 
     SELECT *
       FROM zmig_anl_msg
@@ -968,6 +1085,31 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
 
     ENDLOOP.
 
+    "========================================================
+    " Call Parameter Bindings
+    "========================================================
+    LOOP AT lt_call_binding
+      ASSIGNING FIELD-SYMBOL(<db_call_binding>).
+
+      DATA ls_call_binding_result
+        TYPE zif_mig_types=>ty_call_binding.
+
+      CLEAR ls_call_binding_result.
+
+
+      MOVE-CORRESPONDING
+        <db_call_binding>
+        TO ls_call_binding_result.
+
+
+      ls_call_binding_result-position =
+        <db_call_binding>-binding_position.
+
+
+      APPEND ls_call_binding_result
+        TO rs_result-call_bindings.
+
+    ENDLOOP.
 
     "========================================================
     " ALV Outputs
@@ -1157,7 +1299,12 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
     LOOP AT lt_source_object
       ASSIGNING FIELD-SYMBOL(<db_source_object>).
 
-      APPEND VALUE #(
+      DATA ls_source_object_result
+        TYPE zif_mig_types=>ty_source_object.
+
+      CLEAR ls_source_object_result.
+
+      ls_source_object_result = VALUE #(
         item_id       = <db_source_object>-item_id
         analysis_id   = <db_source_object>-analysis_id
         object_name   = <db_source_object>-object_name
@@ -1166,7 +1313,22 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
         include_depth = <db_source_object>-include_depth
         line_count    = <db_source_object>-line_count
         source_hash   = <db_source_object>-source_hash
-      ) TO rs_result-source_objects.
+      ).
+
+      LOOP AT lt_source_line_db
+        ASSIGNING FIELD-SYMBOL(<db_source_line>)
+        WHERE source_item_id = <db_source_object>-item_id.
+
+        APPEND VALUE #(
+          source_object = <db_source_object>-object_name
+          line_number   = <db_source_line>-line_number
+          source_text   = <db_source_line>-source_text
+        ) TO ls_source_object_result-source_lines.
+
+      ENDLOOP.
+
+      APPEND ls_source_object_result
+        TO rs_result-source_objects.
 
     ENDLOOP.
 
@@ -1213,6 +1375,11 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
       BY object_type
          object_name.
 
+    SORT rs_result-call_bindings
+      BY call_item_id
+         position
+         parameter_name.
+
     SORT rs_result-alv_outputs
       BY output_id.
 
@@ -1253,3 +1420,4 @@ CLASS zcl_mig_analysis_store IMPLEMENTATION.
   ENDMETHOD.
 
 ENDCLASS.
+

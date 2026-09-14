@@ -21,7 +21,7 @@ CLASS zcl_mig_alv_analyzer DEFINITION
         start_line     TYPE i,
         end_line       TYPE i,
         statement_text TYPE string,
-
+        containing_routine TYPE c LENGTH 120,
         framework      TYPE ty_framework,
         output_table   TYPE ty_identifier,
         field_catalog  TYPE ty_identifier,
@@ -198,24 +198,25 @@ CLASS zcl_mig_alv_analyzer IMPLEMENTATION.
         ).
 
       APPEND VALUE #(
-        output_id       = lv_output_id
-        analysis_id     = iv_analysis_id
-        evidence_id     = lv_evidence_id
-        output_name     = lv_output_name
-        output_kind     = 'MAIN_ALV'
-        framework       = ls_state-framework
-        control_object  = ls_state-control_object
-        output_table    = ls_state-output_table
-        row_type        = ''
-        field_catalog   = ls_state-field_catalog
-        sort_table      = ls_state-sort_table
-        filter_table    = ls_state-filter_table
-        layout_object   = ls_state-layout_object
-        variant_object  = ls_state-variant_object
-        editable        = abap_false
-        hierarchical    = abap_false
-        confidence      = ls_state-confidence
-      ) TO ct_outputs.
+          output_id          = lv_output_id
+          analysis_id        = iv_analysis_id
+          evidence_id        = lv_evidence_id
+          output_name        = lv_output_name
+          output_kind        = 'MAIN_ALV'
+          framework          = ls_state-framework
+          containing_routine = ls_state-containing_routine
+          control_object     = ls_state-control_object
+          output_table       = ls_state-output_table
+          row_type           = ''
+          field_catalog      = ls_state-field_catalog
+          sort_table         = ls_state-sort_table
+          filter_table       = ls_state-filter_table
+          layout_object      = ls_state-layout_object
+          variant_object     = ls_state-variant_object
+          editable           = abap_false
+          hierarchical       = abap_false
+          confidence         = ls_state-confidence
+        ) TO ct_outputs.
 
       APPEND VALUE #(
         evidence_id    = lv_evidence_id
@@ -336,6 +337,7 @@ METHOD initialize_states.
       start_line     = <statement>-start_line
       end_line       = <statement>-end_line
       statement_text = <statement>-statement_text
+      containing_routine = <statement>-parent_routine
       framework      = lv_framework
       control_object = lv_control_object
       recognized     = abap_true

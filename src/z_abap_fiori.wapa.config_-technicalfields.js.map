@@ -1,0 +1,3 @@
+{"version":3,"file":"TechnicalFields.js","names":["sap","ui","define","aTechnicalFields","Object","freeze","mTechnicalFields","reduce","mResult","sField","isTechnical","String","list"],"sources":["TechnicalFields-dbg.js"],"mappings":"AAAAA,IAAIC,GAAGC,OA+
+AO,GAAI,WAChB,aAEA,IAAIC,EAAmBC,OAAOC,OAAO,CACnC,aACA,SACA,WACA,mBACA,aACA,mBACA,eACA,WACA,QACA,QACA,cACA,WACA,WACA,SACA,cACA,qBACA,kBACA,+BACA,gBACA,UACA,eAGF,IAAIC,EAAmBH,EAAiBI,OAAO,SAAUC,EAASC,GAChED,EAAQC,GAAU,KAClB,OAAOD,CACT,EAAG,CAAC,GAEJ,SAASE,E+
+AAYD,GACnB,OAAOH,EAAiBK,OAAOF,GAAU,OAAS,IACpD,CAEA,OAAOL,OAAOC,OAAO,CACnBO,KAAMT,EACNO,YAAaA,GAEjB","ignoreList":[]}                                                                                                                                           

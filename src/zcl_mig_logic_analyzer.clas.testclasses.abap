@@ -69,6 +69,10 @@ CLASS ltc_logic_analyzer DEFINITION
     RAISING
       zcx_mig_analysis.
 
+      METHODS preserve_execution_context
+  FOR TESTING
+  RAISING zcx_mig_analysis.
+
 ENDCLASS.
 
 CLASS ltc_logic_analyzer IMPLEMENTATION.
@@ -637,5 +641,509 @@ METHOD classify_transaction.
   ).
 
 ENDMETHOD.
+METHOD preserve_execution_context.
+
+  CONSTANTS gc_program TYPE progname
+    VALUE 'ZRMIG_UT_LOG_EXEC'.
+
+
+  DATA lt_source
+    TYPE zif_mig_types=>tt_source_line.
+
+
+  lt_source = VALUE #(
+
+    (
+      source_object = gc_program
+      line_number   = 1
+      source_text   = `REPORT zrmig_ut_log_exec.`
+    )
+
+    (
+      source_object = gc_program
+      line_number   = 2
+      source_text   = `PARAMETERS p_commit AS CHECKBOX.`
+    )
+
+    (
+      source_object = gc_program
+      line_number   = 3
+      source_text   = `START-OF-SELECTION.`
+    )
+
+    (
+      source_object = gc_program
+      line_number   = 4
+      source_text   = `IF p_commit = abap_true.`
+    )
+
+    (
+      source_object = gc_program
+      line_number   = 5
+      source_text   =
+        `CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'.`
+    )
+
+    (
+      source_object = gc_program
+      line_number   = 6
+      source_text   = `ENDIF.`
+    )
+
+  ).
+
+
+  DATA(lo_scanner) =
+    NEW zcl_mig_abap_scanner( ).
+
+
+  DATA(ls_scan) =
+    lo_scanner->zif_mig_abap_scanner~scan(
+      iv_source_object = gc_program
+      it_source        = lt_source
+    ).
+
+
+  DATA(lo_normalizer) =
+    NEW zcl_mig_stmt_normalizer( ).
+
+
+  DATA(ls_normalized) =
+    lo_normalizer->zif_mig_stmt_normalizer~normalize(
+      is_scan_result = ls_scan
+    ).
+
+
+  DATA lt_source_units
+    TYPE zif_mig_types=>tt_source_unit.
+
+
+  APPEND VALUE #(
+    source_object = VALUE #(
+      object_name  = gc_program
+      object_type  = 'PROGRAM'
+      source_lines = lt_source
+    )
+    scan_result = ls_normalized
+  ) TO lt_source_units.
+
+
+  DATA(lo_analyzer) =
+    NEW zcl_mig_logic_analyzer( ).
+
+
+  DATA(ls_result) =
+    lo_analyzer->zif_mig_logic_analyzer~analyze(
+      it_source_units = lt_source_units
+    ).
+
+
+  READ TABLE ls_result-business_logic
+    WITH KEY
+      object_type = 'BAPI'
+      object_name = 'BAPI_TRANSACTION_COMMIT'
+    INTO DATA(ls_commit).
+
+
+  cl_abap_unit_assert=>assert_subrc(
+    exp = 0
+    msg = 'Không phát hiện BAPI_TRANSACTION_COMMIT'
+  ).
+
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = 'CONDITIONAL'
+    act = ls_commit-execution_kind
+    msg = 'BAPI trong IF phải là CONDITIONAL'
+  ).
+
+
+  DATA(lv_context) =
+    to_upper(
+      ls_commit-execution_context
+    ).
+
+
+  cl_abap_unit_assert=>assert_char_cp(
+    act = lv_context
+    exp = '*IF*P_COMMIT*=*ABAP_TRUE*'
+    msg = 'Business Logic fact phải giữ IF context'
+  ).
+
+ENDMETHOD.
+
+ENDCLASS.
+
+CLASS ltc_cp2_logic_caller DEFINITION
+  FINAL
+  FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+
+  PRIVATE SECTION.
+
+    METHODS preserve_callers
+      FOR TESTING
+      RAISING zcx_mig_analysis.
+
+ENDCLASS.
+
+
+CLASS ltc_cp2_logic_caller IMPLEMENTATION.
+
+  METHOD preserve_callers.
+
+    CONSTANTS gc_program TYPE progname
+      VALUE 'ZRMIG_UT_LOGIC_REL'.
+
+    DATA lt_source
+      TYPE zif_mig_types=>tt_source_line.
+
+    lt_source = VALUE #(
+
+      (
+        source_object = gc_program
+        line_number   = 1
+        source_text   = `REPORT zrmig_ut_logic_rel.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 2
+        source_text   = `START-OF-SELECTION.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 3
+        source_text   = `PERFORM process_data.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 4
+        source_text   = `FORM process_data.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 5
+        source_text   = `CALL FUNCTION 'DDIF_FIELDINFO_GET'.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 6
+        source_text   = `CALL FUNCTION 'BAPI_USER_GET_DETAIL'.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 7
+        source_text   = `lcl_worker=>read_data( ).`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 8
+        source_text   = `lo_worker->calculate( ).`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 9
+        source_text   = `ENDFORM.`
+      )
+
+    ).
+
+
+    DATA(lo_scanner) =
+      NEW zcl_mig_abap_scanner( ).
+
+    DATA(ls_scan) =
+      lo_scanner->zif_mig_abap_scanner~scan(
+        iv_source_object = gc_program
+        it_source        = lt_source
+      ).
+
+
+    DATA(lo_normalizer) =
+      NEW zcl_mig_stmt_normalizer( ).
+
+    DATA(ls_normalized) =
+      lo_normalizer->zif_mig_stmt_normalizer~normalize(
+        is_scan_result = ls_scan
+      ).
+
+
+    DATA lt_source_units
+      TYPE zif_mig_types=>tt_source_unit.
+
+    APPEND VALUE #(
+      source_object = VALUE #(
+        object_name  = gc_program
+        object_type  = 'PROGRAM'
+        source_lines = lt_source
+      )
+      scan_result = ls_normalized
+    ) TO lt_source_units.
+
+
+    DATA(lo_analyzer) =
+      NEW zcl_mig_logic_analyzer( ).
+
+    DATA(ls_result) =
+      lo_analyzer->zif_mig_logic_analyzer~analyze(
+        it_source_units = lt_source_units
+      ).
+
+
+    "==========================================================
+    " Function Module
+    "==========================================================
+    READ TABLE ls_result-business_logic
+      WITH KEY
+        object_type = 'FUNCTION_MODULE'
+        object_name = 'DDIF_FIELDINFO_GET'
+      INTO DATA(ls_fm).
+
+    cl_abap_unit_assert=>assert_subrc(
+      exp = 0
+      msg = 'Không phát hiện DDIF_FIELDINFO_GET'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'PROCESS_DATA'
+      act = ls_fm-calling_routine
+      msg = 'FM sai calling routine'
+    ).
+
+
+    "==========================================================
+    " BAPI
+    "==========================================================
+    READ TABLE ls_result-business_logic
+      WITH KEY
+        object_type = 'BAPI'
+        object_name = 'BAPI_USER_GET_DETAIL'
+      INTO DATA(ls_bapi).
+
+    cl_abap_unit_assert=>assert_subrc(
+      exp = 0
+      msg = 'Không phát hiện BAPI_USER_GET_DETAIL'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'PROCESS_DATA'
+      act = ls_bapi-calling_routine
+      msg = 'BAPI sai calling routine'
+    ).
+
+
+    "==========================================================
+    " Static Method
+    "==========================================================
+    READ TABLE ls_result-business_logic
+      WITH KEY
+        object_type    = 'STATIC_METHOD'
+        object_name    = 'READ_DATA'
+        container_name = 'LCL_WORKER'
+      INTO DATA(ls_static).
+
+    cl_abap_unit_assert=>assert_subrc(
+      exp = 0
+      msg = 'Không phát hiện static method'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'PROCESS_DATA'
+      act = ls_static-calling_routine
+      msg = 'Static method sai calling routine'
+    ).
+
+
+    "==========================================================
+    " Instance Method
+    "==========================================================
+    READ TABLE ls_result-business_logic
+      WITH KEY
+        object_type    = 'INSTANCE_METHOD'
+        object_name    = 'CALCULATE'
+        container_name = 'LO_WORKER'
+      INTO DATA(ls_instance).
+
+    cl_abap_unit_assert=>assert_subrc(
+      exp = 0
+      msg = 'Không phát hiện instance method'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'PROCESS_DATA'
+      act = ls_instance-calling_routine
+      msg = 'Instance method sai calling routine'
+    ).
+
+  ENDMETHOD.
+
+
+ENDCLASS.
+
+CLASS ltc_cp5_dynamic_fm DEFINITION
+  FINAL
+  FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+
+  PRIVATE SECTION.
+
+    METHODS dynamic_fm_requires_review
+      FOR TESTING
+      RAISING zcx_mig_analysis.
+
+ENDCLASS.
+
+
+CLASS ltc_cp5_dynamic_fm IMPLEMENTATION.
+
+  METHOD dynamic_fm_requires_review.
+
+    CONSTANTS gc_program TYPE progname
+      VALUE 'ZRMIG_UT_DYNAMIC_FM'.
+
+    DATA(lt_source) =
+      VALUE zif_mig_types=>tt_source_line(
+
+        (
+          source_object = gc_program
+          line_number   = 1
+          source_text   = `REPORT zrmig_ut_dynamic_fm.`
+        )
+
+        (
+          source_object = gc_program
+          line_number   = 2
+          source_text   =
+            `DATA lv_fm TYPE rs38l_fnam VALUE 'DDIF_FIELDINFO_GET'.`
+        )
+
+        (
+          source_object = gc_program
+          line_number   = 3
+          source_text   = `FORM process_data.`
+        )
+
+        (
+          source_object = gc_program
+          line_number   = 4
+          source_text   =
+            `CALL FUNCTION (lv_fm).`
+        )
+
+        (
+          source_object = gc_program
+          line_number   = 5
+          source_text   = `ENDFORM.`
+        )
+
+      ).
+
+
+    DATA(lo_scanner) =
+      NEW zcl_mig_abap_scanner( ).
+
+    DATA(ls_scan) =
+      lo_scanner->zif_mig_abap_scanner~scan(
+        iv_source_object = gc_program
+        it_source        = lt_source
+      ).
+
+
+    DATA(lo_normalizer) =
+      NEW zcl_mig_stmt_normalizer( ).
+
+    DATA(ls_normalized) =
+      lo_normalizer->zif_mig_stmt_normalizer~normalize(
+        is_scan_result = ls_scan
+      ).
+
+
+    DATA lt_source_units
+      TYPE zif_mig_types=>tt_source_unit.
+
+    APPEND VALUE #(
+      source_object = VALUE #(
+        object_name  = gc_program
+        object_type  = 'PROGRAM'
+        source_lines = lt_source
+      )
+      scan_result = ls_normalized
+    ) TO lt_source_units.
+
+
+    DATA(lo_analyzer) =
+      NEW zcl_mig_logic_analyzer( ).
+
+    DATA(ls_result) =
+      lo_analyzer->zif_mig_logic_analyzer~analyze(
+        it_source_units = lt_source_units
+      ).
+
+
+    READ TABLE ls_result-business_logic
+      WITH KEY
+        object_type = 'DYNAMIC_FUNCTION_MODULE'
+      INTO DATA(ls_dynamic).
+
+    cl_abap_unit_assert=>assert_subrc(
+      exp = 0
+      msg = 'Dynamic CALL FUNCTION phải được giữ thành finding'
+    ).
+
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'LV_FM'
+      act = ls_dynamic-object_name
+      msg = 'Dynamic target phải là LV_FM'
+    ).
+
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'PROCESS_DATA'
+      act = ls_dynamic-calling_routine
+    ).
+
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'ADAPTER_REVIEW'
+      act = ls_dynamic-reuse_feasibility
+    ).
+
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = zif_mig_types=>gc_conf_medium
+      act = ls_dynamic-confidence
+      msg = 'Dynamic FM không được có HIGH confidence'
+    ).
+
+
+    cl_abap_unit_assert=>assert_not_initial(
+      act = ls_dynamic-evidence_id
+    ).
+
+
+    "Không được giả vờ đây là static FM
+    READ TABLE ls_result-business_logic
+      WITH KEY
+        object_type = 'FUNCTION_MODULE'
+        object_name = 'LV_FM'
+      TRANSPORTING NO FIELDS.
+
+    cl_abap_unit_assert=>assert_true(
+      act = xsdbool( sy-subrc <> 0 )
+      msg = 'Dynamic FM bị nhận nhầm thành static FUNCTION_MODULE'
+    ).
+
+  ENDMETHOD.
 
 ENDCLASS.

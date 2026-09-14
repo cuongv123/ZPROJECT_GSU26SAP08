@@ -10,13 +10,14 @@ INTERFACE zif_mig_cmp_types
 
   " Comparison categories
   CONSTANTS:
-    gc_cat_input      TYPE c LENGTH 20 VALUE 'INPUT',
-    gc_cat_output     TYPE c LENGTH 20 VALUE 'OUTPUT',
-    gc_cat_processing TYPE c LENGTH 20 VALUE 'PROCESSING',
-    gc_cat_ui         TYPE c LENGTH 20 VALUE 'UI_INTERACTION',
-    gc_cat_export     TYPE c LENGTH 20 VALUE 'EXPORT',
-    gc_cat_scheduling TYPE c LENGTH 20 VALUE 'SCHEDULING',
-    gc_cat_dependency TYPE c LENGTH 20 VALUE 'DEPENDENCY'.
+    gc_cat_input          TYPE c LENGTH 20 VALUE 'INPUT',
+    gc_cat_output         TYPE c LENGTH 20 VALUE 'OUTPUT',
+    gc_cat_dependency     TYPE c LENGTH 20 VALUE 'DEPENDENCY',
+    gc_cat_business_logic TYPE c LENGTH 20 VALUE 'BUSINESS_LOGIC',
+    gc_cat_ui             TYPE c LENGTH 20 VALUE 'UI_INTERACTION',
+    gc_cat_processing     TYPE c LENGTH 20 VALUE 'PROCESSING',
+    gc_cat_export         TYPE c LENGTH 20 VALUE 'EXPORT',
+    gc_cat_scheduling     TYPE c LENGTH 20 VALUE 'SCHEDULING'.
 
   " Severity
   CONSTANTS:
@@ -37,7 +38,9 @@ INTERFACE zif_mig_cmp_types
     gc_overall_partial TYPE c LENGTH 30 VALUE 'PARTIALLY_COMPATIBLE',
     gc_overall_manual  TYPE c LENGTH 30 VALUE 'HIGH_MANUAL_EFFORT'.
 
-  " Target strategy
+  " Legacy comparison-strategy constants.
+  " Kept for backward compatibility; current comparison processing
+  " evaluates ZIF_MIG_TYPES=>GC_SVC_QUERY / ACTION / MANUAL.
   CONSTANTS:
     gc_strategy_query     TYPE c LENGTH 30 VALUE 'QUERY_SERVICE',
     gc_strategy_managed   TYPE c LENGTH 30 VALUE 'MANAGED_BO',

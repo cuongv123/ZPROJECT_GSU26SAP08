@@ -16,21 +16,22 @@ etag master LocalLastChangedAt
   association _Recipients { create; }
 
   validation validateRequiredFields on save
-  {
-    create;
-    update;
-    field JobName,
-          ReportType,
-          FileFormat,
-          Frequency,
-          MailSubject;
-  }
+{
+  create;
+  update;
+  field AnalysisId,
+        JobName,
+        ReportType,
+        FileFormat,
+        Frequency;
+}
 
   validation validateSchedule on save
   {
     create;
     update;
     field Frequency,
+          JobTimeZone,
           StartDate,
           StartTime,
           DayOfWeek,
@@ -48,6 +49,7 @@ determination calculateNextRunAt on modify
 {
   create;
   field Frequency,
+        JobTimeZone,
         StartDate,
         StartTime,
         DayOfWeek,
@@ -73,6 +75,7 @@ determination calculateNextRunAt on modify
     ReportType             = report_type;
     FileFormat             = file_format;
     Frequency              = frequency;
+    JobTimeZone            = time_zone;
     StartDate              = start_date;
     StartTime              = start_time;
     DayOfWeek              = day_of_week;
@@ -119,6 +122,11 @@ etag master LocalLastChangedAt
   create;
   update;
   field SapUser;
+}
+
+  validation validateParentHasRecipient on save
+{
+  delete;
 }
 
   field ( readonly )
