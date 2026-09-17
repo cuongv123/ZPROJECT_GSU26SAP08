@@ -348,12 +348,18 @@ CLASS ltc_export_pdf_layout_fix IMPLEMENTATION.
       act = xsdbool( find( val = lv_all_pages sub = 'AAAAA' ) >= 0 ) ).
   ENDMETHOD.
   METHOD wide_column_not_truncated.
-    " He qua truc tiep cua do rong co gian theo noi dung: 1 cot co noi
-    " dung dai vua phai (23 ky tu, duoi muc gioi han toi da) di kem 7
-    " cot cuc ngan (1 ky tu). Neu van chia DEU 8 cot nhu truoc khi sua,
-    " cot dai gan nhu chac chan se bi cat (giong test tren). Sau khi
-    " sua (uu tien khong gian theo noi dung), cot dai phai duoc danh
-    " du khong gian va hien THAY DU, khong bi cat.
+    " CAP NHAT theo thiet ke moi: be rong cot (weight) gio tinh theo TU DAI
+    " NHAT trong cot (header hoac data), khong con theo TONG DO DAI CA CHUOI
+    " nhu truoc - muc dich la de FitToPage khong bao gio bop 1 cot hep hon
+    " muc can de hien du 1 tu (tranh vo tu giua chung o cac bang nhieu cot).
+    " He qua chap nhan duoc: 1 cot nhieu-tu-nhung-tung-tu-ngan (nhu lv_desc
+    " duoi day, cac tu dai nhat chi ~4 ky tu) se KHONG con duoc "thuong" rong
+    " hon cac cot 1-ky-tu khac nua - noi dung co the phai xuong dong (wrap)
+    " thanh nhieu dong trong cung 1 o, thay vi hien tron ven tren 1 dong.
+    " Vi vay test nay khong con doi hoi ca cau xuat hien NGUYEN VEN lien tuc
+    " (dieu do khong con dung voi thiet ke moi), ma doi hoi dieu quan trong
+    " hon: TUNG TU trong noi dung phai con nguyen ven, KHONG bi cat/vo giua
+    " chung du phai xuong dong - dung muc tieu chinh cua fix nay.
     DATA(lo_cut) = NEW zcl_mig_export_engine( ).
 
     DATA(lv_desc) = 'Mo ta chi tiet noi dung'.  "23 ky tu, khong dau
@@ -387,11 +393,18 @@ CLASS ltc_export_pdf_layout_fix IMPLEMENTATION.
       it_header_cols = lt_header_cols
       it_lines       = lt_lines ).
 
+    cl_abap_unit_assert=>assert_true(
+      msg = 'Phai sinh duoc it nhat 1 trang PDF'
+      act = xsdbool( lines( lt_pages ) > 0 ) ).
+
     DATA(lv_all_pages) = concat_lines_of( table = lt_pages ).
 
-    cl_abap_unit_assert=>assert_true(
-      msg = |Cot du lieu dai ({ strlen( lv_desc ) } ky tu) di kem 7 cot rat ngan phai hien THAY DU - chung to do rong khong con chia deu ma uu tien theo noi dung thuc te|
-      act = xsdbool( find( val = lv_all_pages sub = lv_desc ) >= 0 ) ).
+    SPLIT lv_desc AT space INTO TABLE DATA(lt_desc_words).
+    LOOP AT lt_desc_words INTO DATA(lv_desc_word).
+      cl_abap_unit_assert=>assert_true(
+        msg = |Tu "{ lv_desc_word }" trong cot noi dung dai ({ strlen( lv_desc ) } ky tu, di kem 7 cot rat ngan) phai xuat hien nguyen ven trong PDF - khong duoc bi cat/vo giua chung du co the phai xuong dong|
+        act = xsdbool( find( val = lv_all_pages sub = lv_desc_word ) >= 0 ) ).
+    ENDLOOP.
   ENDMETHOD.
 
 ENDCLASS.

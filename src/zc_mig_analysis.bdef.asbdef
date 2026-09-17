@@ -9,6 +9,9 @@ define behavior for ZC_MIG_ANALYSIS //alias <alias_name>
   use action PrepareSelectedExport;   // === MỚI ===
   use action GenerateTechnicalDocument;
   use action PrepareFioriUi;
+  use action PreflightOData;
+  use action GenerateOData;
+  use action GetODataGeneration;
   use action GenerateAIAssessment;
   use association _SourceObjects;
   use association _UiFilters;

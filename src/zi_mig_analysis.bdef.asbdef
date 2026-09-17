@@ -22,6 +22,18 @@ authorization master ( global )
     parameter ZA_MIG_UI_PREPARE_PARAM
     result [1] ZA_MIG_UI_PREPARE_RESULT;
 
+  action PreflightOData
+    parameter ZA_MIG_GEN_PARAM
+    result [1] ZA_MIG_GEN_RESULT;
+
+  action GenerateOData
+    parameter ZA_MIG_GEN_PARAM
+    result [1] ZA_MIG_GEN_RESULT;
+
+  action GetODataGeneration
+    parameter ZA_MIG_GEN_STATUS_PARAM
+    result [1] ZA_MIG_GEN_RESULT;
+
   action GenerateTechnicalDocument
      result [1] ZA_MIG_TECH_DOC_RESULT;
 
