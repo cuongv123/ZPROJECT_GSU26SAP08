@@ -2,7 +2,7 @@ INTERFACE zif_mig_export_provider
   PUBLIC.
 
   TYPES:
-    ty_export_section TYPE c LENGTH 20,
+    ty_export_section TYPE c LENGTH 100,
 
     BEGIN OF ty_export_result,
       success     TYPE abap_bool,

@@ -703,7 +703,8 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     " Loại ký tự không hợp lệ trong tên file (khoảng trắng, / \ : * ? " < > |)
     lv_prefix = replace( regex = '[^A-Za-z0-9_\-]' val = lv_prefix with = '_' occ = 0 ).
 
-    rv_filename = |{ lv_prefix }_{ iv_export_section }.{ iv_extension }|.
+    DATA(lv_section_for_name) = replace( val = CONV string( iv_export_section ) sub = ',' with = '+' occ = 0 ).
+rv_filename = |{ lv_prefix }_{ lv_section_for_name }.{ iv_extension }|.
   ENDMETHOD.
 
 
@@ -786,16 +787,65 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     ENDLOOP.
   ENDMETHOD.
   METHOD resolve_export_plan.
-    DATA(lv_section) = CONV zif_mig_export_provider=>ty_export_section(
-      to_upper( condense( CONV string( iv_export_section ) ) ) ).
+    DATA(lv_section_raw) = to_upper( condense( CONV string( iv_export_section ) ) ).
+    DATA(lt_registry)    = get_section_registry( ).
 
-    DATA(lt_registry) = get_section_registry( ).
-
-    IF lv_section = 'ALL'.
+    IF lv_section_raw = 'ALL'.
       rs_plan-sections = lt_registry.
       rs_plan-fields    = parse_section_field_map( iv_selected_fields ).
       RETURN.
     ENDIF.
+
+    " Tach danh sach section theo dau phay (ho tro chon nhieu section
+    " cu the cung luc, vd 'UI_FILTER,DB_OBJ') - loai phan tu rong do
+    " dau phay du/thua khoang trang.
+    SPLIT lv_section_raw AT ',' INTO TABLE DATA(lt_raw_codes).
+    DATA lt_section_codes TYPE string_table.
+    CLEAR lt_section_codes.
+    LOOP AT lt_raw_codes INTO DATA(lv_raw_code).
+      lv_raw_code = condense( lv_raw_code ).
+      IF lv_raw_code IS NOT INITIAL.
+        APPEND lv_raw_code TO lt_section_codes.
+      ENDIF.
+    ENDLOOP.
+
+    IF lines( lt_section_codes ) > 1.
+      " --- Nhieu section cu the ---
+      DATA lt_unknown TYPE string_table.
+      CLEAR lt_unknown.
+
+      LOOP AT lt_section_codes INTO DATA(lv_code).
+        READ TABLE lt_registry INTO DATA(ls_multi_section) WITH KEY section_code = lv_code.
+        IF sy-subrc <> 0.
+          APPEND lv_code TO lt_unknown.
+          CONTINUE.
+        ENDIF.
+
+        " Loai trung neu user gui trung ten section, giu dung thu tu
+        " xuat hien dau tien.
+        READ TABLE rs_plan-sections WITH KEY section_code = lv_code TRANSPORTING NO FIELDS.
+        IF sy-subrc <> 0.
+          APPEND ls_multi_section TO rs_plan-sections.
+        ENDIF.
+      ENDLOOP.
+
+      IF lt_unknown IS NOT INITIAL.
+        RAISE EXCEPTION TYPE zcx_mig_export_error
+          EXPORTING
+            mv_message = |Unknown export section { concat_lines_of( table = lt_unknown sep = `, ` ) }.|.
+      ENDIF.
+
+      " Dung chung dinh dang "SECTION:Field1,Field2;SECTION2:Field3" nhu
+      " ALL - section nao khong duoc nhac toi trong SelectedFields se
+      " lay het cot mac dinh cua rieng section do (giong het hanh vi ALL).
+      rs_plan-fields = parse_section_field_map( iv_selected_fields ).
+      RETURN.
+    ENDIF.
+
+    " --- 1 section cu the (hanh vi cu, khong doi) ---
+    DATA(lv_section) = COND zif_mig_export_provider=>ty_export_section(
+      WHEN lines( lt_section_codes ) = 1 THEN lt_section_codes[ 1 ]
+      ELSE lv_section_raw ).
 
     READ TABLE lt_registry INTO DATA(ls_section) WITH KEY section_code = lv_section.
     IF sy-subrc <> 0.

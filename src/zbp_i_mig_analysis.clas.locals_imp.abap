@@ -1685,7 +1685,7 @@ LOOP AT keys
       RETURN. " rỗng -> dùng cấu hình mặc định, luôn hợp lệ
     ENDIF.
 
-    IF iv_export_section = 'ALL'.
+    IF iv_export_section = 'ALL' OR iv_export_section CS ','.
       " Định dạng "SEC1:f1,f2;SEC2:f3" - validate riêng cho từng section
       " được nhắc tới, theo đúng whitelist của CHÍNH section đó.
       SPLIT iv_selected_fields AT ';' INTO TABLE DATA(lt_section_parts).

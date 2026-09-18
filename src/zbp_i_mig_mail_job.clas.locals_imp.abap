@@ -8,7 +8,7 @@ CONSTANTS:
   gc_frequency_weekly    TYPE zmig_e_frequency VALUE 'W',
   gc_frequency_monthly   TYPE zmig_e_frequency VALUE 'M',
   gc_status_active       TYPE zmig_e_job_status VALUE 'A',
-  gc_export_section_all  TYPE zmig_e_report_section VALUE 'ALL',
+  gc_export_section_all  TYPE zif_mig_export_provider=>ty_export_section VALUE 'ALL',
   gc_monday_anchor       TYPE d VALUE '19000101'.
 " Declare methods validation"
    METHODS get_global_authorizations
