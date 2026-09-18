@@ -80,6 +80,26 @@ CLASS zcl_mig_export_engine DEFINITION
              height TYPE i,
            END OF ty_page_dim.
 
+    " --- Ket qua fit-to-page: font tim duoc + co "tat ca cot deu fit vua" hay
+    " khong (all_fit). LUU Y: export_pdf KHONG dung all_fit de quyet dinh co
+    " chia khoi cot hay khong nua (xem comment trong export_pdf) - FitToPage=true
+    " luon ep 1 khoi duy nhat theo dung spec da handoff cho FE, bat ke all_fit.
+    " Truong all_fit chi de tham khao/debug (vd log canh bao khi khong the lam
+    " vua het, ma khong doi hanh vi chia khoi).
+    TYPES: BEGIN OF ty_fit_result,
+             font_size TYPE i,
+             all_fit   TYPE abap_bool,
+           END OF ty_fit_result.
+
+    METHODS fit_to_page_font_size
+      IMPORTING
+        it_header_cols    TYPE tt_col
+        it_lines          TYPE tt_row_cells
+        iv_table_width    TYPE i
+        iv_requested_font TYPE i
+      RETURNING
+        VALUE(rs_fit)     TYPE ty_fit_result.
+
     METHODS render_section_pages
       IMPORTING
         iv_title        TYPE string
@@ -102,7 +122,12 @@ CLASS zcl_mig_export_engine DEFINITION
       gc_excel_name   TYPE string VALUE 'migration_report',
       gc_csv_name     TYPE string VALUE 'migration_report',
       gc_pdf_name     TYPE string VALUE 'migration_report'.
-
+    METHODS wrap_text_lines
+      IMPORTING
+        iv_text         TYPE string
+        iv_max_char     TYPE i
+      RETURNING
+        VALUE(rt_lines) TYPE string_table.
 
 
 
@@ -244,6 +269,108 @@ CLASS zcl_mig_export_engine DEFINITION
 ENDCLASS.
 
 CLASS zcl_mig_export_engine IMPLEMENTATION.
+  METHOD fit_to_page_font_size.
+    CONSTANTS: lc_min_col_chars TYPE i VALUE 6,
+               lc_max_col_chars TYPE i VALUE 30,
+               lc_font_floor    TYPE i VALUE 5.
+
+    DATA(lv_num_cols) = lines( it_header_cols ).
+    IF lv_num_cols = 0 OR it_lines IS INITIAL.
+      rs_fit-font_size = iv_requested_font.
+      rs_fit-all_fit   = abap_true.
+      RETURN.
+    ENDIF.
+    DATA(lt_header_cells) = it_lines[ 1 ].
+
+    DATA lt_col_weight       TYPE STANDARD TABLE OF i WITH EMPTY KEY.
+    DATA lt_longest_dataword TYPE STANDARD TABLE OF i WITH EMPTY KEY.
+    DATA lt_longest_hdrword  TYPE STANDARD TABLE OF i WITH EMPTY KEY.
+    DO lv_num_cols TIMES.
+      DATA(lv_ix) = sy-index.
+      DATA(lv_hdr_text) = COND string( WHEN lv_ix <= lines( lt_header_cells )
+                                        THEN condense( lt_header_cells[ lv_ix ] ) ELSE `` ).
+      " tu dai nhat trong TIEU DE (tach theo khoang trang, giong wrap_text_lines)
+      " - dung lam GIOI HAN AN TOAN TOI THIEU (khong bao gio bop cot hep hon
+      " muc nay), khong dung truc tiep de tinh weight nua (xem ben duoi).
+      DATA(lv_longest_hdr) = 0.
+      SPLIT lv_hdr_text AT space INTO TABLE DATA(lt_hdr_words).
+      LOOP AT lt_hdr_words INTO DATA(lv_hword).
+        IF strlen( lv_hword ) > lv_longest_hdr.
+          lv_longest_hdr = strlen( lv_hword ).
+        ENDIF.
+      ENDLOOP.
+      " do dai CA CAU header (khong tach tu) - dung lam MUC TIEU MONG MUON cho
+      " weight, de header co co hoi hien tron ven 1 dong (giong san pham tham
+      " khao) thay vi luon bi xuong dong ngay ca khi con du cho.
+      DATA(lv_hdr_full_len) = strlen( lv_hdr_text ).
+
+      " tu dai nhat trong DU LIEU
+      DATA(lv_longest_data) = 0.
+      LOOP AT it_lines INTO DATA(lt_row) FROM 2.
+        IF lv_ix <= lines( lt_row ).
+          SPLIT condense( lt_row[ lv_ix ] ) AT space INTO TABLE DATA(lt_words).
+          LOOP AT lt_words INTO DATA(lv_word).
+            IF strlen( lv_word ) > lv_longest_data.
+              lv_longest_data = strlen( lv_word ).
+            ENDIF.
+          ENDLOOP.
+        ENDIF.
+      ENDLOOP.
+
+      " be rong cot (weight): UU TIEN theo DO DAI CA CAU HEADER (de header co
+      " nhieu co hoi hien tron 1 dong hon, giong san pham tham khao), so voi
+      " tu dai nhat trong du lieu - lay gia tri lon hon. Day CHI la "muc tieu
+      " mong muon" dung de chia ty le; con cai bao dam khong vo chu giua tu
+      " (ca header lan data) van la vong kiem tra lv_maxchar_data/lv_maxchar_hdr
+      " voi lt_longest_dataword/lt_longest_hdrword o duoi - nen du khi khong
+      " du weight cho tat ca cot (qua nhieu cot), header co the phai xuong
+      " dong lai, nhung TU thi khong bao gio bi cat/vo giua chung.
+      DATA(lv_w) = COND i( WHEN lv_hdr_full_len > lv_longest_data THEN lv_hdr_full_len ELSE lv_longest_data ).
+      lv_w = nmax( val1 = lc_min_col_chars val2 = nmin( val1 = lv_w val2 = lc_max_col_chars ) ).
+      APPEND lv_w TO lt_col_weight.
+      APPEND lv_longest_data TO lt_longest_dataword.
+      APPEND lv_longest_hdr  TO lt_longest_hdrword.
+    ENDDO.
+
+    DATA(lv_total_weight) = REDUCE i( INIT s = 0 FOR w IN lt_col_weight NEXT s = s + w ).
+    IF lv_total_weight = 0.
+      rs_fit-font_size = iv_requested_font.
+      rs_fit-all_fit   = abap_true.
+      RETURN.
+    ENDIF.
+
+    DATA(lv_candidate) = iv_requested_font.
+    WHILE lv_candidate >= lc_font_floor.
+      DATA(lv_ok) = abap_true.
+      LOOP AT lt_col_weight INTO DATA(lv_wv) FROM 1.
+        DATA(lv_cidx) = sy-tabix.
+        DATA(lv_cw) = CONV i( iv_table_width * lv_wv / lv_total_weight ).
+
+        " o du lieu: chu ve bang lv_candidate
+        DATA(lv_maxchar_data) = CONV i( lv_cw * 10 / ( lv_candidate * 7 ) ) - 1.
+        " o tieu de: chu ve lon hon 1pt (dung font_size + 1 nhu trong render_section_pages)
+        DATA(lv_maxchar_hdr)  = CONV i( lv_cw * 10 / ( ( lv_candidate + 1 ) * 7 ) ) - 1.
+
+        IF lv_maxchar_data < lt_longest_dataword[ lv_cidx ]
+        OR lv_maxchar_hdr  < lt_longest_hdrword[ lv_cidx ].
+          lv_ok = abap_false.
+          EXIT.
+        ENDIF.
+      ENDLOOP.
+      IF lv_ok = abap_true.
+        rs_fit-font_size = lv_candidate.
+        rs_fit-all_fit   = abap_true.
+        RETURN.
+      ENDIF.
+      lv_candidate = lv_candidate - 1.
+    ENDWHILE.
+
+    " Khong tim duoc font nao (ke ca san lc_font_floor) lam tat ca cot fit vua
+    " tu dai nhat cua no - bao hieu cho export_pdf biet de chuyen sang chia khoi
+    " (column block) thay vi ep het len 1 khoi/1 trang gay vo tu giua chung.
+    rs_fit-font_size = lc_font_floor.
+    rs_fit-all_fit   = abap_false.
+  ENDMETHOD.
   METHOD split_row_for_excel.
     " Voi tung cot: neu duoc bat tach (iv_split_enabled = X) VA duoc
     " danh dau IS_MULTI_VALUE = X trong ZTB_EXP_COL, tach gia tri gom
@@ -321,28 +448,77 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     ENDDO.
   ENDMETHOD.
 
-  METHOD zif_mig_export_provider~generate.
+  METHOD wrap_text_lines.
+    DATA(lv_text) = condense( iv_text ).
+    IF iv_max_char <= 0 OR lv_text IS INITIAL.
+      APPEND lv_text TO rt_lines.
+      RETURN.
+    ENDIF.
+
+    SPLIT lv_text AT space INTO TABLE DATA(lt_words).
+    DATA lv_current TYPE string.
+
+    LOOP AT lt_words INTO DATA(lv_word).
+      WHILE strlen( lv_word ) > iv_max_char.        " tu qua dai hon 1 dong, cat cung
+        IF lv_current IS NOT INITIAL.
+          APPEND lv_current TO rt_lines.
+          CLEAR lv_current.
+        ENDIF.
+        APPEND lv_word(iv_max_char) TO rt_lines.
+        lv_word = lv_word+iv_max_char.
+      ENDWHILE.
+
+      DATA(lv_candidate) = COND string( WHEN lv_current IS INITIAL THEN lv_word ELSE |{ lv_current } { lv_word }| ).
+      IF strlen( lv_candidate ) > iv_max_char.
+        APPEND lv_current TO rt_lines.
+        lv_current = lv_word.
+      ELSE.
+        lv_current = lv_candidate.
+      ENDIF.
+    ENDLOOP.
+
+    IF lv_current IS NOT INITIAL.
+      APPEND lv_current TO rt_lines.
+    ENDIF.
+    IF rt_lines IS INITIAL.
+      APPEND `` TO rt_lines.
+    ENDIF.
+  ENDMETHOD.
+
+
+
+    METHOD zif_mig_export_provider~generate.
+
+    CLEAR rs_result.
 
     TRY.
-        DATA(lv_format) = to_upper( condense( CONV string( iv_file_format ) ) ).
-        DATA(lv_section) = CONV zif_mig_export_provider=>ty_export_section(
-          to_upper( condense( CONV string( iv_export_section ) ) ) ).
 
-        " ExportSection=ALL + SelectedFields: giờ được hỗ trợ qua định dạng
-        " "SECTION1:Field1,Field2;SECTION2:Field3" - mỗi section tự lấy
-        " đúng field đã tick, không còn bị chặn như trước.
+        DATA(lv_format) =
+          to_upper(
+            condense( CONV string( iv_file_format ) )
+          ).
+
+        DATA(lv_section) =
+          CONV zif_mig_export_provider=>ty_export_section(
+            to_upper(
+              condense( CONV string( iv_export_section ) )
+            )
+          ).
 
         CASE lv_format.
+
           WHEN gc_format_excel OR 'EXCEL' OR 'E' OR 'XLSX'.
+
             rs_result = export_excel(
-              iv_job_id             = iv_job_id
-              iv_analysis_id        = iv_analysis_id
-              iv_report_type        = iv_report_type
-              iv_export_section     = lv_section
-              iv_selected_fields    = iv_selected_fields
-              iv_split_multi_value  = iv_split_multi_value ).
+              iv_job_id            = iv_job_id
+              iv_analysis_id       = iv_analysis_id
+              iv_report_type       = iv_report_type
+              iv_export_section    = lv_section
+              iv_selected_fields   = iv_selected_fields
+              iv_split_multi_value = iv_split_multi_value ).
 
           WHEN gc_format_csv OR 'CSV'.
+
             rs_result = export_csv(
               iv_job_id          = iv_job_id
               iv_analysis_id     = iv_analysis_id
@@ -351,6 +527,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
               iv_selected_fields = iv_selected_fields ).
 
           WHEN gc_format_pdf OR 'PDF'.
+
             rs_result = export_pdf(
               iv_job_id          = iv_job_id
               iv_analysis_id     = iv_analysis_id
@@ -358,16 +535,91 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
               iv_export_section  = lv_section
               iv_selected_fields = iv_selected_fields
               is_pdf_layout      = VALUE ty_pdf_layout(
-                                     header_text = iv_pdf_header
-                                     footer_text = iv_pdf_footer
-                                     paper_size  = iv_paper_size
-                                     orientation = iv_orientation
-                                     font_size   = iv_font_size
-                                     fit_to_page = iv_fit_to_page ) ).
+                header_text = iv_pdf_header
+                footer_text = iv_pdf_footer
+                paper_size  = iv_paper_size
+                orientation = iv_orientation
+                font_size   = iv_font_size
+                fit_to_page = iv_fit_to_page ) ).
+
+          WHEN 'M'.
+
+            " Technical documents require an explicit snapshot
+            IF iv_analysis_id IS INITIAL.
+              rs_result-message =
+                'An Analysis ID is required for a technical document.'.
+              RETURN.
+            ENDIF.
+
+            " Technical documents contain the complete document
+            IF lv_section IS NOT INITIAL
+               AND lv_section <> 'ALL'.
+
+              rs_result-message =
+                'Technical documents support export section ALL only.'.
+              RETURN.
+
+            ENDIF.
+
+            IF iv_selected_fields IS NOT INITIAL.
+              rs_result-message =
+                'Field selection is not supported for technical documents.'.
+              RETURN.
+            ENDIF.
+
+            " Reuse the existing technical document service
+            DATA lo_document_service
+              TYPE REF TO zif_mig_tech_doc_service.
+
+            lo_document_service =
+              NEW zcl_mig_tech_doc_service( ).
+
+            DATA(ls_document) =
+              lo_document_service->generate(
+                iv_analysis_id = iv_analysis_id ).
+
+            " Verify that the generated document matches the request
+            IF ls_document-analysis_id <> iv_analysis_id.
+              rs_result-message =
+                'The generated document does not match the requested analysis.'.
+              RETURN.
+            ENDIF.
+
+            IF ls_document-markdown IS INITIAL
+               OR ls_document-file_name IS INITIAL.
+
+              rs_result-message =
+                'The technical document content or file name is empty.'.
+              RETURN.
+
+            ENDIF.
+
+            " Encode the attachment as UTF-8
+            rs_result-content =
+              cl_abap_codepage=>convert_to(
+                source   = ls_document-markdown
+                codepage = 'UTF-8' ).
+
+            rs_result-file_name =
+              ls_document-file_name.
+
+            " BCS binary attachment; the file name retains .md
+            rs_result-file_type = 'BIN'.
+
+            rs_result-file_format = 'M'.
+            rs_result-mime_type =
+              'text/markdown; charset=utf-8'.
+
+            rs_result-success = abap_true.
+            rs_result-message =
+              'Technical document generated successfully.'.
 
           WHEN OTHERS.
+
             rs_result-success = abap_false.
-            rs_result-message = |Unsupported export format { iv_file_format }.|.
+            rs_result-message =
+              |Unsupported export format { iv_file_format }.|.
+
         ENDCASE.
 
         IF rs_result-success = abap_true.
@@ -375,10 +627,17 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
         ENDIF.
 
       CATCH cx_root INTO DATA(lx_error).
-        CLEAR: rs_result-content, rs_result-file_name, rs_result-file_type,
-               rs_result-file_format, rs_result-mime_type.
+
+        CLEAR:
+          rs_result-content,
+          rs_result-file_name,
+          rs_result-file_type,
+          rs_result-file_format,
+          rs_result-mime_type.
+
         rs_result-success = abap_false.
         rs_result-message = lx_error->get_text( ).
+
     ENDTRY.
 
   ENDMETHOD.
@@ -653,6 +912,23 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     DATA(lo_excel) = NEW zcl_excel( ).
     DATA(lv_sheet_count) = 0.
 
+    " Cot rong toi da (don vi ky tu chuan Excel) - noi dung dai hon muc nay
+    " (vd truong text tu do nhu Description/Where Fields) se KHONG lam cot
+    " gian ra vo han nua, ma bi gioi han o day va tu xuong dong trong CHINH
+    " o do (nho style wrap text ben duoi + Excel tu tang chieu cao hang).
+    CONSTANTS lc_col_width_cap TYPE i VALUE 80.
+
+    " Dem THEO TI LE PHAN TRAM (khong con la so co dinh +2 nua) - don vi
+    " "do rong cot" cua Excel duoc chuan hoa theo be ngang ky tu "0", trong
+    " khi du lieu o day toan CHU HOA + gach duoi (vd ZTEST_ABAP_PARSER_F01,
+    " INSTANCE_METHOD) co be ngang thuc te LON HON ky tu "0" kha nhieu. Muc
+    " chenh lech nay TI LE THEO DO DAI chuoi (chuoi cang dai, phan thieu
+    " tuyet doi cang lon) - nen 1 so co dinh (vd +2) chi du cho chuoi ngan,
+    " chuoi dai hon (nhung van ngan hon xa muc lc_col_width_cap) van bi
+    " xuong dong oan uong du that ra du cho hien 1 dong. Doi sang +X% do
+    " dai + vai ky tu co dinh de muc dem tu tang theo do dai chuoi.
+    CONSTANTS lc_width_buffer_pct TYPE i VALUE 25.
+
     TRY.
         DATA(lo_style_bold) = lo_excel->add_new_style( ).
         lo_style_bold->font->bold = abap_true.
@@ -661,6 +937,14 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
         lo_style_total->font->bold = abap_true.
         lo_style_total->fill->fgcolor-rgb = 'FFF2F2F2'.
         lo_style_total->fill->filltype = zcl_excel_style_fill=>c_fill_solid.
+
+        " Style cho O DU LIEU: bat wrap text + can tren, de gia tri qua dai
+        " (bi gioi han boi lc_col_width_cap khi set be rong cot) tu dong
+        " xuong dong TRONG cung 1 o, thay vi bi Excel hien 1 dong roi cat/de
+        " tran sang o ben canh (nhin nhu "chua du de thay het du lieu").
+        DATA(lo_style_wrap) = lo_excel->add_new_style( ).
+        lo_style_wrap->alignment->wraptext   = abap_true.
+        lo_style_wrap->alignment->vertical   = zcl_excel_style_alignment=>c_vertical_top.
       CATCH cx_root INTO DATA(lx_style_error).
         rs_result-success = abap_false.
         rs_result-message = |Excel style init error: { lx_style_error->get_text( ) }.|.
@@ -748,7 +1032,8 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
           DATA lt_max_len TYPE STANDARD TABLE OF i WITH EMPTY KEY.
           CLEAR lt_max_len.
           LOOP AT lt_columns INTO ls_col.
-            APPEND strlen( CONV string( ls_col-column_title ) ) + 2 TO lt_max_len.
+            DATA(lv_hdr_len_calc) = strlen( CONV string( ls_col-column_title ) ).
+            APPEND lv_hdr_len_calc + 3 + ( lv_hdr_len_calc * lc_width_buffer_pct ) DIV 100 TO lt_max_len.
           ENDLOOP.
 
           " --- Data rows (co the "no dong" cho tung record neu bat
@@ -765,7 +1050,16 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
               lv_col = 1.
               LOOP AT lt_out_row INTO DATA(lv_cell_val).
                 lo_sheet->set_cell( ip_column = lv_col ip_row = lv_row ip_value = lv_cell_val ).
-                DATA(lv_cell_len) = strlen( lv_cell_val ).
+                lo_sheet->set_cell_style( ip_column = lv_col ip_row = lv_row
+                  ip_style = lo_style_wrap->get_guid( ) ).
+                " +2 ky tu dem, GIONG HET buffer da dung cho tieu de o tren -
+                " truoc day cho nay lay dung strlen() khong dem gi ca, nen he
+                " nao gia tri DU LIEU (khong phai tieu de) la gia tri dai nhat
+                " trong cot thi cot do luon bi hut mat ~2 ky tu, nhin nhu chua
+                " tu dan du de thay het noi dung (phai tu keo tay moi thay).
+                DATA(lv_cell_len_raw) = strlen( lv_cell_val ).
+                DATA(lv_cell_len) = lv_cell_len_raw + 3
+                  + ( lv_cell_len_raw * lc_width_buffer_pct ) DIV 100.
                 IF lv_cell_len > lt_max_len[ lv_col ].
                   lt_max_len[ lv_col ] = lv_cell_len.
                 ENDIF.
@@ -781,17 +1075,31 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
           " nua, vi so dong tren sheet co the nhieu hon so record goc
           " khi 1 record no ra nhieu dong. ---
           DATA(lv_total_row) = lv_row + 1.
+          DATA(lv_total_text) = |TOTAL: { lv_written_rows } rows|.
           lo_sheet->set_cell( ip_column = 1 ip_row = lv_total_row
-            ip_value = |TOTAL: { lv_written_rows } rows| ).
+            ip_value = lv_total_text ).
           lo_sheet->set_cell_style( ip_column = 1 ip_row = lv_total_row
             ip_style = lo_style_total->get_guid( ) ).
+          " Dong TOTAL cung chu dam (giong header) va nam o cot 1 - can tinh
+          " luon vao be rong cot 1, khong thi neu du lieu cot 1 ngan hon dong
+          " nay se bi cat mat.
+          DATA(lv_total_len_raw) = strlen( lv_total_text ).
+          DATA(lv_total_len_calc) = lv_total_len_raw + 3
+            + ( lv_total_len_raw * lc_width_buffer_pct ) DIV 100.
+          IF lv_total_len_calc > lt_max_len[ 1 ].
+            lt_max_len[ 1 ] = lv_total_len_calc.
+          ENDIF.
 
-          " --- Ép độ rộng cột theo nội dung thực tế đã tính ở trên ---
+          " --- Ép độ rộng cột theo nội dung thực tế đã tính ở trên, nhưng
+          " không vượt qua lc_col_width_cap - cột nào nội dung dài hơn muc
+          " nay se duoc gioi han rong toi da, phan con lai tu xuong dong
+          " trong o (nho style wrap text da gan cho tung o du lieu o tren). ---
           DO lines( lt_columns ) TIMES.
             DATA(lv_wcol) = sy-index.
+            DATA(lv_final_width) = nmin( val1 = lt_max_len[ lv_wcol ] val2 = lc_col_width_cap ).
             lo_sheet->set_column_width(
               ip_column         = lv_wcol
-              ip_width_fix      = lt_max_len[ lv_wcol ]
+              ip_width_fix      = lv_final_width
               ip_width_autosize = abap_false ).
           ENDDO.
 
@@ -942,6 +1250,9 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
 
 
   METHOD export_pdf.
+    DATA(ls_dim_check) = get_page_dimensions(
+       iv_paper_size  = is_pdf_layout-paper_size
+       iv_orientation = is_pdf_layout-orientation ).
     TRY.
         DATA(lv_analysis_id) = get_analysis_id(
           iv_analysis_id = iv_analysis_id
@@ -963,7 +1274,7 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     ENDTRY.
 
     DATA lt_all_pages TYPE string_table.
-    CONSTANTS lc_max_cols_per_block TYPE i VALUE 12.  " 752pt / ~60pt mỗi cột để còn đọc được - đồng bộ với lv_table_width trong render_section_pages
+    CONSTANTS lc_max_cols_per_block TYPE i VALUE 6.  " 752pt / 6 cột ≈ 125pt/cột - đủ chỗ cho hầu hết nội dung, giống layout khối nhỏ của SAP Export As  " 752pt / ~60pt mỗi cột để còn đọc được - đồng bộ với lv_table_width trong render_section_pages
     LOOP AT ls_plan-sections INTO DATA(ls_section).
 
       TRY.
@@ -1022,15 +1333,38 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       ENDLOOP.
 
       DATA(lv_total_cols) = lines( lt_columns ).
+      DATA(lv_requested_font) = COND i( WHEN is_pdf_layout-font_size > 0 THEN is_pdf_layout-font_size ELSE 7 ).
 
-      IF lv_total_cols <= lc_max_cols_per_block OR is_pdf_layout-fit_to_page = abap_true.
+      DATA(ls_layout_effective) = is_pdf_layout.
+      " DUNG THEO SPEC DA CHOT/HANDOFF CHO FE (export-pdf-header-footer-fe-handoff.md
+      " muc 3.3): FitToPage=true LUON ep tat ca cot vao 1 khoi duy nhat, CHAP NHAN
+      " cot bi thu hep/kho doc hon neu qua nhieu cot - khong tu y chuyen sang chia
+      " khoi du khong tim duoc font "vua het" (vi du: cot chua 1 chuoi rat dai
+      " khong co khoang trang nhu GUID/Evidence ID se khong bao gio "vua" duoc du
+      " co ha font toi san). Truoc day co thu them co "all_fit" de tu dong chia
+      " khoi trong truong hop nay, nhung nhu vay lam FitToPage=true mat tac dung
+      " quan sat duoc (giong het ket qua FitToPage=false) moi khi gap cot kieu
+      " nay - trai voi hanh vi da test/handoff, nen bo lai dung spec goc.
+      DATA(lv_use_single_block) = xsdbool( lv_total_cols <= lc_max_cols_per_block
+                                         OR is_pdf_layout-fit_to_page = abap_true ).
+
+      IF is_pdf_layout-fit_to_page = abap_true.
+        DATA(ls_fit) = fit_to_page_font_size(
+          it_header_cols    = lt_columns
+          it_lines          = lt_lines
+          iv_table_width    = ls_dim_check-width - 40
+          iv_requested_font = lv_requested_font ).
+        ls_layout_effective-font_size = ls_fit-font_size.
+      ENDIF.
+
+      IF lv_use_single_block = abap_true.
         " So cot binh thuong - 1 khoi duy nhat, hanh vi giu nguyen nhu cu.
         TRY.
             DATA(lt_section_pages) = render_section_pages(
               iv_title       = |{ ls_section-sheet_title } - { iv_report_type }|
               it_header_cols = lt_columns
               it_lines       = lt_lines
-              is_pdf_layout  = is_pdf_layout ).
+              is_pdf_layout  = ls_layout_effective ).
             APPEND LINES OF lt_section_pages TO lt_all_pages.
           CATCH cx_root.
             CONTINUE.
@@ -1081,16 +1415,20 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
 
           DATA(lv_block_title) = |{ ls_section-sheet_title } - { iv_report_type } (Columns { lv_new_from }-{ lv_new_to } of { lv_total_cols })|.
 
+          " Nhanh nay chi vao duoc khi fit_to_page=false (xem dieu kien
+          " lv_use_single_block o tren: fit_to_page=true luon di nhanh
+          " single-block) - nen dung thang ls_layout_effective (= is_pdf_layout,
+          " khong bi doi font) cho tung khoi, dung nhu hanh vi truoc day.
           TRY.
               DATA(lt_block_pages) = render_section_pages(
                 iv_title       = lv_block_title
                 it_header_cols = lt_columns_block
                 it_lines       = lt_lines_block
-                is_pdf_layout  = is_pdf_layout ).
+                is_pdf_layout  = ls_layout_effective ).
               APPEND LINES OF lt_block_pages TO lt_all_pages.
             CATCH cx_root.
               CONTINUE.
-          ENDTRY.
+        ENDTRY.
         ENDDO.
       ENDIF.
 
@@ -1150,9 +1488,11 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
 
   METHOD render_section_pages.
     " it_lines[1] = header text-only, từ dòng 2 trở đi mới là data row thật.
-    CONSTANTS: lc_lines_per_page TYPE i VALUE 20,
-               lc_min_col_chars  TYPE i VALUE 6,
-               lc_max_col_chars  TYPE i VALUE 30.
+    CONSTANTS: lc_min_col_chars TYPE i VALUE 6,
+               lc_max_col_chars TYPE i VALUE 30,
+               lc_line_height   TYPE i VALUE 11,   " chieu cao 1 dong text trong 1 o (word-wrap)
+               lc_row_padding   TYPE i VALUE 7,    " 1 dong -> 11+7=18, giu dung chieu cao hang cu
+               lc_min_y_reserve TYPE i VALUE 45.   " tru cho phan footer, khong du thi sang trang moi
 
     DATA(ls_dim) = get_page_dimensions(
       iv_paper_size  = is_pdf_layout-paper_size
@@ -1161,9 +1501,9 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     DATA(lv_page_height) = ls_dim-height.
     DATA(lv_font_size)   = COND i( WHEN is_pdf_layout-font_size > 0 THEN is_pdf_layout-font_size ELSE 7 ).
 
-    DATA(lv_left_margin)  = 20.
-    DATA(lv_table_width)  = lv_page_width - ( 2 * lv_left_margin ).
-    DATA(lv_num_cols)     = lines( it_header_cols ).
+    DATA(lv_left_margin) = 20.
+    DATA(lv_table_width) = lv_page_width - ( 2 * lv_left_margin ).
+    DATA(lv_num_cols)    = lines( it_header_cols ).
     IF lv_num_cols = 0.
       lv_num_cols = 1.
     ENDIF.
@@ -1177,20 +1517,32 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
       APPEND lv_l TO lt_data_lines.
     ENDLOOP.
 
-    " --- Tinh be rong rieng cho tung cot, theo do dai noi dung thuc te ---
+    " --- Tinh be rong rieng cho tung cot, theo TU DAI NHAT (header hoac data),
+    " khong theo do dai ca chuoi - de FitToPage khong bao gio bop cot hep hon
+    " muc can de hien du 1 tu. Doi lai: cot nhieu-tu-nhung-tung-tu-ngan se
+    " khong duoc "thuong" rong hon nhu truoc, chi wrap nhieu dong hon (hang
+    " cao hon) thay vi chiem rong hon. Unit test LTC_EXPORT_PDF_LAYOUT_FIX->
+    " WIDE_COLUMN_NOT_TRUNCATED can duoc cap nhat lai theo huong nay. ---
     DATA lt_col_weight TYPE STANDARD TABLE OF i WITH EMPTY KEY.
     CLEAR lt_col_weight.
     DO lv_num_cols TIMES.
       DATA(lv_col_ix) = sy-index.
-      DATA(lv_w) = COND i( WHEN lv_col_ix <= lines( lt_header_cells )
-                            THEN strlen( condense( lt_header_cells[ lv_col_ix ] ) )
-                            ELSE 0 ).
+      DATA(lv_hdr_txt2) = COND string( WHEN lv_col_ix <= lines( lt_header_cells )
+                                        THEN condense( lt_header_cells[ lv_col_ix ] ) ELSE `` ).
+      " Weight uu tien theo DO DAI CA CAU HEADER (de header co co hoi hien
+      " tron ven 1 dong, dung format voi fit_to_page_font_size o tren) -
+      " khong con chi lay tu dai nhat nua. Viec khong vo chu giua tu van
+      " duoc dam bao rieng boi wrap_text_lines (luon ngat theo tu) khi ve
+      " thuc te ben duoi, khong phu thuoc vao weight nay.
+      DATA(lv_w) = strlen( lv_hdr_txt2 ).
       LOOP AT lt_data_lines INTO DATA(lt_row_w).
         IF lv_col_ix <= lines( lt_row_w ).
-          DATA(lv_cl) = strlen( condense( lt_row_w[ lv_col_ix ] ) ).
-          IF lv_cl > lv_w.
-            lv_w = lv_cl.
-          ENDIF.
+          SPLIT condense( lt_row_w[ lv_col_ix ] ) AT space INTO TABLE DATA(lt_dw).
+          LOOP AT lt_dw INTO DATA(lv_dw).
+            IF strlen( lv_dw ) > lv_w.
+              lv_w = strlen( lv_dw ).
+            ENDIF.
+          ENDLOOP.
         ENDIF.
       ENDLOOP.
       IF lv_w < lc_min_col_chars.
@@ -1218,83 +1570,157 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
     ENDLOOP.
     " ---------------------------------------------------------------------
 
-    DATA(lv_total_data_lines) = lines( lt_data_lines ).
-    DATA(lv_total_pages) = COND i(
-      WHEN lv_total_data_lines = 0 THEN 1
-      ELSE ( ( lv_total_data_lines - 1 ) DIV lc_lines_per_page ) + 1 ).
+    " --- so ky tu toi da/dong cho tung cot cua phan DATA (dung de word-wrap) ---
+    DATA lt_col_maxchar TYPE STANDARD TABLE OF i WITH EMPTY KEY.
+    CLEAR lt_col_maxchar.
+    LOOP AT lt_col_widths INTO DATA(lv_cw2).
+      DATA(lv_mc) = CONV i( lv_cw2 * 10 / ( lv_font_size * 7 ) ) - 1.
+      IF lv_mc < 1.
+        lv_mc = 1.
+      ENDIF.
+      APPEND lv_mc TO lt_col_maxchar.
+    ENDLOOP.
+    " ------------------------------------------------------------------------------------------
 
-    DATA(lv_idx) = 0.
-    DATA(lv_page_num) = 1.
     DATA(lv_generated_at) = |{ sy-datum DATE = USER } { sy-uzeit TIME = USER }|.
     DATA(lv_header_text) = COND string( WHEN is_pdf_layout-header_text IS NOT INITIAL
                                      THEN is_pdf_layout-header_text ELSE iv_title ).
     DATA(lv_footer_left_text) = COND string( WHEN is_pdf_layout-footer_text IS NOT INITIAL
                                               THEN is_pdf_layout-footer_text
                                               ELSE |Generated: { lv_generated_at }| ).
+    DATA lt_col_maxchar_hdr TYPE STANDARD TABLE OF i WITH EMPTY KEY.
+    CLEAR lt_col_maxchar_hdr.
+    LOOP AT lt_col_widths INTO DATA(lv_cw3).
+      DATA(lv_mc_hdr) = CONV i( lv_cw3 * 10 / ( ( lv_font_size + 1 ) * 7 ) ) - 1.
+      IF lv_mc_hdr < 1.
+        lv_mc_hdr = 1.
+      ENDIF.
+      APPEND lv_mc_hdr TO lt_col_maxchar_hdr.
+    ENDLOOP.
 
-    DO lv_total_pages TIMES.
-      DATA(lv_from) = lv_idx + 1.
-      DATA(lv_to)   = nmin( val1 = lv_total_data_lines val2 = lv_idx + lc_lines_per_page ).
+    DATA lt_header_wrapped TYPE STANDARD TABLE OF string_table WITH EMPTY KEY.
+    CLEAR lt_header_wrapped.
+    DATA(lv_header_lines) = 1.
+    LOOP AT lt_header_cells INTO DATA(lv_hcell0).
+      DATA(lv_hidx0) = sy-tabix.
+      DATA(lv_hmc0) = COND i( WHEN lv_hidx0 <= lines( lt_col_maxchar_hdr ) THEN lt_col_maxchar_hdr[ lv_hidx0 ] ELSE 1 ).
+      DATA(lt_hwl) = wrap_text_lines( iv_text = condense( lv_hcell0 ) iv_max_char = lv_hmc0 ).
+      APPEND lt_hwl TO lt_header_wrapped.
+      IF lines( lt_hwl ) > lv_header_lines.
+        lv_header_lines = lines( lt_hwl ).
+      ENDIF.
+    ENDLOOP.
+    DATA(lv_row_height_hdr) = ( lv_header_lines * lc_line_height ) + lc_row_padding.
 
-      DATA(lv_page_content) = |BT\n/F1 { lv_font_size + 5 } Tf\n1 0 0 1 { lv_left_margin } { lv_page_height - 25 } Tm\n|
+    DATA lv_page_content  TYPE string.
+    DATA lv_y             TYPE i.
+    DATA lv_page_num      TYPE i VALUE 1.
+    DATA lv_data_idx      TYPE i VALUE 0.
+    DATA(lv_total_data_lines) = lines( lt_data_lines ).
+
+    DO.
+      " ===== bat dau 1 trang moi: ve tieu de + header cot =====
+      CLEAR lv_page_content.
+      lv_page_content = |BT\n/F1 { lv_font_size + 5 } Tf\n1 0 0 1 { lv_left_margin } { lv_page_height - 25 } Tm\n|
         && |({ escape_pdf_text( lv_header_text ) }) Tj\nET\n|.
 
-      DATA(lv_y) = lv_page_height - 50.
-      DATA(lv_row_height) = 18.
+      lv_y = lv_page_height - 50.
 
+      " Khung nen header: DINH (top) LUON co dinh o "lv_y + 14" (dung nhu truong
+      " hop header 1 dong truoc day: lv_y - 4 + row_height_hdr(=18) = lv_y + 14),
+      " con DAY (bottom) moi la phan gian ra khi header wrap nhieu dong (row_height_hdr
+      " lon hon). Truoc day code luon fix DAY = lv_y - 4 va cho DINH phinh len theo
+      " so dong -> khi header wrap >= 2 dong, dong chu cuoi (vd "Name", "Routine",
+      " "Access", "Kind"...) roi xuong duoi DAY cua khung, de ra ngoai/de len hang
+      " du lieu dau tien. Doi lai cong thuc (fix DINH, gian DAY xuong) thi moi
+      " dong chu header - du wrap bao nhieu dong - deu nam gon trong khung nen.
+      DATA(lv_hdr_box_bottom) = lv_y + 14 - lv_row_height_hdr.
       lv_page_content = lv_page_content && |0.90 0.92 0.95 rg\n|
-        && |{ lv_left_margin } { lv_y - 4 } { lv_table_width } { lv_row_height } re f\n0 g\n|.
+        && |{ lv_left_margin } { lv_hdr_box_bottom } { lv_table_width } { lv_row_height_hdr } re f\n0 g\n|.
 
       DATA(lv_x) = lv_left_margin.
-      LOOP AT lt_header_cells INTO DATA(lv_hcell).
+      LOOP AT lt_header_wrapped INTO DATA(lt_hcell_wl).
         DATA(lv_hidx) = sy-tabix.
         DATA(lv_this_width) = COND i( WHEN lv_hidx <= lines( lt_col_widths ) THEN lt_col_widths[ lv_hidx ] ELSE lv_table_width / lv_num_cols ).
-        DATA(lv_header_txt) = condense( lv_hcell ).
-        DATA(lv_max_char_hdr) = CONV i( lv_this_width * 10 / ( lv_font_size * 7 ) ) - 1.
-        IF lv_max_char_hdr > 0 AND strlen( lv_header_txt ) > lv_max_char_hdr.
-          lv_header_txt = lv_header_txt(lv_max_char_hdr) && '..'.
-        ENDIF.
-        lv_page_content = lv_page_content
-          && |BT\n/F1 { lv_font_size + 1 } Tf\n1 0 0 1 { lv_x + 4 } { lv_y + 2 } Tm\n({ escape_pdf_text( lv_header_txt ) }) Tj\nET\n|.
+        DATA(lv_hline_no) = 0.
+        LOOP AT lt_hcell_wl INTO DATA(lv_hline).
+          lv_page_content = lv_page_content
+            && |BT\n/F1 { lv_font_size + 1 } Tf\n1 0 0 1 { lv_x + 4 } { lv_y + 2 - ( lv_hline_no * lc_line_height ) } Tm\n({ escape_pdf_text( lv_hline ) }) Tj\nET\n|.
+          lv_hline_no = lv_hline_no + 1.
+        ENDLOOP.
         lv_x = lv_x + lv_this_width.
       ENDLOOP.
-      lv_y = lv_y - lv_row_height.
+      lv_y = lv_y - lv_row_height_hdr.
 
-      IF lv_from <= lv_to.
-        DATA(lv_line_counter) = lv_from.
-        WHILE lv_line_counter <= lv_to.
-          DATA(lt_cells) = lt_data_lines[ lv_line_counter ].
+      " ===== ve du lieu cho den khi het cho tren trang hoac het du lieu =====
+      DATA(lv_rows_on_this_page) = 0.
+      WHILE lv_data_idx < lv_total_data_lines.
+        DATA(lv_next_idx) = lv_data_idx + 1.
+        DATA(lt_cells) = lt_data_lines[ lv_next_idx ].
 
-          lv_page_content = lv_page_content && |0.80 0.80 0.80 RG\n0.5 w\n|
-            && |{ lv_left_margin } { lv_y - 4 } m { lv_left_margin + lv_table_width } { lv_y - 4 } l S\n|.
+        DATA lt_wrapped TYPE STANDARD TABLE OF string_table WITH EMPTY KEY.
+        CLEAR lt_wrapped.
+        DATA(lv_row_lines) = 1.
+        LOOP AT lt_cells INTO DATA(lv_cell_raw).
+          DATA(lv_cidx0) = sy-tabix.
+          DATA(lv_mc0) = COND i( WHEN lv_cidx0 <= lines( lt_col_maxchar ) THEN lt_col_maxchar[ lv_cidx0 ] ELSE 1 ).
+          DATA(lt_wl) = wrap_text_lines( iv_text = condense( lv_cell_raw ) iv_max_char = lv_mc0 ).
+          APPEND lt_wl TO lt_wrapped.
+          IF lines( lt_wl ) > lv_row_lines.
+            lv_row_lines = lines( lt_wl ).
+          ENDIF.
+        ENDLOOP.
 
-          lv_x = lv_left_margin.
-          LOOP AT lt_cells INTO DATA(lv_cell).
-            DATA(lv_cidx) = sy-tabix.
-            DATA(lv_this_width2) = COND i( WHEN lv_cidx <= lines( lt_col_widths ) THEN lt_col_widths[ lv_cidx ] ELSE lv_table_width / lv_num_cols ).
-            DATA(lv_cell_txt) = condense( lv_cell ).
-            DATA(lv_max_char) = CONV i( lv_this_width2 * 10 / ( lv_font_size * 7 ) ) - 1.
-            IF lv_max_char > 0 AND strlen( lv_cell_txt ) > lv_max_char.
-              lv_cell_txt = lv_cell_txt(lv_max_char) && '..'.
-            ENDIF.
+        DATA(lv_this_row_height) = ( lv_row_lines * lc_line_height ) + lc_row_padding.
 
+        IF lv_rows_on_this_page > 0 AND ( lv_y - lv_this_row_height ) < lc_min_y_reserve.
+          EXIT.  " het cho tren trang nay -> chot trang, trang sau xu ly tiep tu dong nay
+        ENDIF.
+
+        DATA(lv_sep_y) = lv_y - lv_this_row_height + 14.
+        lv_page_content = lv_page_content && |0.80 0.80 0.80 RG\n0.5 w\n|
+          && |{ lv_left_margin } { lv_sep_y } m { lv_left_margin + lv_table_width } { lv_sep_y } l S\n|.
+
+        lv_x = lv_left_margin.
+        LOOP AT lt_wrapped INTO DATA(lt_cell_wl).
+          DATA(lv_cidx) = sy-tabix.
+          DATA(lv_this_width2) = COND i( WHEN lv_cidx <= lines( lt_col_widths ) THEN lt_col_widths[ lv_cidx ] ELSE lv_table_width / lv_num_cols ).
+          DATA(lv_line_no) = 0.
+          LOOP AT lt_cell_wl INTO DATA(lv_cell_line).
             lv_page_content = lv_page_content
-              && |BT\n/F1 { lv_font_size } Tf\n1 0 0 1 { lv_x + 4 } { lv_y + 3 } Tm\n({ escape_pdf_text( lv_cell_txt ) }) Tj\nET\n|.
-            lv_x = lv_x + lv_this_width2.
+              && |BT\n/F1 { lv_font_size } Tf\n1 0 0 1 { lv_x + 4 } { lv_y + 3 - ( lv_line_no * lc_line_height ) } Tm\n({ escape_pdf_text( lv_cell_line ) }) Tj\nET\n|.
+            lv_line_no = lv_line_no + 1.
           ENDLOOP.
+          lv_x = lv_x + lv_this_width2.
+        ENDLOOP.
 
-          lv_y = lv_y - lv_row_height.
-          lv_line_counter = lv_line_counter + 1.
-        ENDWHILE.
+        lv_y = lv_y - lv_this_row_height.
+        lv_data_idx = lv_next_idx.
+        lv_rows_on_this_page = lv_rows_on_this_page + 1.
+      ENDWHILE.
+      DATA(lv_footer_right_text)  = |{ iv_title } - Page { lv_page_num } / __TOTAL_PAGES__|.
+      DATA(lv_footer_right_width) = CONV i( strlen( lv_footer_right_text ) * lv_font_size * 7 / 10 ).
+      DATA(lv_footer_right_x)     = lv_page_width - lv_left_margin - lv_footer_right_width.
+      IF lv_footer_right_x < lv_left_margin.
+        lv_footer_right_x = lv_left_margin.  " qua dai thi it nhat cho tran vao trong, khong mat chu
       ENDIF.
 
       lv_page_content = lv_page_content
-   && |BT\n/F1 { lv_font_size } Tf\n1 0 0 1 { lv_left_margin } 15 Tm\n({ escape_pdf_text( lv_footer_left_text ) }) Tj\nET\n|
-   && |BT\n/F1 { lv_font_size } Tf\n1 0 0 1 { lv_page_width - 80 } 15 Tm\n({ escape_pdf_text( |{ iv_title } - Page { lv_page_num } / { lv_total_pages }| ) }) Tj\nET\n|.
+       && |BT\n/F1 { lv_font_size } Tf\n1 0 0 1 { lv_left_margin } 15 Tm\n({ escape_pdf_text( lv_footer_left_text ) }) Tj\nET\n|
+       && |BT\n/F1 { lv_font_size } Tf\n1 0 0 1 { lv_footer_right_x } 15 Tm\n({ escape_pdf_text( lv_footer_right_text ) }) Tj\nET\n|.
       APPEND lv_page_content TO rt_pages.
-      lv_idx = lv_idx + lc_lines_per_page.
       lv_page_num = lv_page_num + 1.
+
+      IF lv_data_idx >= lv_total_data_lines.
+        EXIT.
+      ENDIF.
     ENDDO.
+
+    " ===== thay placeholder tong so trang bang gia tri that (chi biet duoc sau khi da render het) =====
+    DATA(lv_total_pages_str) = |{ lines( rt_pages ) }|.
+    LOOP AT rt_pages ASSIGNING FIELD-SYMBOL(<lv_page>).
+      REPLACE ALL OCCURRENCES OF '__TOTAL_PAGES__' IN <lv_page> WITH lv_total_pages_str.
+    ENDLOOP.
   ENDMETHOD.
 
   METHOD assemble_pdf_binary.
@@ -1365,8 +1791,4 @@ CLASS zcl_mig_export_engine IMPLEMENTATION.
   ENDMETHOD.
 
 ENDCLASS.
-
-
-
-
 

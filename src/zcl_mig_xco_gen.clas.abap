@@ -130,6 +130,7 @@ CLASS zcl_mig_xco_gen DEFINITION
 
     METHODS add_ddls
           IMPORTING
+            iv_title TYPE string
             io_put
               TYPE REF TO if_xco_cp_gen_d_o_put
 
@@ -326,6 +327,13 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
 
     ENDIF.
 
+
+    DATA(ls_ui_contract) = NEW zcl_mig_ui_contract( )->build(
+      is_bp = is_bp is_smap = is_smap ).
+    IF ls_ui_contract-status = 'BLOCKED'.
+      RAISE EXCEPTION NEW zcx_mig_analysis(
+        textid = zcx_mig_analysis=>analysis_failed program_name = lv_program ).
+    ENDIF.
 
     DATA lv_key_count TYPE i.
 
@@ -662,6 +670,7 @@ CLASS zcl_mig_xco_gen IMPLEMENTATION.
     ENDIF.
 
     add_ddls(
+      iv_title = CONV #( is_bp-blueprint-source_program )
       io_put =
         lo_put
 
@@ -914,6 +923,18 @@ ENDMETHOD.
 
 METHOD add_ddls.
 
+  DATA(lt_ui_maps) = is_smap-input_maps.
+  LOOP AT lt_ui_maps ASSIGNING FIELD-SYMBOL(<ui_map>)
+    WHERE map_state = zif_mig_types=>gc_smap_auto.
+    TRY.
+        <ui_map>-svc_name = zcl_mig_ui_contract=>resolve_filter(
+          iv_name = CONV #( <ui_map>-svc_name ) it_fields = it_fields ).
+      CATCH zcx_mig_query_error INTO DATA(lx_ui_mapping).
+        RAISE EXCEPTION NEW zcx_mig_analysis(
+          textid = zcx_mig_analysis=>analysis_failed previous = lx_ui_mapping ).
+    ENDTRY.
+  ENDLOOP.
+
   DATA(lo_spec) =
     io_put->for-ddls->add_object(
       is_item-object_name
@@ -935,9 +956,13 @@ METHOD add_ddls.
     'EndUserText.label'
   )->value->build(
   )->add_string(
-    'Generated MIG query entity'
+    iv_title
   ).
 
+
+  lo_entity->add_annotation( 'UI.headerInfo' )->value->build(
+    )->begin_record( )->add_member( 'typeName' )->add_string( iv_title
+    )->add_member( 'typeNamePlural' )->add_string( iv_title )->end_record( ).
 
   DATA(lv_provider) =
     |ABAP:{ iv_class_name }|.
@@ -1102,6 +1127,27 @@ METHOD add_ddls.
         lv_label
       ).
 
+      IF ls_field-currency_field IS NOT INITIAL.
+        lo_field->add_annotation( 'Semantics.amount.currencyCode'
+          )->value->build( )->add_string( CONV #( ls_field-currency_field ) ).
+      ENDIF.
+      IF ls_field-unit_field IS NOT INITIAL.
+        lo_field->add_annotation( 'Semantics.quantity.unitOfMeasure'
+          )->value->build( )->add_string( CONV #( ls_field-unit_field ) ).
+      ENDIF.
+      LOOP AT lt_fields TRANSPORTING NO FIELDS
+        WHERE currency_field = ls_field-field_name.
+        lo_field->add_annotation( 'Semantics.currencyCode'
+          )->value->build( )->add_boolean( abap_true ).
+        EXIT.
+      ENDLOOP.
+      LOOP AT lt_fields TRANSPORTING NO FIELDS
+        WHERE unit_field = ls_field-field_name.
+        lo_field->add_annotation( 'Semantics.unitOfMeasure'
+          )->value->build( )->add_boolean( abap_true ).
+        EXIT.
+      ENDLOOP.
+
       DATA(lv_position) =
           ls_field-position.
 
@@ -1172,7 +1218,7 @@ METHOD add_ddls.
             abap_false.
 
 
-          LOOP AT is_smap-input_maps
+          LOOP AT lt_ui_maps
             INTO DATA(ls_input_map)
             WHERE map_state =
               zif_mig_types=>gc_smap_auto.
@@ -1664,64 +1710,14 @@ METHOD build_select_src.
     ENDCASE.
 
 
-    "Service parameter phải có output field filterable tương ứng
-    DATA(lv_svc_name_up) =
-      norm_name(
-        iv_name = CONV string(
-          ls_input_map-svc_name
-        )
-      ).
-
-
-    DATA:
-      lv_filter_field_hits TYPE i,
-      lv_filter_field_name TYPE string.
-
-    CLEAR:
-      lv_filter_field_hits,
-      lv_filter_field_name.
-
-
-    LOOP AT lt_fields
-      INTO DATA(ls_filter_field)
-      WHERE filterable = abap_true.
-
-      DATA(lv_field_name_up) =
-        norm_name(
-          iv_name = CONV string(
-            ls_filter_field-field_name
-          )
-        ).
-
-
-      IF lv_field_name_up =
-           lv_svc_name_up.
-
-        lv_filter_field_hits += 1.
-
-        lv_filter_field_name =
-          ls_filter_field-field_name.
-
-      ENDIF.
-
-    ENDLOOP.
-
-
-    IF lv_filter_field_hits <> 1
-       OR lv_filter_field_name IS INITIAL.
-
-      RAISE EXCEPTION NEW zcx_mig_analysis(
-        textid =
-          zcx_mig_analysis=>analysis_failed
-      ).
-
-    ENDIF.
-
-
-    "Generated OData filters must use the actual entity field.
-    "For example, P_BUKRS is resolved to BUKRS.
-    ls_input_map-svc_name =
-      lv_filter_field_name.
+    "Same canonical property resolver as DDLS selection annotations and UI config.
+    TRY.
+        ls_input_map-svc_name = zcl_mig_ui_contract=>resolve_filter(
+          iv_name = CONV #( ls_input_map-svc_name ) it_fields = lt_fields ).
+      CATCH zcx_mig_query_error INTO DATA(lx_filter_mapping).
+        RAISE EXCEPTION NEW zcx_mig_analysis(
+          textid = zcx_mig_analysis=>analysis_failed previous = lx_filter_mapping ).
+    ENDTRY.
 
     APPEND ls_input_map
       TO lt_resolved_input_maps.
@@ -3769,79 +3765,9 @@ ENDMETHOD.
 
 
 METHOD norm_name.
-
-  DATA:
-    lv_prefix  TYPE string,
-    lv_changed TYPE abap_bool.
-
-  rv_name = to_upper( iv_name ).
-  CONDENSE rv_name NO-GAPS.
-
-  DO 3 TIMES.
-
-    lv_changed = abap_false.
-
-    IF strlen( rv_name ) >= 3.
-
-      lv_prefix = substring(
-        val = rv_name
-        len = 3
-      ).
-
-      CASE lv_prefix.
-        WHEN 'IV_' OR 'IS_' OR 'IT_'
-          OR 'EV_' OR 'ES_' OR 'ET_'
-          OR 'CV_' OR 'CS_' OR 'CT_'
-          OR 'RV_' OR 'RS_' OR 'RT_'
-          OR 'GT_' OR 'GS_'.
-
-          rv_name = substring(
-            val = rv_name
-            off = 3
-          ).
-
-          lv_changed = abap_true.
-
-      ENDCASE.
-
-    ENDIF.
-
-    IF lv_changed = abap_false
-       AND strlen( rv_name ) >= 2.
-
-      lv_prefix = substring(
-        val = rv_name
-        len = 2
-      ).
-
-      CASE lv_prefix.
-        WHEN 'I_' OR 'E_' OR 'C_' OR 'R_'
-          OR 'P_' OR 'S_' OR 'T_'.
-
-          rv_name = substring(
-            val = rv_name
-            off = 2
-          ).
-
-          lv_changed = abap_true.
-
-      ENDCASE.
-
-    ENDIF.
-
-    IF lv_changed = abap_false.
-      EXIT.
-    ENDIF.
-
-  ENDDO.
-
-  REPLACE ALL OCCURRENCES OF '_'
-    IN rv_name
-    WITH ''.
-
-  CONDENSE rv_name NO-GAPS.
-
+  rv_name = zcl_mig_ui_contract=>normalize_name( iv_name ).
 ENDMETHOD.
 
 ENDCLASS.
+
 

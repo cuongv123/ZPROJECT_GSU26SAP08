@@ -238,11 +238,27 @@ CLASS zcl_mig_mail_service IMPLEMENTATION.
 " Generated HTML template has priority.
 " Database subject/body is only a fallback.
 "------------------------------------------------------------
-IF is_mail_content-subject IS NOT INITIAL
-   AND is_mail_content-body IS NOT INITIAL.
+" Resolve subject and body independently.
+CLEAR:
+  lv_mail_subject,
+  lv_mail_body,
+  lv_document_type.
+
+" Prefer the subject saved by the user.
+IF ls_job-mail_subject IS NOT INITIAL.
+
+  lv_mail_subject =
+    CONV so_obj_des( ls_job-mail_subject ).
+
+ELSE.
 
   lv_mail_subject =
     is_mail_content-subject.
+
+ENDIF.
+
+" Keep the generated HTML report body.
+IF is_mail_content-body IS NOT INITIAL.
 
   lv_mail_body =
     is_mail_content-body.
@@ -250,11 +266,7 @@ IF is_mail_content-subject IS NOT INITIAL
   lv_document_type =
     lc_document_type_html.
 
-ELSEIF ls_job-mail_subject IS NOT INITIAL
-       AND ls_job-mail_body IS NOT INITIAL.
-
-  lv_mail_subject =
-    CONV so_obj_des( ls_job-mail_subject ).
+ELSEIF ls_job-mail_body IS NOT INITIAL.
 
   lv_mail_body =
     ls_job-mail_body.
@@ -262,15 +274,7 @@ ELSEIF ls_job-mail_subject IS NOT INITIAL
   lv_document_type =
     lc_document_type_raw.
 
-ELSE.
-
-  CLEAR:
-    lv_mail_subject,
-    lv_mail_body,
-    lv_document_type.
-
 ENDIF.
-
 
     " Validate resolved mail subject
     IF lv_mail_subject IS INITIAL.

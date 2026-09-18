@@ -1,5 +1,7 @@
 REPORT zrmig_sample_full.
 
+*Snapshot change detection test
+
 INCLUDE zrmig_sample_full_top.
 
 TABLES t001w.

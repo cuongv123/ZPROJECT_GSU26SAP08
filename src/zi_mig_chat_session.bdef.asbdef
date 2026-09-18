@@ -12,29 +12,46 @@ etag master LocalLastChangedAt
   delete;
 
   action ask parameter ZI_MIG_CHAT_ASK result [1] $self;
+
   association _Messages { create; }
 
-  validation validateProgramExists on save
+  determination initializeSession on modify
   {
     create;
-    field ProgramName;
+    field AnalysisId;
   }
-    determination initializeSession on modify { create; }
+
+  validation validateAnalysis on save
+  {
+    create;
+    field AnalysisId;
+  }
 
   field ( numbering : managed, readonly ) SessionId;
-  field ( readonly ) CreatedBy, CreatedAt, LocalLastChangedBy, LocalLastChangedAt, LastChangedAt;
+
+  field ( mandatory : create, readonly : update ) AnalysisId;
+
+  field ( readonly ) ProgramName, Status;
+
+  field ( readonly )
+    CreatedBy,
+    CreatedAt,
+    LocalLastChangedBy,
+    LocalLastChangedAt,
+    LastChangedAt;
 
   mapping for zmig_chat_sesion
   {
-    SessionId              = session_id;
-    ProgramName             = program_name;
-    SessionName             = session_name;
-    Status                  = status;
-    CreatedBy               = created_by;
-    CreatedAt               = created_at;
-    LocalLastChangedBy      = last_changed_by;
-    LocalLastChangedAt      = local_last_changed_at;
-    LastChangedAt           = last_changed_at;
+    SessionId          = session_id;
+    AnalysisId         = analysis_id;
+    ProgramName        = program_name;
+    SessionName        = session_name;
+    Status             = status;
+    CreatedBy          = created_by;
+    CreatedAt          = created_at;
+    LocalLastChangedBy = last_changed_by;
+    LocalLastChangedAt = local_last_changed_at;
+    LastChangedAt      = last_changed_at;
   }
 }
 
@@ -45,19 +62,28 @@ authorization dependent by _Session
 {
   association _Session;
 
-  field ( readonly ) SessionId,  Role, Content, AnalysisIdUsed, AiProvider, IsOutdated, CreatedBy, CreatedAt;
   field ( numbering : managed, readonly ) MessageId;
+
+  field ( readonly )
+    SessionId,
+    Role,
+    Content,
+    AnalysisIdUsed,
+    AiProvider,
+    IsOutdated,
+    CreatedBy,
+    CreatedAt;
 
   mapping for zmig_chat_msg
   {
-    SessionId       = session_id;
-    MessageId       = message_id;
-    Role            = role;
-    Content         = content;
-    AnalysisIdUsed  = analysis_id_used;
-    AiProvider      = ai_provider;
-    IsOutdated      = is_outdated;
-    CreatedBy       = created_by;
-    CreatedAt       = created_at;
+    SessionId      = session_id;
+    MessageId      = message_id;
+    Role           = role;
+    Content        = content;
+    AnalysisIdUsed = analysis_id_used;
+    AiProvider     = ai_provider;
+    IsOutdated     = is_outdated;
+    CreatedBy      = created_by;
+    CreatedAt      = created_at;
   }
 }

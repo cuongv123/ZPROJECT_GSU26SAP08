@@ -391,6 +391,18 @@ CLASS zcl_mig_odata_gen_svc IMPLEMENTATION.
     ENDIF.
 
 
+    "Return the concrete UI issue before the generic boundary check.
+    DATA(ls_ui_check) = NEW zcl_mig_ui_contract( )->build(
+      is_bp = ls_bp is_smap = ls_smap ).
+    READ TABLE ls_ui_check-issues WITH KEY severity = 'E' INTO DATA(ls_ui_issue).
+    IF sy-subrc = 0.
+      rs_result-block_count += 1.
+      block_result( EXPORTING iv_message =
+        |{ ls_ui_issue-code } ({ ls_ui_issue-target }): { ls_ui_issue-message }|
+        CHANGING cs_result = rs_result ).
+      RETURN.
+    ENDIF.
+
     "Validate the source that will be generated before repository
     "preflight reports READY. This includes the released OData boundary
     "type policy, key, provider signature, filter and row mapping.
@@ -631,6 +643,15 @@ CLASS zcl_mig_odata_gen_svc IMPLEMENTATION.
 
     rs_result-status =
       zif_mig_odata_gen_svc=>gc_status_generated.
+
+    "The shared binding writer registers newly generated services as version 0001.
+    "Return a same-origin path; publication and accessibility require a metadata check.
+    DATA(lv_binding_name) = to_lower( CONV string( rs_result-service_binding ) ).
+    DATA(lv_service_name) = to_lower( CONV string( rs_result-service_name ) ).
+    CONDENSE lv_binding_name NO-GAPS.
+    CONDENSE lv_service_name NO-GAPS.
+    rs_result-service_url =
+      |/sap/opu/odata4/sap/{ lv_binding_name }/srvd/sap/{ lv_service_name }/0001/|.
 
     rs_result-manual_review =
       abap_false.

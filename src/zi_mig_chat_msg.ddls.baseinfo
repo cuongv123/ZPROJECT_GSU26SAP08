@@ -3,6 +3,7 @@
 {
 "FROM":
 [
+"ZI_MIG_CHAT_SESSION",
 "ZMIG_CHAT_MSG"
 ],
 "ASSOCIATED":

@@ -1,0 +1,2 @@
+sap.ui.define(["abap/to/fiori/system/controller/BaseController"],function(e){"use strict";return e.extend("abap.to.fiori.system.controller.App",{})});                                                                                                         
+//# sourceMappingURL=App.controller.js.map                                                                                                                                                                                                                     

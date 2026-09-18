@@ -3,6 +3,8 @@ define service ZUI_MIG_ANALYSIS {
   expose ZC_MIG_CHAT_SESSION as ChatSessions;
   expose ZC_MIG_CHAT_MSG as ChatMessages;
   expose ZC_MIG_ANALYSIS as Analyses;
+  expose ZC_MIG_GEN_REQUEST as GenerationRequests;
+  expose ZC_MIG_LEGACY_REQUEST as CaptureRequests;
   expose ZC_MIG_ANL_SRC as SourceObjects;
   expose ZC_MIG_ANL_CODE as SourceLines;
   expose ZC_MIG_ANL_UI as UiFilters;

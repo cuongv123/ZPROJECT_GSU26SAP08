@@ -9,6 +9,7 @@ define root view entity ZI_MIG_CHAT_SESSION
 {
   key session_id            as SessionId,
 
+      analysis_id           as AnalysisId,
       program_name          as ProgramName,
       session_name          as SessionName,
       status                as Status,
@@ -30,3 +31,4 @@ define root view entity ZI_MIG_CHAT_SESSION
 
       _Messages
 }
+where created_by = $session.user

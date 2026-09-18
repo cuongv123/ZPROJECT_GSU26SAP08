@@ -26,3 +26,5 @@ define view entity ZI_MIG_CHAT_MSG
 
       _Session
 }
+
+where _Session.CreatedBy = $session.user

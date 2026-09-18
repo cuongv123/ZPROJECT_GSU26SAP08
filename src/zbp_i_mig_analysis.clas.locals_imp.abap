@@ -159,8 +159,24 @@ CLASS lhc_Analysis DEFINITION INHERITING FROM cl_abap_behavior_handler.
     METHODS Analyze FOR MODIFY
       IMPORTING keys FOR ACTION Analysis~Analyze RESULT result.
 
+    METHODS preparefioriui FOR MODIFY
+      IMPORTING keys FOR ACTION Analysis~PrepareFioriUi RESULT result.
+
+    METHODS preflightodata FOR MODIFY
+      IMPORTING keys FOR ACTION Analysis~PreflightOData RESULT result.
+    METHODS generateodata FOR MODIFY
+      IMPORTING keys FOR ACTION Analysis~GenerateOData RESULT result.
+    METHODS getodatageneration FOR MODIFY
+      IMPORTING keys FOR ACTION Analysis~GetODataGeneration RESULT result.
+
     METHODS generatetechnicaldocument FOR MODIFY
       IMPORTING keys FOR ACTION Analysis~GenerateTechnicalDocument RESULT result.
+
+    METHODS capturelegacyrows FOR MODIFY
+      IMPORTING keys FOR ACTION Analysis~CaptureLegacyRows RESULT result.
+
+    METHODS getlegacycapture FOR MODIFY
+      IMPORTING keys FOR ACTION Analysis~GetLegacyCapture RESULT result.
 
     METHODS generateaiassessment FOR MODIFY
       IMPORTING keys FOR ACTION Analysis~GenerateAIAssessment RESULT result.
@@ -195,6 +211,13 @@ CLASS lhc_Analysis IMPLEMENTATION.
 
   result-%action-GenerateAIAssessment =
     if_abap_behv=>auth-allowed.
+
+  result-%action-PrepareFioriUi = if_abap_behv=>auth-allowed.
+  result-%action-PreflightOData = if_abap_behv=>auth-allowed.
+  result-%action-GenerateOData = if_abap_behv=>auth-allowed.
+  result-%action-GetODataGeneration = if_abap_behv=>auth-allowed.
+  result-%action-CaptureLegacyRows = if_abap_behv=>auth-allowed.
+  result-%action-GetLegacyCapture = if_abap_behv=>auth-allowed.
 
   result-%action-PrepareSelectedExport =
     if_abap_behv=>auth-allowed.
@@ -875,6 +898,150 @@ ENDMETHOD.
     ENDLOOP.
 
   ENDMETHOD.
+
+  METHOD preflightodata.
+    LOOP AT keys ASSIGNING FIELD-SYMBOL(<key>).
+      TRY.
+          DATA(ls_out) = zcl_mig_gen_api=>preflight( VALUE #(
+            analysis_id = <key>-AnalysisId
+            package = <key>-%param-TargetPackage
+            provider_package = <key>-%param-ProviderPackage
+            provider_language = <key>-%param-ProviderLanguage
+            transport = <key>-%param-TransportRequest ) ).
+          APPEND VALUE #( %tky = <key>-%tky %param = VALUE #(
+            AnalysisId = <key>-AnalysisId Status = ls_out-status
+            RuntimeCheck = 'NOT_GENERATED'
+            ResultJson = /ui2/cl_json=>serialize( data = ls_out
+              pretty_name = /ui2/cl_json=>pretty_mode-camel_case )
+            Message = ls_out-message ) ) TO result.
+        CATCH cx_root INTO DATA(lx_error).
+          APPEND VALUE #( %tky = <key>-%tky ) TO failed-Analysis.
+          APPEND VALUE #( %tky = <key>-%tky %msg = new_message_with_text(
+            severity = if_abap_behv_message=>severity-error
+            text = lx_error->get_text( ) ) ) TO reported-Analysis.
+      ENDTRY.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD generateodata.
+    LOOP AT keys ASSIGNING FIELD-SYMBOL(<key>).
+      TRY.
+          DATA(ls_job) = zcl_mig_gen_api=>enqueue(
+            iv_request_id = <key>-%param-RequestId
+            is_request = VALUE #( analysis_id = <key>-AnalysisId
+              package = <key>-%param-TargetPackage
+              provider_package = <key>-%param-ProviderPackage
+              provider_language = <key>-%param-ProviderLanguage
+              transport = <key>-%param-TransportRequest ) ).
+          APPEND VALUE #( %tky = <key>-%tky %param = VALUE #(
+            AnalysisId = ls_job-analysis_id RequestId = ls_job-request_id
+            Status = ls_job-status
+            RuntimeCheck = COND #( WHEN ls_job-status = 'GENERATED'
+              THEN 'METADATA_REQUIRED'
+              WHEN ls_job-status = 'FAILED' OR ls_job-status = 'RUNNING'
+              THEN 'REPOSITORY_UNVERIFIED' ELSE 'NOT_GENERATED' )
+            ResultJson = ls_job-result_json Message = ls_job-message ) ) TO result.
+        CATCH cx_root INTO DATA(lx_error).
+          APPEND VALUE #( %tky = <key>-%tky ) TO failed-Analysis.
+          APPEND VALUE #( %tky = <key>-%tky %msg = new_message_with_text(
+            severity = if_abap_behv_message=>severity-error
+            text = lx_error->get_text( ) ) ) TO reported-Analysis.
+      ENDTRY.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD getodatageneration.
+    LOOP AT keys ASSIGNING FIELD-SYMBOL(<key>).
+      TRY.
+          DATA(ls_job) = zcl_mig_gen_api=>get_status(
+            iv_analysis_id = <key>-AnalysisId
+            iv_request_id = <key>-%param-RequestId ).
+          APPEND VALUE #( %tky = <key>-%tky %param = VALUE #(
+            AnalysisId = ls_job-analysis_id RequestId = ls_job-request_id
+            Status = ls_job-status
+            RuntimeCheck = COND #( WHEN ls_job-status = 'GENERATED'
+              THEN 'METADATA_REQUIRED'
+              WHEN ls_job-status = 'FAILED' OR ls_job-status = 'RUNNING'
+              THEN 'REPOSITORY_UNVERIFIED' ELSE 'NOT_GENERATED' )
+            ResultJson = ls_job-result_json Message = ls_job-message ) ) TO result.
+        CATCH cx_root INTO DATA(lx_error).
+          APPEND VALUE #( %tky = <key>-%tky ) TO failed-Analysis.
+          APPEND VALUE #( %tky = <key>-%tky %msg = new_message_with_text(
+            severity = if_abap_behv_message=>severity-error
+            text = lx_error->get_text( ) ) ) TO reported-Analysis.
+      ENDTRY.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD preparefioriui.
+    LOOP AT keys ASSIGNING FIELD-SYMBOL(<key>).
+      TRY.
+          DATA(ls_config) = NEW zcl_mig_ui_service( )->prepare(
+            iv_analysis_id = <key>-AnalysisId
+            iv_package = CONV #( <key>-%param-TargetPackage )
+            iv_service_root_url = <key>-%param-ServiceRootUrl ).
+          APPEND VALUE #( %tky = <key>-%tky %param = VALUE #(
+            AnalysisId = <key>-AnalysisId Status = ls_config-status
+            RuntimeCheck = ls_config-runtime_check IssueCount = lines( ls_config-issues )
+            ConfigJson = zcl_mig_ui_service=>to_json( ls_config ) ) ) TO result.
+        CATCH cx_root INTO DATA(lx_ui).
+          APPEND VALUE #( %tky = <key>-%tky ) TO failed-Analysis.
+          APPEND VALUE #( %tky = <key>-%tky %msg = new_message_with_text(
+            severity = if_abap_behv_message=>severity-error text = lx_ui->get_text( ) ) ) TO reported-Analysis.
+      ENDTRY.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD capturelegacyrows.
+    LOOP AT keys ASSIGNING FIELD-SYMBOL(<key>).
+      TRY.
+          DATA(ls_job) = zcl_mig_legacy_capture_api=>enqueue(
+            iv_analysis_id    = <key>-AnalysisId
+            iv_request_id     = <key>-%param-RequestId
+            iv_selection_json = <key>-%param-SelectionJson ).
+          APPEND VALUE #( %tky = <key>-%tky %param = VALUE #(
+            AnalysisId = ls_job-analysis_id
+            RequestId  = ls_job-request_id
+            Status     = ls_job-status
+            CountRow   = ls_job-row_count
+            RowsJson   = ls_job-rows_json
+            Message    = ls_job-message ) ) TO result.
+        CATCH zcx_mig_legacy_capture INTO DATA(lx_known).
+          APPEND VALUE #( %tky = <key>-%tky ) TO failed-Analysis.
+          APPEND VALUE #( %tky = <key>-%tky %msg = new_message_with_text(
+            severity = if_abap_behv_message=>severity-error
+            text     = lx_known->message ) ) TO reported-Analysis.
+        CATCH cx_root INTO DATA(lx_capture).
+          APPEND VALUE #( %tky = <key>-%tky ) TO failed-Analysis.
+          APPEND VALUE #( %tky = <key>-%tky %msg = new_message_with_text(
+            severity = if_abap_behv_message=>severity-error
+            text     = lx_capture->get_text( ) ) ) TO reported-Analysis.
+      ENDTRY.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD getlegacycapture.
+    LOOP AT keys ASSIGNING FIELD-SYMBOL(<key>).
+      TRY.
+          DATA(ls_job) = zcl_mig_legacy_capture_api=>get_status(
+            iv_analysis_id = <key>-AnalysisId
+            iv_request_id  = <key>-%param-RequestId ).
+          APPEND VALUE #( %tky = <key>-%tky %param = VALUE #(
+            AnalysisId = ls_job-analysis_id
+            RequestId  = ls_job-request_id
+            Status     = ls_job-status
+            CountRow   = ls_job-row_count
+            RowsJson   = ls_job-rows_json
+            Message    = ls_job-message ) ) TO result.
+        CATCH cx_root INTO DATA(lx_capture).
+          APPEND VALUE #( %tky = <key>-%tky ) TO failed-Analysis.
+          APPEND VALUE #( %tky = <key>-%tky %msg = new_message_with_text(
+            severity = if_abap_behv_message=>severity-error
+            text = lx_capture->get_text( ) ) ) TO reported-Analysis.
+      ENDTRY.
+    ENDLOOP.
+  ENDMETHOD.
+
 
   METHOD generatetechnicaldocument.
 
@@ -3771,6 +3938,10 @@ CLASS lsc_ZI_MIG_ANALYSIS IMPLEMENTATION.
 
   METHOD save.
 
+  zcl_mig_gen_api=>save_buffer( ).
+
+  zcl_mig_legacy_capture_api=>save_buffer( ).
+
   DATA(lt_results) =
     lcl_mig_analysis_buffer=>get_all( ).
 
@@ -3854,6 +4025,10 @@ ENDMETHOD.
 
   METHOD cleanup.
 
+  zcl_mig_gen_api=>clear_buffer( ).
+
+  zcl_mig_legacy_capture_api=>clear_buffer( ).
+
   lcl_mig_analysis_buffer=>clear( ).
 
   lcl_mig_analysis_delete_buffer=>clear( ).
@@ -3862,6 +4037,10 @@ ENDMETHOD.
 
 
   METHOD cleanup_finalize.
+
+  zcl_mig_gen_api=>clear_buffer( ).
+
+  zcl_mig_legacy_capture_api=>clear_buffer( ).
 
   lcl_mig_analysis_buffer=>clear( ).
 
