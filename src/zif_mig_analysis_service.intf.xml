@@ -5,7 +5,7 @@
    <VSEOINTERF>
     <CLSNAME>ZIF_MIG_ANALYSIS_SERVICE</CLSNAME>
     <LANGU>E</LANGU>
-    <DESCRIPT>Global analysis service</DESCRIPT>
+    <DESCRIPT>Analysis Application Service / Orchestrator</DESCRIPT>
     <EXPOSURE>2</EXPOSURE>
     <STATE>1</STATE>
     <UNICODE>X</UNICODE>

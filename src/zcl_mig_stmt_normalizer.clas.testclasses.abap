@@ -1,0 +1,703 @@
+CLASS ltc_stmt_normalizer DEFINITION
+  FINAL
+  FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+
+  PRIVATE SECTION.
+
+    DATA:
+      mo_source_repo TYPE REF TO zif_mig_source_repo,
+      mo_scanner     TYPE REF TO zif_mig_abap_scanner,
+      mo_cut         TYPE REF TO zif_mig_stmt_normalizer.
+
+    METHODS:
+      setup,
+
+      get_result
+        RETURNING
+          VALUE(rs_result)
+            TYPE zif_mig_types=>ty_scan_result
+        RAISING
+          zcx_mig_analysis,
+
+      rebuild_statement_text
+        FOR TESTING
+        RAISING zcx_mig_analysis,
+
+      normalize_chained_parameters
+        FOR TESTING
+        RAISING zcx_mig_analysis,
+
+      assign_form_context
+        FOR TESTING
+        RAISING zcx_mig_analysis,
+
+      assign_nested_block_context
+        FOR TESTING
+        RAISING zcx_mig_analysis,
+
+      clear_form_context
+        FOR TESTING
+        RAISING zcx_mig_analysis,
+      avoid_duplicate_chain_prefix
+          FOR TESTING
+          RAISING zcx_mig_analysis.
+
+ENDCLASS.
+
+CLASS ltc_stmt_normalizer IMPLEMENTATION.
+
+  METHOD setup.
+
+    mo_source_repo =
+      NEW zcl_mig_source_repo( ).
+
+    mo_scanner =
+      NEW zcl_mig_abap_scanner( ).
+
+    mo_cut =
+      NEW zcl_mig_stmt_normalizer( ).
+
+  ENDMETHOD.
+
+
+  METHOD get_result.
+
+    DATA(lt_source) =
+      mo_source_repo->read_program(
+        iv_program_name = 'ZRMIG_SAMPLE_CONTEXT'
+      ).
+
+    DATA(ls_scan_result) =
+      mo_scanner->scan(
+        iv_source_object = 'ZRMIG_SAMPLE_CONTEXT'
+        it_source        = lt_source
+      ).
+
+    rs_result =
+      mo_cut->normalize(
+        is_scan_result = ls_scan_result
+      ).
+
+  ENDMETHOD.
+
+
+  METHOD rebuild_statement_text.
+
+    DATA(ls_result) = get_result( ).
+
+    READ TABLE ls_result-statements
+      WITH KEY statement_type = 'REPORT'
+      INTO DATA(ls_report).
+
+    cl_abap_unit_assert=>assert_subrc(
+      exp = 0
+      msg = 'Không tìm thấy REPORT statement'
+    ).
+
+    cl_abap_unit_assert=>assert_not_initial(
+      act = ls_report-statement_text
+      msg = 'REPORT statement chưa được dựng text'
+    ).
+
+    cl_abap_unit_assert=>assert_char_cp(
+      act = to_upper( ls_report-statement_text )
+      exp = '*ZRMIG_SAMPLE_CONTEXT*'
+      msg = 'REPORT statement không chứa program name'
+    ).
+
+  ENDMETHOD.
+
+
+  METHOD normalize_chained_parameters.
+
+  DATA(ls_result) = get_result( ).
+
+  DATA:
+    lv_parameter_count TYPE i,
+    lv_p_one_text      TYPE string,
+    lv_p_two_text      TYPE string.
+
+  LOOP AT ls_result-statements
+    ASSIGNING FIELD-SYMBOL(<statement>)
+    WHERE statement_type = 'PARAMETERS'.
+
+    lv_parameter_count += 1.
+
+    DATA(lv_statement_text) =
+      to_upper( <statement>-statement_text ).
+
+    IF lv_statement_text CS 'P_ONE'.
+      lv_p_one_text = lv_statement_text.
+    ENDIF.
+
+    IF lv_statement_text CS 'P_TWO'.
+      lv_p_two_text = lv_statement_text.
+    ENDIF.
+
+  ENDLOOP.
+
+  cl_abap_unit_assert=>assert_equals(
+    exp = 2
+    act = lv_parameter_count
+    msg = 'Chained PARAMETERS phải tạo hai logical statements'
+  ).
+
+  cl_abap_unit_assert=>assert_not_initial(
+    act = lv_p_one_text
+    msg = 'Không dựng được statement riêng cho P_ONE'
+  ).
+
+  cl_abap_unit_assert=>assert_not_initial(
+    act = lv_p_two_text
+    msg = 'Không dựng được statement riêng cho P_TWO'
+  ).
+
+  cl_abap_unit_assert=>assert_false(
+    act = xsdbool(
+      lv_p_one_text CS 'P_TWO'
+    )
+    msg = |Statement P_ONE chứa cả P_TWO: { lv_p_one_text }|
+  ).
+
+  cl_abap_unit_assert=>assert_false(
+    act = xsdbool(
+      lv_p_two_text CS 'P_ONE'
+    )
+    msg = |Statement P_TWO chứa cả P_ONE: { lv_p_two_text }|
+  ).
+
+ENDMETHOD.
+
+
+  METHOD assign_form_context.
+
+    DATA(ls_result) = get_result( ).
+
+    DATA:
+      lv_found   TYPE abap_bool,
+      ls_target  TYPE zif_mig_types=>ty_statement.
+
+    LOOP AT ls_result-statements
+      INTO DATA(ls_statement)
+      WHERE statement_type = 'WRITE'.
+
+      IF to_upper( ls_statement-statement_text )
+           CS 'LV_TEXT'.
+
+        ls_target = ls_statement.
+        lv_found  = abap_true.
+        EXIT.
+
+      ENDIF.
+
+    ENDLOOP.
+
+    cl_abap_unit_assert=>assert_true(
+      act = lv_found
+      msg = 'Không tìm thấy WRITE trong FORM'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'READ_DATA'
+      act = ls_target-parent_routine
+      msg = 'WRITE không được gắn vào FORM READ_DATA'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'FORM'
+      act = ls_target-routine_type
+      msg = 'Routine type phải là FORM'
+    ).
+
+  ENDMETHOD.
+
+
+  METHOD assign_nested_block_context.
+
+    DATA(ls_result) = get_result( ).
+
+    DATA:
+      lv_found  TYPE abap_bool,
+      ls_target TYPE zif_mig_types=>ty_statement.
+
+    LOOP AT ls_result-statements
+      INTO DATA(ls_statement)
+      WHERE statement_type = 'WRITE'.
+
+      IF to_upper( ls_statement-statement_text )
+           CS 'LV_TEXT'.
+
+        ls_target = ls_statement.
+        lv_found  = abap_true.
+        EXIT.
+
+      ENDIF.
+
+    ENDLOOP.
+
+    cl_abap_unit_assert=>assert_true(
+      act = lv_found
+      msg = 'Không tìm thấy WRITE trong nested block'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'LOOP'
+      act = ls_target-parent_block
+      msg = 'Block gần nhất của WRITE phải là LOOP'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 2
+      act = ls_target-block_depth
+      msg = 'WRITE phải nằm trong IF và LOOP'
+    ).
+
+  ENDMETHOD.
+
+
+  METHOD clear_form_context.
+
+    DATA(ls_result) = get_result( ).
+
+    READ TABLE ls_result-statements
+      WITH KEY statement_type = 'PERFORM'
+      INTO DATA(ls_perform).
+
+    cl_abap_unit_assert=>assert_subrc(
+      exp = 0
+      msg = 'Không tìm thấy PERFORM statement'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'START-OF-SELECTION'
+      act = ls_perform-parent_routine
+      msg = 'Context FORM chưa được clear sau ENDFORM'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'EVENT'
+      act = ls_perform-routine_type
+      msg = 'PERFORM phải thuộc START-OF-SELECTION event'
+    ).
+
+  ENDMETHOD.
+
+  METHOD avoid_duplicate_chain_prefix.
+
+  DATA(ls_result) = get_result( ).
+
+  LOOP AT ls_result-statements
+    ASSIGNING FIELD-SYMBOL(<statement>)
+    WHERE statement_type = 'PARAMETERS'.
+
+    DATA(lv_text) =
+      to_upper( <statement>-statement_text ).
+
+    cl_abap_unit_assert=>assert_false(
+      act = xsdbool(
+        lv_text CS 'PARAMETERS PARAMETERS'
+      )
+      msg = |Prefix PARAMETERS bị lặp: {
+        <statement>-statement_text }|
+    ).
+
+  ENDLOOP.
+
+ENDMETHOD.
+
+ENDCLASS.
+
+CLASS ltc_cp2_event_context DEFINITION
+  FINAL
+  FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+
+  PRIVATE SECTION.
+
+    METHODS event_contexts
+      FOR TESTING
+      RAISING zcx_mig_analysis.
+
+ENDCLASS.
+
+
+CLASS ltc_cp2_event_context IMPLEMENTATION.
+
+  METHOD event_contexts.
+
+    CONSTANTS gc_program TYPE progname
+      VALUE 'ZRMIG_UT_EVENT_CTX'.
+
+    DATA lt_source
+      TYPE zif_mig_types=>tt_source_line.
+
+    lt_source = VALUE #(
+
+      (
+        source_object = gc_program
+        line_number   = 1
+        source_text   = `REPORT zrmig_ut_event_ctx.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 2
+        source_text   = `PARAMETERS p_test TYPE c.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 3
+        source_text   = `INITIALIZATION.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 4
+        source_text   = `WRITE 'INIT'.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 5
+        source_text   = `AT SELECTION-SCREEN.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 6
+        source_text   = `PERFORM validate_input.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 7
+        source_text   = `START-OF-SELECTION.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 8
+        source_text   = `PERFORM load_data.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 9
+        source_text   = `END-OF-SELECTION.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 10
+        source_text   = `PERFORM display_data.`
+      )
+
+    ).
+
+
+    DATA(lo_scanner) =
+      NEW zcl_mig_abap_scanner( ).
+
+    DATA(ls_scan) =
+      lo_scanner->zif_mig_abap_scanner~scan(
+        iv_source_object = gc_program
+        it_source        = lt_source
+      ).
+
+
+    DATA(lo_normalizer) =
+      NEW zcl_mig_stmt_normalizer( ).
+
+    DATA(ls_result) =
+      lo_normalizer->zif_mig_stmt_normalizer~normalize(
+        is_scan_result = ls_scan
+      ).
+
+
+    "==========================================================
+    " INITIALIZATION
+    "==========================================================
+    READ TABLE ls_result-statements
+      WITH KEY statement_type = 'WRITE'
+      INTO DATA(ls_init).
+
+    cl_abap_unit_assert=>assert_subrc(
+      exp = 0
+      msg = 'Không tìm thấy WRITE trong INITIALIZATION'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'INITIALIZATION'
+      act = ls_init-parent_routine
+      msg = 'INITIALIZATION context không đúng'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'EVENT'
+      act = ls_init-routine_type
+    ).
+
+
+    "==========================================================
+    " Locate PERFORM statements
+    "==========================================================
+    DATA:
+      ls_validate TYPE zif_mig_types=>ty_statement,
+      ls_load     TYPE zif_mig_types=>ty_statement,
+      ls_display  TYPE zif_mig_types=>ty_statement.
+
+
+    LOOP AT ls_result-statements
+      INTO DATA(ls_statement)
+      WHERE statement_type = 'PERFORM'.
+
+      DATA(lv_text) =
+        to_upper(
+          ls_statement-statement_text
+        ).
+
+      IF lv_text CS 'VALIDATE_INPUT'.
+
+        ls_validate =
+          ls_statement.
+
+      ELSEIF lv_text CS 'LOAD_DATA'.
+
+        ls_load =
+          ls_statement.
+
+      ELSEIF lv_text CS 'DISPLAY_DATA'.
+
+        ls_display =
+          ls_statement.
+
+      ENDIF.
+
+    ENDLOOP.
+
+
+    "==========================================================
+    " AT SELECTION-SCREEN
+    "==========================================================
+    cl_abap_unit_assert=>assert_not_initial(
+      act = ls_validate-statement_id
+      msg = 'Không tìm thấy PERFORM VALIDATE_INPUT'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'AT SELECTION-SCREEN'
+      act = ls_validate-parent_routine
+      msg = 'VALIDATE_INPUT sai event context'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'EVENT'
+      act = ls_validate-routine_type
+    ).
+
+
+    "==========================================================
+    " START-OF-SELECTION
+    "==========================================================
+    cl_abap_unit_assert=>assert_not_initial(
+      act = ls_load-statement_id
+      msg = 'Không tìm thấy PERFORM LOAD_DATA'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'START-OF-SELECTION'
+      act = ls_load-parent_routine
+      msg = 'LOAD_DATA sai event context'
+    ).
+
+
+    "==========================================================
+    " END-OF-SELECTION
+    "
+    " Đồng thời chứng minh START context không leak sang END.
+    "==========================================================
+    cl_abap_unit_assert=>assert_not_initial(
+      act = ls_display-statement_id
+      msg = 'Không tìm thấy PERFORM DISPLAY_DATA'
+    ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'END-OF-SELECTION'
+      act = ls_display-parent_routine
+      msg = 'DISPLAY_DATA sai event context'
+    ).
+
+    cl_abap_unit_assert=>assert_differs(
+      exp = ls_load-parent_routine
+      act = ls_display-parent_routine
+      msg = 'Event context bị leak'
+    ).
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS ltc_execution_context DEFINITION
+  FINAL
+  FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+
+  PRIVATE SECTION.
+
+    METHODS preserves_if_context
+      FOR TESTING
+      RAISING zcx_mig_analysis.
+
+ENDCLASS.
+
+
+CLASS ltc_execution_context IMPLEMENTATION.
+
+  METHOD preserves_if_context.
+
+    CONSTANTS gc_program TYPE progname
+      VALUE 'ZRMIG_UT_EXEC_CTX'.
+
+
+    DATA lt_source
+      TYPE zif_mig_types=>tt_source_line.
+
+
+    lt_source = VALUE #(
+
+      (
+        source_object = gc_program
+        line_number   = 1
+        source_text   = `REPORT zrmig_ut_exec_ctx.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 2
+        source_text   = `PARAMETERS p_commit AS CHECKBOX.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 3
+        source_text   = `START-OF-SELECTION.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 4
+        source_text   = `IF p_commit = abap_true.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 5
+        source_text   =
+          `CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'.`
+      )
+
+      (
+        source_object = gc_program
+        line_number   = 6
+        source_text   = `ENDIF.`
+      )
+
+    ).
+
+
+    DATA(lo_scanner) =
+      NEW zcl_mig_abap_scanner( ).
+
+
+    DATA(ls_scan) =
+      lo_scanner->zif_mig_abap_scanner~scan(
+        iv_source_object = gc_program
+        it_source        = lt_source
+      ).
+
+
+    DATA(lo_normalizer) =
+      NEW zcl_mig_stmt_normalizer( ).
+
+
+    DATA(ls_normalized) =
+      lo_normalizer->zif_mig_stmt_normalizer~normalize(
+        is_scan_result = ls_scan
+      ).
+
+
+    DATA lv_found
+      TYPE abap_bool.
+
+
+    CLEAR lv_found.
+
+
+    LOOP AT ls_normalized-statements
+      INTO DATA(ls_statement).
+
+      DATA(lv_statement_text) =
+        to_upper(
+          ls_statement-statement_text
+        ).
+
+
+      IF ls_statement-statement_type <> 'CALL'
+         OR lv_statement_text
+              NS 'BAPI_TRANSACTION_COMMIT'.
+
+        CONTINUE.
+
+      ENDIF.
+
+
+      lv_found =
+        abap_true.
+
+
+      cl_abap_unit_assert=>assert_equals(
+        exp = 'IF'
+        act = ls_statement-parent_block
+        msg = 'CALL phải nằm trong IF block'
+      ).
+
+
+      cl_abap_unit_assert=>assert_equals(
+        exp = 'CONDITIONAL'
+        act = ls_statement-execution_kind
+        msg = 'CALL trong IF phải là CONDITIONAL'
+      ).
+
+
+      DATA(lv_execution_context) =
+        to_upper(
+          ls_statement-execution_context
+        ).
+
+
+      cl_abap_unit_assert=>assert_char_cp(
+        act = lv_execution_context
+        exp = '*IF*P_COMMIT*=*ABAP_TRUE*'
+        msg =
+          'Execution context phải giữ IF condition'
+      ).
+
+
+      EXIT.
+
+    ENDLOOP.
+
+
+    cl_abap_unit_assert=>assert_true(
+      act = lv_found
+      msg = 'Không tìm thấy BAPI_TRANSACTION_COMMIT'
+    ).
+
+  ENDMETHOD.
+
+ENDCLASS.

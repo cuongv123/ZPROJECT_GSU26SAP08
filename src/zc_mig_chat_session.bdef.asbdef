@@ -1,0 +1,17 @@
+projection;
+strict ( 2 );
+
+define behavior for ZC_MIG_CHAT_SESSION alias ChatSession
+use etag
+{
+  use create;
+  use update;
+  use delete;
+  use action ask;
+  use association _Messages;
+}
+
+define behavior for ZC_MIG_CHAT_MSG alias ChatMsg
+{
+  use association _Session;
+}

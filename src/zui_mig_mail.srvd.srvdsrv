@@ -1,0 +1,6 @@
+@EndUserText.label: 'Migration Mail Distribution Service'
+define service ZUI_MIG_MAIL {
+  expose ZC_MIG_MAIL_JOB as MailJobs;
+  expose ZC_MIG_MAIL_RECIP as Recipients;
+  expose ZC_MIG_MAIL_LOG as ExecutionLogs;
+}

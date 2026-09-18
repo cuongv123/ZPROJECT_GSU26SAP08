@@ -1,20 +1,23 @@
 INTERFACE zif_mig_analysis_service
   PUBLIC.
 
-  TYPES:
-    BEGIN OF ty_analysis_result,
-      overview       TYPE zcl_parser_types=>ty_overview,
-      ui_filters     TYPE zcl_parser_types=>tt_ui_filter,
-      db_tables      TYPE zcl_parser_types=>tt_db_table,
-      business_logic TYPE zcl_parser_types=>tt_business_logic,
-      object_map     TYPE zcl_parser_types=>tt_object_map,
-    END OF ty_analysis_result.
-
-  METHODS analyze
+  METHODS analyze_program
     IMPORTING
-      iv_program TYPE program
+      iv_program_name TYPE zif_mig_types=>ty_program_name
+      iv_analysis_id  TYPE zif_mig_types=>ty_analysis_id OPTIONAL
     RETURNING
-      VALUE(rs_result) TYPE ty_analysis_result
+      VALUE(rs_result)
+        TYPE zif_mig_types=>ty_analysis_result
+    RAISING
+      zcx_mig_analysis.
+
+  METHODS analyze_and_save
+    IMPORTING
+      iv_program_name TYPE zif_mig_types=>ty_program_name
+      iv_analysis_id  TYPE zif_mig_types=>ty_analysis_id OPTIONAL
+    RETURNING
+      VALUE(rs_result)
+        TYPE zif_mig_types=>ty_analysis_result
     RAISING
       zcx_mig_analysis.
 

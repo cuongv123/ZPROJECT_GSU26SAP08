@@ -1,0 +1,125 @@
+projection;
+strict ( 2 );
+
+define behavior for ZC_MIG_ANALYSIS //alias <alias_name>
+{
+
+  use action Analyze;
+  use delete;
+  use action PrepareSelectedExport;   // === MỚI ===
+  use action GenerateTechnicalDocument;
+  use action PrepareFioriUi;
+  use action PreflightOData;
+  use action GenerateOData;
+  use action GetODataGeneration;
+  use action GenerateAIAssessment;
+  use action CaptureLegacyRows;
+  use action GetLegacyCapture;
+  use association _SourceObjects;
+  use association _UiFilters;
+  use association _DatabaseObjects;
+  use association _BusinessLogic;
+  use association _AlvOutputs;
+  use association _Evidences;
+  use association _Recommendations;
+  use association _Messages;
+}
+
+define behavior for ZC_MIG_ANL_ALV //alias <alias_name>
+{
+
+  use association _Analysis;
+  use association _Columns;
+  use association _Sorts;
+  use association _Filters;
+  use association _Events;
+}
+
+define behavior for ZC_MIG_ANL_COL //alias <alias_name>
+{
+
+  use association _AlvOutput;
+  use association _Analysis;
+}
+
+define behavior for ZC_MIG_ANL_EVT //alias <alias_name>
+{
+
+  use association _AlvOutput;
+  use association _Analysis;
+}
+
+define behavior for ZC_MIG_ANL_FLT //alias <alias_name>
+{
+
+  use association _AlvOutput;
+  use association _Analysis;
+}
+
+define behavior for ZC_MIG_ANL_SRT //alias <alias_name>
+{
+
+  use association _AlvOutput;
+  use association _Analysis;
+}
+
+define behavior for ZC_MIG_ANL_DB //alias <alias_name>
+{
+
+  use association _Analysis;
+}
+
+define behavior for ZC_MIG_ANL_EVD //alias <alias_name>
+{
+
+  use association _Analysis;
+}
+
+define behavior for ZC_MIG_ANL_LOGIC
+{
+  use association _Analysis;
+  use association _CallBindings;
+}
+
+define behavior for ZC_MIG_ANL_BIND
+{
+  use association _BusinessLogic;
+  use association _Analysis;
+}
+
+define behavior for ZC_MIG_ANL_MSG //alias <alias_name>
+{
+
+  use association _Analysis;
+}
+
+define behavior for ZC_MIG_ANL_REC //alias <alias_name>
+{
+
+  use association _Analysis;
+  use association _Annotations;
+}
+
+define behavior for ZC_MIG_ANL_ANN //alias <alias_name>
+{
+
+  use association _Recommendation;
+  use association _Analysis;
+}
+
+define behavior for ZC_MIG_ANL_UI
+{
+  use association _Analysis;
+}
+
+define behavior for ZC_MIG_ANL_SRC
+{
+  use association _SourceLines;
+  use association _Analysis;
+}
+
+define behavior for ZC_MIG_ANL_CODE
+{
+  use association _SourceObject;
+  use association _Analysis;
+}

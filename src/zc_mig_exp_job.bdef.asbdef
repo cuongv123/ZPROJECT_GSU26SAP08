@@ -1,0 +1,7 @@
+projection;
+strict ( 2 );
+
+define behavior for ZC_MIG_EXP_JOB alias ExportJob
+{
+  // Không có association - entity độc lập, chỉ expose read.
+}

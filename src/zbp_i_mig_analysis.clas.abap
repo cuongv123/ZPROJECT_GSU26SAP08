@@ -1,0 +1,5 @@
+CLASS zbp_i_mig_analysis DEFINITION PUBLIC ABSTRACT FINAL FOR BEHAVIOR OF zi_mig_analysis.
+ENDCLASS.
+
+CLASS zbp_i_mig_analysis IMPLEMENTATION.
+ENDCLASS.

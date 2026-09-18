@@ -5,7 +5,7 @@
    <VSEOCLASS>
     <CLSNAME>ZCX_MIG_ANALYSIS</CLSNAME>
     <LANGU>E</LANGU>
-    <DESCRIPT>exception for analysis</DESCRIPT>
+    <DESCRIPT>global exception class</DESCRIPT>
     <CATEGORY>40</CATEGORY>
     <STATE>1</STATE>
     <CLSCCINCL>X</CLSCCINCL>

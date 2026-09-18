@@ -1,0 +1,2 @@
+{"version":3,"file":"MessagingCompat.js","names":["sap","ui","define","Core","Object","freeze","getMessageModel","oManager","getMessageManager"],"sources":["MessagingCompat-dbg.js"],"mappings":"AAAAA,IAAIC,GAAGC,OAAO,CAAC,oBAAqB,SAAUC,GAC5C,aAEA,OAAOC,OA+
+AOC,OAAO,CACnBC,gBAAiB,WACf,IAAIC,EAAWJ,UAAeA,EAAKK,oBAAsB,WACvDL,EAAKK,oBAAsB,KAC7B,OAAOD,UAAmBA,EAASD,kBAAoB,WACrDC,EAASD,kBAAoB,IACjC,GAEJ","ignoreList":[]}                                                                                                
