@@ -13,6 +13,8 @@ define behavior for ZC_MIG_ANALYSIS //alias <alias_name>
   use action GenerateOData;
   use action GetODataGeneration;
   use action GenerateAIAssessment;
+  use action CaptureLegacyRows;
+  use action GetLegacyCapture;
   use association _SourceObjects;
   use association _UiFilters;
   use association _DatabaseObjects;

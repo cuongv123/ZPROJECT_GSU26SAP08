@@ -182,25 +182,31 @@ CLASS zcl_mig_tech_doc_builder IMPLEMENTATION.
 
 
     append_item(
-      EXPORTING
-        iv_section =
-          zif_mig_tech_doc_builder=>gc_sec_summary
+  EXPORTING
+    iv_section =
+      zif_mig_tech_doc_builder=>gc_sec_summary
 
-        iv_kind =
-          zif_mig_tech_doc_builder=>gc_kind_text
+    iv_kind =
+      zif_mig_tech_doc_builder=>gc_kind_text
 
-        iv_label =
-          'Purpose'
+    iv_label =
+      'Purpose'
 
-        iv_value =
-          |Static analysis of legacy ABAP report {
-             is_result-overview-program_name
-           } for modernization assessment.|
+    iv_value =
+      |The legacy report {
+         is_result-overview-program_name
+       } accepts {
+         lines( is_result-ui_filters )
+       } selection field(s), invokes {
+         lines( is_result-business_logic )
+       } detected processing dependency/dependencies, and produces {
+         lines( is_result-alv_outputs )
+       } ALV output(s).|
 
-      CHANGING
-        cv_sequence = lv_sequence
-        ct_items    = rs_document-items
-    ).
+  CHANGING
+    cv_sequence = lv_sequence
+    ct_items    = rs_document-items
+).
 
         "==========================================================
     " 02. APPLICATION INVENTORY
@@ -1124,6 +1130,98 @@ CLASS zcl_mig_tech_doc_builder IMPLEMENTATION.
         cv_sequence = lv_sequence
         ct_items    = rs_document-items
     ).
+
+"============================================================
+" Add unresolved custom dependencies to manual review
+"============================================================
+IF is_result-database_objects IS INITIAL.
+
+  LOOP AT is_result-business_logic
+    ASSIGNING FIELD-SYMBOL(<unresolved_logic>).
+
+    IF <unresolved_logic>-object_type <> 'FUNCTION_MODULE'
+       AND <unresolved_logic>-object_type <> 'BAPI'
+       AND <unresolved_logic>-object_type <> 'DYNAMIC_FUNCTION_MODULE'.
+
+      CONTINUE.
+
+    ENDIF.
+
+    IF <unresolved_logic>-object_name NP 'Z*'
+       AND <unresolved_logic>-object_name NP 'Y*'.
+
+      CONTINUE.
+
+    ENDIF.
+
+    DATA:
+      lv_unresolved_source TYPE progname,
+      lv_unresolved_line   TYPE i.
+
+    CLEAR:
+      lv_unresolved_source,
+      lv_unresolved_line.
+
+    get_evidence_location(
+      EXPORTING
+        iv_evidence_id =
+          <unresolved_logic>-evidence_id
+
+        it_evidences =
+          is_result-evidences
+
+      IMPORTING
+        ev_source_object =
+          lv_unresolved_source
+
+        ev_source_line =
+          lv_unresolved_line
+    ).
+
+    append_item(
+      EXPORTING
+        iv_section =
+          zif_mig_tech_doc_builder=>gc_sec_review
+
+        iv_kind =
+          zif_mig_tech_doc_builder=>gc_kind_warning
+
+        iv_label =
+          'Unresolved Custom Dependency'
+
+        iv_value =
+          |The call to {
+             <unresolved_logic>-object_name
+           } was detected, but its implementation was not included in this analysis snapshot.|
+
+        iv_detail =
+          'Database access, side effects, and internal processing inside this dependency could not be verified.'
+
+        iv_evidence_id =
+          <unresolved_logic>-evidence_id
+
+        iv_source_object =
+          lv_unresolved_source
+
+        iv_source_line =
+          lv_unresolved_line
+
+        iv_confidence =
+          <unresolved_logic>-confidence
+
+        iv_manual_review =
+          abap_true
+
+      CHANGING
+        cv_sequence = lv_sequence
+        ct_items    = rs_document-items
+    ).
+
+  ENDLOOP.
+
+ENDIF.
+
+
 
         "==========================================================
     " 12. EVIDENCE APPENDIX

@@ -441,18 +441,43 @@ CLASS zcl_mig_md_renderer IMPLEMENTATION.
     ENDLOOP.
 
 
-    IF lv_found = abap_false.
+   IF lv_found = abap_false.
 
-      append_line(
-        EXPORTING
-          iv_line =
-            '_No findings detected._'
+  IF iv_section_id =
+       zif_mig_tech_doc_builder=>gc_sec_database.
 
-        CHANGING
-          cv_markdown = cv_markdown
-      ).
+    append_line(
+      EXPORTING
+        iv_line =
+          '_No direct database access was detected in the analyzed source._'
 
-    ENDIF.
+      CHANGING
+        cv_markdown = cv_markdown
+    ).
+
+    append_line(
+      EXPORTING
+        iv_line =
+          '_Database operations may exist inside called function modules or other unresolved dependencies._'
+
+      CHANGING
+        cv_markdown = cv_markdown
+    ).
+
+  ELSE.
+
+    append_line(
+      EXPORTING
+        iv_line =
+          '_No findings detected._'
+
+      CHANGING
+        cv_markdown = cv_markdown
+    ).
+
+  ENDIF.
+
+ENDIF.
 
   ENDMETHOD.
 

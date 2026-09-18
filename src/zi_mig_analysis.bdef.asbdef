@@ -22,6 +22,14 @@ authorization master ( global )
     parameter ZA_MIG_UI_PREPARE_PARAM
     result [1] ZA_MIG_UI_PREPARE_RESULT;
 
+  action CaptureLegacyRows
+    parameter ZA_MIG_LEGACY_PARAM
+    result [1] ZA_MIG_LEGACY_RESULT;
+
+  action GetLegacyCapture
+    parameter ZA_MIG_LEGACY_STATUS_PARAM
+    result [1] ZA_MIG_LEGACY_RESULT;
+
   action PreflightOData
     parameter ZA_MIG_GEN_PARAM
     result [1] ZA_MIG_GEN_RESULT;

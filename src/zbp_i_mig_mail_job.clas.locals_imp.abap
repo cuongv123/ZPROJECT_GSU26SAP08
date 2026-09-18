@@ -998,6 +998,24 @@ METHOD sendNow.
       lv_log_message,
       lv_message_variable.
 
+ " Check that the current user owns this mail job.
+  IF ls_job-CreatedBy <> sy-uname.
+
+    APPEND VALUE #(
+      %tky = ls_job-%tky
+    ) TO failed-MailJob.
+
+    APPEND VALUE #(
+      %tky = ls_job-%tky
+      %msg = new_message_with_text(
+        severity = if_abap_behv_message=>severity-error
+        text     = 'You are not authorized to send this mail job.' )
+    ) TO reported-MailJob.
+
+    CONTINUE.
+
+  ENDIF.
+
 
     "----------------------------------------------------------
     " 1. Generate report file

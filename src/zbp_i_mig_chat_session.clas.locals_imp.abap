@@ -257,38 +257,46 @@ CLASS lhc_ChatSession IMPLEMENTATION.
       INSERT ls_key-SessionId
         INTO TABLE lt_seen_session_ids.
 
-      READ TABLE lt_sessions
-        WITH KEY SessionId = ls_key-SessionId
-        BINARY SEARCH
-        INTO DATA(ls_session).
+     READ TABLE lt_sessions
 
-      IF sy-subrc <> 0.
+  WITH KEY SessionId = ls_key-SessionId
 
-        lv_error = 'Chat session was not found.'.
+  BINARY SEARCH
 
-      ELSEIF lv_duplicate = abap_true.
+  INTO DATA(ls_session).
 
-        lv_error =
-          'Send only one question per session in each request.'.
+IF sy-subrc <> 0.
 
-      ELSEIF ls_session-Status =
-             zif_mig_chat_ai=>session_status-closed.
+  lv_error = 'Chat session was not found.'.
 
-        lv_error = 'This chat session is closed.'.
+ELSEIF ls_session-CreatedBy <> sy-uname.
 
-      ELSEIF ls_session-AnalysisId IS INITIAL.
+  lv_error =
+    'You are not authorized to access this chat session.'.
 
-        lv_error =
-          'This legacy session has no pinned analysis. Create a new session.'.
+ELSEIF lv_duplicate = abap_true.
 
-      ELSEIF lv_question IS INITIAL
-          OR strlen( ls_key-%param-Question )
-             > zif_mig_chat_ai=>max_question_chars.
+  lv_error =
+    'Send only one question per session in each request.'.
 
-        lv_error =
-          |Question must contain 1 to { zif_mig_chat_ai=>max_question_chars } characters.|.
+ELSEIF ls_session-Status =
+       zif_mig_chat_ai=>session_status-closed.
 
-      ENDIF.
+  lv_error = 'This chat session is closed.'.
+
+ELSEIF ls_session-AnalysisId IS INITIAL.
+
+  lv_error =
+    'This legacy session has no pinned analysis. Create a new session.'.
+
+ELSEIF lv_question IS INITIAL
+    OR strlen( ls_key-%param-Question )
+       > zif_mig_chat_ai=>max_question_chars.
+
+  lv_error =
+    |Question must contain 1 to { zif_mig_chat_ai=>max_question_chars } characters.|.
+
+ENDIF.
 
       IF lv_error IS INITIAL.
 

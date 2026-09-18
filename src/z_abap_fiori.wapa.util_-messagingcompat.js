@@ -1,0 +1,3 @@
+sap.ui.define(["sap/ui/core/Core"],function(e){"use strict";return Object.freeze({getMessageModel:function(){var t=e&&typeof e.getMessageManager==="function"?e.getMessageManager():null;return t&&typeof t.getMessageModel==="function"?t.getMessageModel():n+
+ull}})});                                                                                                                                                                                                                                                      
+//# sourceMappingURL=MessagingCompat.js.map                                                                                                                                                                                                                    

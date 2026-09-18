@@ -816,43 +816,109 @@ CLASS zcl_mig_recommend_engine IMPLEMENTATION.
                 ct_recommendations
           ).
 
+WHEN 'BAPI'
+  OR 'FUNCTION_MODULE'
+  OR 'FUNCTION_DEFINITION'.
 
-        WHEN 'BAPI'
-          OR 'FUNCTION_MODULE'
-          OR 'FUNCTION_DEFINITION'.
+  " Legacy ALV function modules are presentation dependencies.
+  IF <logic>-object_name CP 'REUSE_ALV_*'.
 
-          add_recommendation(
-            EXPORTING
-              iv_analysis_id =
-                iv_analysis_id
-              iv_source_item_id =
-                <logic>-item_id
-              iv_evidence_id =
-                <logic>-evidence_id
-              iv_rule_id =
-                'LOGIC_FM_ADAPTER'
-              iv_target_layer =
-                zif_mig_types=>gc_target_rap_action
-              iv_title =
-                'Wrap reusable function behind adapter'
-              iv_display_text =
-                |Expose { <logic>-object_name } through an application service or RAP action.|
-              iv_explanation =
-                |Keep reusable business behavior behind a typed adapter instead of invoking the function directly from the UI service layer.|
-              iv_severity =
-                zif_mig_types=>gc_sev_medium
-              iv_confidence =
-                <logic>-confidence
-              iv_manual_review =
-                abap_true
-            IMPORTING
-              ev_recommendation_id =
-                lv_recommendation_id
-            CHANGING
-              ct_recommendations =
-                ct_recommendations
-          ).
+    add_recommendation(
+      EXPORTING
+        iv_analysis_id =
+          iv_analysis_id
 
+        iv_source_item_id =
+          <logic>-item_id
+
+        iv_evidence_id =
+          <logic>-evidence_id
+
+        iv_rule_id =
+          'LOGIC_ALV_REPLACE'
+
+        iv_target_layer =
+          zif_mig_types=>gc_target_fiori
+
+        iv_title =
+          'Replace legacy ALV presentation'
+
+        iv_display_text =
+          |Replace {
+             <logic>-object_name
+           } with a Fiori Elements List Report or an OData-backed table.|
+
+        iv_explanation =
+          |Legacy ALV display logic should be replaced by Fiori UI annotations and must not be exposed as a RAP action.|
+
+        iv_severity =
+          zif_mig_types=>gc_sev_medium
+
+        iv_confidence =
+          <logic>-confidence
+
+        iv_manual_review =
+          abap_false
+
+      IMPORTING
+        ev_recommendation_id =
+          lv_recommendation_id
+
+      CHANGING
+        ct_recommendations =
+          ct_recommendations
+    ).
+
+  ELSE.
+
+    " The implementation is not proven by the visible call.
+    add_recommendation(
+      EXPORTING
+        iv_analysis_id =
+          iv_analysis_id
+
+        iv_source_item_id =
+          <logic>-item_id
+
+        iv_evidence_id =
+          <logic>-evidence_id
+
+        iv_rule_id =
+          'LOGIC_FM_REVIEW'
+
+        iv_target_layer =
+          zif_mig_types=>gc_target_manual
+
+        iv_title =
+          'Review function module for service reuse'
+
+        iv_display_text =
+          |Inspect {
+             <logic>-object_name
+           } before selecting a CDS query, application service, adapter, or RAP action.|
+
+        iv_explanation =
+          |The visible call and parameter bindings do not prove the implementation behavior or side effects of the function module.|
+
+        iv_severity =
+          zif_mig_types=>gc_sev_medium
+
+        iv_confidence =
+          <logic>-confidence
+
+        iv_manual_review =
+          abap_true
+
+      IMPORTING
+        ev_recommendation_id =
+          lv_recommendation_id
+
+      CHANGING
+        ct_recommendations =
+          ct_recommendations
+    ).
+
+  ENDIF.
 
         WHEN 'REPORT_SUBMIT'.
 

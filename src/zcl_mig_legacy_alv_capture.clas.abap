@@ -1,5 +1,4 @@
-" Read the actual ALV outtab of a previously analyzed report.
-" Create this object with ABAP language version Standard ABAP.
+
 CLASS zcl_mig_legacy_alv_capture DEFINITION
   PUBLIC
   FINAL
@@ -19,6 +18,11 @@ CLASS zcl_mig_legacy_alv_capture DEFINITION
       IMPORTING
         iv_analysis_id TYPE zif_mig_types=>ty_analysis_id
         it_selections  TYPE ty_t_selections OPTIONAL
+      RETURNING VALUE(rv_json) TYPE string
+      RAISING zcx_mig_legacy_capture.
+
+    CLASS-METHODS serialize_rows
+      IMPORTING ir_rows TYPE REF TO data
       RETURNING VALUE(rv_json) TYPE string
       RAISING zcx_mig_legacy_capture.
 ENDCLASS.
@@ -47,7 +51,7 @@ CLASS zcl_mig_legacy_alv_capture IMPLEMENTATION.
         EXPORTING iv_message = 'Analysis has no source report or ALV output.'.
     ENDIF.
 
-    " Only selection fields found during analysis may be passed to SUBMIT.
+
     LOOP AT it_selections INTO DATA(ls_selection).
       IF ls_selection-selname IS INITIAL OR
          NOT line_exists( ls_analysis-ui_filters[
@@ -96,11 +100,26 @@ CLASS zcl_mig_legacy_alv_capture IMPLEMENTATION.
     DATA(lr_rows) = capture(
       iv_analysis_id = iv_analysis_id
       it_selections  = it_selections ).
+    rv_json = serialize_rows( lr_rows ).
+  ENDMETHOD.
+
+  METHOD serialize_rows.
+    IF ir_rows IS NOT BOUND.
+      RAISE EXCEPTION TYPE zcx_mig_legacy_capture
+        EXPORTING iv_message = 'ALV capture returned no table reference.'.
+    ENDIF.
     FIELD-SYMBOLS <lt_rows> TYPE ANY TABLE.
-    ASSIGN lr_rows->* TO <lt_rows>.
+    ASSIGN ir_rows->* TO <lt_rows>.
+    IF sy-subrc <> 0.
+      RAISE EXCEPTION TYPE zcx_mig_legacy_capture
+        EXPORTING iv_message = 'ALV capture returned an unsupported table type.'.
+    ENDIF.
+
+    "A compressed JSON structure omits initial components (including blank
+    "CHAR fields and numeric zero). Preserve every field of the ALV outtab.
     rv_json = /ui2/cl_json=>serialize(
       data     = <lt_rows>
-      compress = abap_true ).
+      compress = abap_false ).
   ENDMETHOD.
 ENDCLASS.
 

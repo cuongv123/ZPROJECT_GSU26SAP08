@@ -46,3 +46,4 @@ define root view entity ZI_MIG_MAIL_JOB
       _Recipients,
       _Logs
 }
+where created_by = $session.user

@@ -31,3 +31,4 @@ define root view entity ZI_MIG_CHAT_SESSION
 
       _Messages
 }
+where created_by = $session.user
