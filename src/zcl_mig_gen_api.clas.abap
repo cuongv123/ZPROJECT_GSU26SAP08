@@ -30,7 +30,9 @@ CLASS zcl_mig_gen_api DEFINITION PUBLIC FINAL CREATE PUBLIC.
     CLASS-DATA gt_jobs TYPE tt_jobs.
 ENDCLASS.
 
+
 CLASS zcl_mig_gen_api IMPLEMENTATION.
+
   METHOD normalize.
     rs_request = is_request.
     rs_request-package = to_upper( condense( rs_request-package ) ).
@@ -51,7 +53,22 @@ CLASS zcl_mig_gen_api IMPLEMENTATION.
     ENDIF.
   ENDMETHOD.
 
+
   METHOD run.
+    "Production calls reuse a deployment before normalization/preflight.
+    "Injected generators are ABAP Unit seams and keep their old behavior.
+    IF io_generator IS NOT BOUND.
+      DATA(ls_existing) =
+        NEW zcl_mig_svc_registry( )->find_by_analysis(
+          iv_analysis_id = is_request-analysis_id ).
+
+      IF ls_existing-status = zif_mig_odata_gen_svc=>gc_status_generated
+         OR ls_existing-status = zif_mig_odata_gen_svc=>gc_status_stale.
+        rs_result = ls_existing.
+        RETURN.
+      ENDIF.
+    ENDIF.
+
     "Only report/worker may call this method with execute = X.
     DATA(ls_request) = normalize( is_request ).
     IF io_generator IS BOUND.
@@ -66,11 +83,13 @@ CLASS zcl_mig_gen_api IMPLEMENTATION.
       )->zif_mig_odata_gen_svc~generate( ls_request ).
   ENDMETHOD.
 
+
   METHOD preflight.
     DATA(ls_request) = is_request.
     ls_request-execute = abap_false.
     rs_result = run( is_request = ls_request io_generator = io_generator ).
   ENDMETHOD.
+
 
   METHOD get_status.
     "Request IDs cannot be used to read another user's results.
@@ -86,6 +105,7 @@ CLASS zcl_mig_gen_api IMPLEMENTATION.
         EXPORTING iv_detail = 'Generation request not found for this Analysis and user.'.
     ENDIF.
   ENDMETHOD.
+
 
   METHOD enqueue.
     DATA(ls_input) = is_request.
@@ -105,7 +125,7 @@ CLASS zcl_mig_gen_api IMPLEMENTATION.
         RAISE EXCEPTION TYPE zcx_mig_generation
           EXPORTING iv_detail = 'RequestId already belongs to a different request. Use a new UUID for new parameters.'.
       ENDIF.
-      RETURN. "Retry with identical RequestId returns the existing job.
+      RETURN.
     ENDIF.
     DATA(ls_check) = preflight( ls_request ).
     rs_job = VALUE #( client = sy-mandt request_id = iv_request_id
@@ -123,6 +143,7 @@ CLASS zcl_mig_gen_api IMPLEMENTATION.
     APPEND rs_job TO gt_jobs.
   ENDMETHOD.
 
+
   METHOD save_buffer.
     "Called only during RAP save. Never COMMIT or execute XCO here.
     IF gt_jobs IS NOT INITIAL.
@@ -130,8 +151,9 @@ CLASS zcl_mig_gen_api IMPLEMENTATION.
     ENDIF.
   ENDMETHOD.
 
+
   METHOD clear_buffer.
     CLEAR gt_jobs.
   ENDMETHOD.
-ENDCLASS.
 
+ENDCLASS.

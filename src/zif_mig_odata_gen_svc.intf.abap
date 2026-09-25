@@ -3,6 +3,7 @@ INTERFACE zif_mig_odata_gen_svc PUBLIC.
   CONSTANTS:
     gc_status_ready     TYPE c LENGTH 20 VALUE 'READY',
     gc_status_generated TYPE c LENGTH 20 VALUE 'GENERATED',
+    gc_status_stale     TYPE c LENGTH 20 VALUE 'STALE',
     gc_status_blocked   TYPE c LENGTH 20 VALUE 'BLOCKED'.
 
   TYPES:

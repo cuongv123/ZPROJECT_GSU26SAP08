@@ -9,7 +9,7 @@ IF lv_count = 0.
 ELSE.
   DELETE FROM zmig_exp_job WHERE expires_at < @lv_now.
   IF sy-subrc = 0.
-    WRITE: / '✅ Da xoa', lv_count, 'record het han (expires_at nho hon thoi diem hien tai).'.
+    WRITE: / ' Da xoa', lv_count, 'record het han (expires_at nho hon thoi diem hien tai).'.
   ELSE.
     WRITE: / '❌ Xoa that bai (sy-subrc =', sy-subrc, ').'.
   ENDIF.
